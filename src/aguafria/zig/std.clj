@@ -4,7 +4,8 @@
   Each Zig std namespace has a generated classpath entry point that installs
   its Vars from the catalog. Direct requires need no bootstrap namespace.
   `aguafria.std` additionally supports eager installation of the whole catalog."
-  (:require [clojure.edn :as edn]
+  (:require [aguafria.zig.compiler-work :as compiler-work]
+            [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
             [clojure.string :as str]))
@@ -12,7 +13,9 @@
 (defn- compiler-builtin-members
   []
   (let [zig ((requiring-resolve 'aguafria.zig.runtime/zig-executable))
-        {:keys [exit out err]} (shell/sh zig "build-lib" "--show-builtin")]
+        {:keys [exit out err]} (compiler-work/run-command!
+                                [zig "build-lib" "--show-builtin"]
+                                #(shell/sh zig "build-lib" "--show-builtin"))]
     (when-not (zero? exit)
       (throw (ex-info "Cannot discover Zig's compiler-provided builtin module"
                       {:command [zig "build-lib" "--show-builtin"] :stderr err :exit exit})))

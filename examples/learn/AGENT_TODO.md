@@ -2,6 +2,277 @@
 
 ## Zig 0.17.0 migration — October 3 (in progress)
 
+- October 7 native-factory step: implemented `handler-factory/expression`,
+  compiler-native `jvm_handler_factory.zig`, retained `compiler_manifest.zig`
+  data and bounded Mach-O/ELF64 reader. Native six-kind proof compiles once,
+  derives schemas/layouts in Zig, reads without loader/execution, then consumer
+  verifies addition/panic. Rejected source fails one compilation. Generator
+  4tests/18assertions + reader3/21 + native2/21 = **9tests/60assertions GREEN**.
+  Isolated cold-six2.077440s/onecompiler/57,256bytes; evidence
+  .tmp/native-handler-factory-20261007.VXp5kl/cold-six.edn. This is foundation,
+  NOT public-pipeline integration/new ten-namespace result: whole93 unchanged.
+  [ ] Connect compiler manifests to exact ordinary request/cache keys and
+      native result lifetime/ownership protocol; no separate identity for AOT.
+  [ ] Generate comptime/storage/scoped plans and representation variants inside
+      the real Zig context, preserving semantic literals and mutable views.
+  [ ] Consolidate native test contexts and support/tool generation without
+      synthesizing builtin mode or removing snapshot/owner checks.
+  [ ] Then enforce ≤1actualcompilation and rerun the fixed-ten cold/fresh gates.
+  Keep goal ACTIVE. Own56326 remains; no user/sharedcache/HTML changes.
+
+- October 7 startup-image consolidation checkpoint: **43.518 s cold**, versus
+  46.483s (2.965s/6.4%less); 99.702baseline→2.291×/56.4%less, NOT10×.
+  **104→93 actual compiler invocations**. All11 frozen startup images now enter
+  the same final bundle, pending until validation; zero-export images retained.
+  Same331/337candidates/352operations/20definitionchecks/20owners/14readers/
+  5scalarprofiles; **639** packed entries, one final build, zero standalone.
+  Named-type preparation now includes both const/mutable field readers; real
+  Point x/y consumer gap closed with compiler guard retained. Nine focused
+  tests/66assertionsGREEN, including invalid image followed by fix still failing
+  the single aggregate build/no publication. fmt/diff GREEN. Fresh5Values+
+  4bodies+20owners exacte9d720d7…2542dpack, zero newbuilds/libs/standalone; own
+  fresh56326/PID96676 repeats5Values/34hits/one load1.723s. Warm11.314s/639reuse/
+  zero packbuilds, but26queriesremain. Whole counter93compiler+28debug+24metadata;
+  profiler123launches excludes22converter version queries, same93compilations.
+  Largestchild0.617GiB; packnative3,564,976/debug7,438,031bytes/directory21,892KiB.
+  Evidence .tmp/learn-fused-images-20261007.OZWQ38 and tenfoldreport.
+  [ ] Native typed handler factory + compiler-emitted data manifest, shared
+      exact ordinary/preparation identities. Remove38query passes without host
+      type guesses (Values representations; vector/slice type contexts).
+  [ ] Consolidate52native test compile/link calls (address-of-syntax; pointer
+      arithmetic) preserving each frozen scope/mode and failed earlier snapshot.
+  [ ] Fold2tool/support builds into the pipeline (panic/encoding; tokenizer).
+  [ ] Whole cold preparation ≤1compiler invocation AND <9.971s, with unchanged
+      compiler validation/diagnostics and exact fresh-bundle consumer gates.
+  **92 extra compiler calls remain; both goals ACTIVE, not achieved.** No shared
+  cache/lesson/HTML/user-process/other-project changes. Keep latest progress only
+  in user updates; earlier checkpoints below are historical evidence.
+
+- October 7 single-handler-build checkpoint: **621/621** collected handlers
+  validate/link in one final build (previously602queued+19separate). Cold
+  **46.483 s**, 2.230s/4.6%less than48.713; **2.145×/53.4%less** than99.702,
+  NOT10×. Same331/337candidates/352ops/20definitionchecks/20nativeowners/11images/
+  14readers/5scalarprofiles. Public :bundle? removed; unsupported handlers fail
+  planning, final rejection aborts with diagnostics/no publication/no split retry.
+  WHOLE pipeline still **104 compilations +39debug +2metadata =145commands**;
+  build-lib --show-builtin is metadata, not a source compilation. Fresh5Values,
+  4bodies+20owners exact98809388…cfafpack, zero builds/newlibs/standalone; owned
+  fresh55824Values5/5/33hits/one load1.353s. Warm11.333s/621reused/zero packbuilds,
+  notcoldtarget. Largestcompilerchild0.609GiB; combinedpeakunmeasured.
+  Source planning/type preparation now retains all validation dependencies.
+  First-use loaded-binding test failure traced to discarded result's Cleaner
+  adding one release binding, not replacement; close it before snapshot and
+  retain strict equality. Corrected check1test/6assertionsGREEN; oldfailureskept.
+  New whole-pipeline :compiler-work accounting8tests32assertionsGREEN, samples
+  bounded32/totalsconcurrentexact400. Independent realcheck counts2support+pack
+  versuspack-only1, reportcorrectly :one-compilation?false. Accounting is not a
+  new speedup. Evidence .tmp/learn-single-handler-pass-20261007.reVlWP and
+  .tmp/learn-compiler-accounting-20261007.bELEXD; tenfoldreportupdated.
+  [ ] Next: compiler-native typed handler generation + emitted data manifest;
+      preserve ordinary semantic cache keys/lookup and comptime/result contexts.
+  [ ] Consolidate38queries/26testobjects/26testlinks/11images/support/tokenizer
+      without changing snapshots, state/mode or dropping diagnostics/coverage.
+  [ ] Acceptance: wholepreparation ≤1actualcompilerinvocation oncoldinputs,
+      cold<9.971s onfixed10, freshexactbundle consumers/no new handlers.
+  Both targets remain ACTIVE/unfinished. No sharedcache/lesson/HTML changes.
+
+- October 7 support/inspection checkpoint: cold **48.713 s**, 164 Zig commands
+  (168 before), 38 inspections (42 before), 78 native-test commands remain.
+  2.047× versus 99.702 s; target <9.971 s ACTIVE. Same 621 handlers, 331/337
+  candidates, 20 definition checks and 20 native owners. Proven stateless
+  transport sharing reduces module instances 1,832→1,309; bundle version 3,
+  ordinary native keys/ABI unchanged. Rejected first sharing run 54.245 s
+  did not engage sharing; corrected 50.983 s lowered memory, not elapsed time
+  versus prior 49.412 s. Combined query/root check then removes four passes.
+  Focused 20 tests / 107 assertions across three runs GREEN. Fresh Values5/5,
+  four bodies +20 native owners exact6bc023f7…865d0pack, zero builds/new libs/
+  standalone. Fresh owned55111 Values5/5, 33 hits/one load, 1.473 s. Warm11.514 s
+  reuses621, zero validation builds/28commands; no warm speedup claim. Largest
+  compiler-child RSS0.604GiB, whole-process-tree peak unmeasured. Evidence
+  .tmp/learn-support-graph-20261007.Z1FMnA and tenfold report. fmt/diff GREEN.
+  Next: reduce native-test frontends and dependent compiler queries through
+  real source/context consolidation. Actual no-execution object/disassembly
+  proof: normal is_test branch/type size0/8, test mode1/4. Cached ordinary
+  handlers cannot all use test mode without changing results/layout. One build
+  driver is not one compiler pass. Own53559 stopped; fresh55111 retained.
+  No shared cache/lesson/HTML/user-process/other-project changes.
+
+- October 7 fused-validation checkpoint: ten namespaces cold **49.412 s**,
+  down 2.234 s / 4.3% from 51.646 s and **50.4% less / 2.02× faster** than
+  99.702 s. The successful final bundle compiler build now validates all 602
+  pending handlers before any publication; a rejected build uses bounded
+  isolation/original-scope diagnostics. Default finish still rejects pending
+  artifacts. Same coverage/621 handlers/20 definition checks/20 native owners;
+  commands 171→168. Five new + ten affected tests / 92 assertions pass across
+  focused runs (incorrect race fixture corrected and retested separately).
+  Fresh Values + four bodies + 20 tests exact pack 66e66815…46210, zero new
+  builds/libraries/standalone handlers. Fresh owned nREPL 53559 repeats Values
+  5/5 / 33 hits / one load / 1.373 s. Warm 10.374 s / 621 reused / 32 commands,
+  not the cold target. Largest child RSS 0.917 GiB; combined peak unmeasured.
+  Four-snapshot internal-job replay: default6.630s/j2 8.133s/j1 8.216s/j4 6.480s;
+  no production job-limit change (three planner tests / ten assertions GREEN).
+  Evidence .tmp/learn-fused-validation-20261007.HcVJal and tenfold report.
+  Cold <9.971 s goal ACTIVE. Next compiler-work targets: 78 native-test commands,
+  42 inspections, repeated support-graph codegen in final pack. Preserve exact
+  snapshots, root context, type/state identity and original diagnostics.
+  Owned 51981/PID26100 stopped; fresh owned 53559/PID44645 retained. No shared cache,
+  user-process, lesson/HTML or other-project changes. fmt/diff checks GREEN.
+
+- October 7 frozen-image checkpoint: ten namespaces cold **51.646 s**,
+  down 4.132 s / 7.4% from 55.779 s and **48.2% lower / 1.93×** versus the
+  99.702-second goal baseline. Frozen images/tests share four bounded workers;
+  planning stays sequential, exact sources/config/keys retained. Explicit
+  callables await images. Same 171 commands, 331/337 runtime candidates, 20
+  definition checks, 20 native owners, 11 images, 14 readers, 621 handlers;
+  602 validations / three batches / zero individual rechecks. Focused 24 tests
+  / 133 assertions pass. Fresh Values + four bodies + 20 tests exact pack
+  a8e073ca…79234c, zero new builds/libraries/standalone handlers. Own nREPL
+  Values 5/5 / 33 hits / one load / 0.561 s. Fresh warm 10.825 s, 621 reused,
+  32 commands; not cold tenfold. Largest child RSS 0.921 GiB; combined peak
+  unmeasured. Evidence .tmp/learn-frozen-images-20261007.OzI1RY and updated
+  LEARN_TENFOLD_INVESTIGATION_2026-10-07.md. fmt/diff checks GREEN.
+  Goal <9.971 s ACTIVE. Next reduce repeated compiler work: 78 native-test
+  commands / 57.198 s aggregate, 42 inspections / 12.101 s, final pack commands
+  8.347 s. No shared cache / authored lessons / HTML changes. Own 51981/PID
+  26100 retained for the next focused phase; do not restart or repeat accepted
+  gates without relevant code changes.
+
+- October 7 frozen-native-test checkpoint: ten namespaces cold **55.779 s**,
+  versus 80.138 s immediately before and the 99.702 s goal baseline
+  (**44.1% lower / 1.79× faster**). Four bounded virtual workers, maximum eight
+  outstanding jobs, frozen registration inputs and per-artifact locks. Pending
+  checks resolve before reports; ordinary definitions stay synchronous. Mutable
+  external inputs keep synchronous checking. Same 171 commands, 331/337 runtime
+  candidates, 621 handlers, 20 definition checks, 20 final tests, 11 images,
+  14 readers. Focused 13 tests / 89 assertions pass, plus seven selected native
+  regressions. Fresh Values + four bodies + 20 tests reuse exact producer pack
+  2d4a0e68…1887d with zero new builds/libraries/standalone handlers. Owned 50937:
+  Values 5/5, 33 hits / one load, 0.701 s. Warm 11.277 s / 621 reused; no extra
+  warm gain claimed. Largest child peak RSS 0.926 GiB; combined peak unmeasured.
+  Evidence: .tmp/learn-parallel-tests-20261007.rY3Kss. Cold <9.971 s goal ACTIVE.
+  Next freeze initial namespace compiler inputs (14.825 s aggregate) before
+  scheduling, then probes (11.893 s) and aggregate codegen/debug (8.639 s).
+  Do not rerun all Learn or repeat accepted checks after tiny edits. Report:
+  LEARN_TENFOLD_INVESTIGATION_2026-10-07.md. No lesson/HTML/shared-cache changes.
+  Formatting/diff checks pass; owned nREPL 50937 / PID 15952 stopped after checks.
+
+- October7 test-object compiler checkpoint: Zig0.17 test-obj/LLVM/PIC/Debug
+  replaces test→bitcode→LLVM-codegen, retaining the same test source/runner,
+  registration snapshot, selectors, native-test key calculation and diagnostics.
+  Four sequential frozen snapshots:11.639s versus12.145s with separate empty
+  Zig caches; subsequent snapshots~1.42s versus~1.76s.9tests111assertionsGREEN,
+  including native failures/panics/leaks/source reports. Full cold10ns80.138s
+  versusaccepted99.702s (~20%less),171commands/same331of337+621pack+20checks+
+  20owners. Largest child0.941GiBRSS,177.96s childCPU; focused checks briefly
+  overlapped initial producer period, not statistical attribution. Fresh5Values
+  +4bodies+20owners exactnewpack/zero builds/newlibs/standalone; ownednREPL
+  Values5/5,33hits/1load/zero builds0.764s. Freshwarm10.703s/621reused, no
+  validationbatches; not coldtarget. Selfhostbackend observed5.1GiBRSS,
+  no accepted timing; LLVM retained. Goal cold<9.971s remains ACTIVE. Next:
+  bounded concurrency/batching of immutable test snapshots and probes while
+  preserving registration-time errors and exact fresh-consumer keys. No full
+  Learn rerun or HTML changes. Owned49951/PID5896 stopped after checks, port
+  removed by shutdown; previous user51022 was already absent, not modified.
+  fmt/diff checksGREEN. Evidence same tenfold root.
+
+- [ ] October7 new tenfold goal: fixed ten namespaces cold<9.971s, accepted
+      baseline99.702s. Compare Aguafria-authored fast native and low-allocation
+      JVM source identity/serialization with boundary overhead, then remove
+      compiler work through safe batching. Preserve coverage, definition-time
+      diagnostics, exact keys and fresh consumers. Latest accepted cold49.412s;
+      the tenfold target remains unachieved.
+      Isolated evidence .tmp/learn-fused-validation-20261007.HcVJal; owned53559.
+- October7 tenfold-goal checkpoint, not completion: fast native key tool
+  compared with two JVM implementations on all833sources/5.43MB, exact keys.
+  Final paired fresh generic JVM11.855ms/primitive10.058ms versus native12.939ms;
+  native allocates less host memory but requires2.983s cold helper construction.
+  Chose JVM primitive block printing, direct canonical encoding and bounded
+      preparation-local source-key memoization.19tests265assertionsGREEN,fmtGREEN.
+  Cold intermediate104.127s/fullregex104.631s:171commands/samecoverage621pack,
+  no accepted cold gain. Final primitive freshwarm10.516s vs14.210s(~26%less),
+  still32commands. Fresh5Values and4bodies+20owners pass exactpack/zero builds;
+  finalownednREPL Values33hits/one load/zero builds1.089s. Target<9.971s COLD
+  remains active; next compiler snapshot/inspection/bundle work, not more lexer
+  microbenchmarks. Report LEARN_TENFOLD_INVESTIGATION_2026-10-07.md.
+  Owned58962/PID71241 stopped after checks; user51022 preserved, portfile
+  restored. No shared Aguafria cache removal or unrelated examples/HTML edits.
+- October 7 performance implementation goal COMPLETE, fixed 10-namespace sample:
+  automatic bounded compiler validation and production native Zig tokenizer.
+  Final cold 99.702 s versus 150.658 s (~34% lower); fresh warm 14.210 s versus
+  15.339 s. Cold commands 171 versus 769, child CPU 197.000 s versus 737.940 s.
+  Same 331/337 runtime candidates and 621 handlers in one library. Three batches
+  validate 602 queued artifacts; zero individual rechecks. Pending artifacts
+  cannot publish; failed batches preserve original diagnostics and context.
+  Native full lexical facts/no-op rewrites match all 833 frozen sources:
+  12.464 ms including packing/decoding versus 654.463 ms, phase-only measurement.
+  Full regression suite 46 tests/416 assertions GREEN; final delta 11 tests/64
+  assertions GREEN (overlapping counts). Same-input artifact identity unchanged.
+  Final fresh Values 5/5 bodies and independent 4 bodies/20 owners pass using
+  exact producer pack 5914f7dc…dc765: zero builds/new libraries/standalone.
+  Fresh owned nREPL repeats Values 5/5, 33 exact hits/one load/zero builds.
+  Owned REPLs 55878/PID49486 and 56424/PID66429 stopped; user51022/PID14210 and
+  HTTP63979 preserved; port file restored. Shared cache not cleared; only the
+  accidentally generated scanner helper was removed after exact validation.
+  Report LEARN_PRECOMPILE_IMPROVEMENTS_2026-10-07.md; evidence
+  .tmp/learn-optimization-20261007.oACk0W. Whole Learn inventory below unchanged.
+  Optional next measured targets: exact-input inspection cache and canonical
+  serialization/hashing. Neither is needed to complete this optimization goal.
+- October 7 source layout follow-up: native helper moved unchanged to
+  src/aguafria/native_tools/source_scanner.clj; collector uses namespace require
+  under isolated registration. Old resource removed, no fallback. Five scanner
+  tests/31 assertions GREEN; emitted Zig changes only source-location comments.
+  Further cold headroom identified, not implemented: 20 definition library
+  builds (LLVM codegen + link) cost 24.853 s; LLVM generation/debug extraction
+  cost another 13.166 s. Cold inspection
+  42 commands/12.169 s; warm inspection 30 commands/9.248 s. Preserve exact
+  dependency identity and registration-time diagnostics in any later change.
+  Fresh Values still reuse the original pack: 5 bodies/33 exact hits/zero builds
+  or new libraries. Source relocation does not invalidate application handlers.
+  Two focused bundle tests/14 assertions also GREEN. Owned nREPL56521/PID67158
+  stopped after verification; user services preserved.
+  Evidence .tmp/scanner-source-move-20261007.G6GNDv.
+- October6 measured profiling COMPLETE, isolated10namespace sample only:
+  cold150.658s/freshwarm15.339s, same621handlerpack, 331/337runtimecandidates;
+  no changed preparation coverage or production cache policy. JFR and child
+  CPU/RSS recorded. Selected621individualvalidations47.698s versus existing
+  aggregategraph0.883s mean(~54xphase); negativecompileError rejected.
+  Aguafria fast native lexical collector833sources/5.43MB:5.646ms versus
+  JVM557.063ms fresh(~99xkernel), one mainworkspace/zero Zigscanheapalloc;
+  833facts agree,5positive/5negativeguards pass. Separate nREPL agrees.
+  Helpers6tests19assertions GREEN;fresh+realnREPL Values5bodies and independent
+  4bodies+20nativeowners pass with exactpackhits/zero builds or standalone.
+  Evidence/report LEARN_PRECOMPILE_PROFILE_2026-10-06.md; nextimplementations:
+  batchvalidation/errorisolation, exactinspectioncache, serializationwork,
+  then measurednativecollectorintegration if fullpipeline worthwhile.
+  These prototypes are not integrated; wholeLearn inventory below unchanged.
+  Temporary profiler nREPL51218/PID15617 stopped;user51022 andHTTP63979 preserved,
+  Learnportfile restored51022. Profiling evidence retained in isolated.tmp root.
+- October6 latest whole cold-cache run COMPLETE: 288 source files selected,
+  287 namespaces requested, 285 analyzed, two deliberate load failures and one
+  explicitly ignored quota-failure lesson. Runtime preparation2476/2774,
+  298 incomplete:82host/137syntax/56compilefail/17cross/6runtimefail.
+  Host categories:15failed/28grammar/29unobserved/8comptime/1variadic/1root.
+  Native invocation blocked; four bounded virtual workers. Duration1288.637s.
+  One newly built4634-artifactpack856196d8…c5b3f;25,295,248native/
+  58,333,594debug bytes. Full cache3.1GiB;pack directory371MiB with sources.
+  Final source stage19s,compile/publication79s;manifest after98s. The bulk of
+  elapsed time is pre-bundle namespace/test-image and handler validation.
+  Current exact inventory `.tmp/learn-clean-current-classified-017.edn`.
+  Fresh broad consumer80/80bodies+3/3constants+12/12owners GREEN,351exacthits/
+  1load/zero builds or standalone JVM handlers,16.541s. Independent fresh
+  Values5/5body output identical to native main,33hits/1load/zero builds or
+  standalone,2.616s;actualnREPL Values also GREEN3.037s. Values verifier now
+  rejects wrong-pack and loose cache acceptance;combined units6tests43assertions.
+  Core/examples frozen;only verifier/docs edited. Producer, fresh consumers and
+  classification evidence `learn-clean-current-*.edn`;acceptance report updated.
+  HTTP63979 preserved,200andmatching prior verified HTML hash7743c725…1abee;
+  no unnecessary outcome rerun/HTML rebuild for verifier-only edits.
+- Current next work:review genuinely independent contracts among15host failed
+  preparations and profile redundant cold compiler work. The82host observations
+  also include grammar, unobserved paths and compiler-local/frame context, not82
+  demonstrated ordinary JVM bugs. Broader project revalidation is separate.
+- Entries below are historical; the clean run above supersedes their inventory,
+  pack identity and consumer timings.
 - October6 latest frozen scalar batch:2472/2772prepared,300incomplete;
   zero closures/regressions versus the preceding accepted batch. Producer
   287attempted/285analyzed in693.564s;127constant readers,126prepared and one
@@ -31,7 +302,7 @@
   `.tmp/learn-final-owner-delta-replay-017.edn`.
   Current acceptance summary:LEARN_CACHE_ACCEPTANCE_2026-10-06.md. This is not
   completion of every detached observation or the whole application migration.
-- Next:retain this frozen acceptance;do not repeat whole analysis/HTML for
+- Earlier next:retain this frozen acceptance;do not repeat whole analysis/HTML for
   cache-only edits. Review remaining83host rows for genuinely independent
   handler contracts, retaining native-owner evidence separately. Broader
   application frozen revalidation remains outside current Learn acceptance.

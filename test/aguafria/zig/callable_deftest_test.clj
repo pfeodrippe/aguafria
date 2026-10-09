@@ -158,7 +158,7 @@
           ;; never publish a callable or register the rejected declaration.
           (is (or (nil? test-var) (not (bound? test-var))))
           (is (nil? (get-in @@#'runtime/registry
-                           [module :definitions [:test test-name]])))))
+                            [module :definitions [:test test-name]])))))
       (is (nil? (:failure (define '(a/defn- later-helper :void [])))))
       (let [{:keys [failure result printed-out printed-err]}
             (define '(a/deftest checked-test
@@ -281,9 +281,11 @@
           (let [details (:aguafria/test-result (meta result))]
             (is (= "foo" (:test-name details)))
             (is (= (runtime/zig-executable) (first (:command details))))
-            (is (= ["test" "--test-filter"] (subvec (:command details) 1 3)))
+            (is (= ["test-obj" "--test-filter"] (subvec (:command details) 1 3)))
             (is (some #{"--test-no-exec"} (:command details)))
-            (is (some #{"-fno-emit-bin"} (:command details)))
+            (is (some #(str/starts-with? % "-femit-bin=") (:command details)))
+            (is (some #{"-fllvm"} (:command details)))
+            (is (str/ends-with? (nth (:link-command details) 2) ".o"))
             (is (= :in-process (:execution details)))
             (is (= printed-out (:stdout details)))
             (is (= printed-err (:stderr details)))
@@ -396,7 +398,7 @@
         (is (str/includes? printed-err "Aguafria source locations:"))
         (is (str/includes? printed-err "(try ((a/field list :append) allocator \\☔))"))
         (is (str/ends-with? (:clojure.error/source (ex-data failure))
-                           "aguafria/zig/callable_deftest_test.clj"))
+                            "aguafria/zig/callable_deftest_test.clj"))
         (is (= :execution (:clojure.error/phase (ex-data failure))))
         (is (= printed-err (:stderr (ex-data failure)))))
       (let [{:keys [result failure]}

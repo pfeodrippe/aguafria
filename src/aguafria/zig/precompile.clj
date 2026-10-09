@@ -2,17 +2,50 @@
   "Explicit, compile-only preparation of persistent native artifacts."
   (:require [aguafria.zig.artifact :as artifact]
             [aguafria.zig.bundle :as bundle]
+            [aguafria.zig.compiler-work :as compiler-work]
             [aguafria.zig.discovery :as discovery]
             [aguafria.zig.runtime :as runtime]
             [clojure.java.io :as io])
-  (:import [java.util.concurrent Callable Executors]))
+  (:import [java.util.concurrent Callable Executors Semaphore]))
+
+(defn- build-submitter [executor parallelism]
+  (let [permits (Semaphore. (* 2 parallelism))]
+    (fn [build]
+      (.acquire permits)
+      (try
+        (let [configuration (runtime/configuration)]
+          (.submit ^java.util.concurrent.ExecutorService executor
+                   ^Callable
+                   (bound-fn []
+                     (try
+                       (binding [runtime/*precompile-build-submitter* nil]
+                         (runtime/call-with-precompile-configuration configuration build))
+                       (finally (.release permits))))))
+        (catch Throwable error
+          (.release permits)
+          (throw error))))))
+
+(defn- resolve-namespace-image! [image]
+  (if-let [job (:namespace-image-job image)]
+    (merge (dissoc image :namespace-image-job)
+           (try
+             (.get ^java.util.concurrent.Future job)
+             (catch java.util.concurrent.ExecutionException error
+               (let [cause (ex-cause error)]
+                 (when-not (instance? Exception cause) (throw cause))
+                 (assoc (discovery/error-report cause)
+                        :namespace (:namespace image) :status :failed)))))
+    image))
+
+(defn- resolve-precompile-images! [images]
+  (doseq [[module image] (sort-by key @images)]
+    (swap! images assoc module (resolve-namespace-image! image))))
 
 (defn- validate-options! [options]
   (when-not (and (map? options)
-                 (every? #{:namespaces :calls :coercions :analyze :source-dirs :parallelism :report-file :bundle? :ignore} (keys options))
+                 (every? #{:namespaces :calls :coercions :analyze :source-dirs :parallelism :report-file :ignore} (keys options))
                  (or (nil? (:ignore options)) (sequential? (:ignore options)) (set? (:ignore options)))
                  (every? #(and (symbol? %) (nil? (namespace %))) (:ignore options))
-                 (or (not (contains? options :bundle?)) (boolean? (:bundle? options)))
                  (every? sequential? (vals (select-keys options [:namespaces :calls :coercions :analyze :source-dirs])))
                  (every? #(and (symbol? %) (nil? (namespace %))) (:namespaces options))
                  (every? #(and (symbol? %) (nil? (namespace %))) (:analyze options))
@@ -46,17 +79,6 @@
        distinct
        vec))
 
-(defn- prepare-native-test-owners! [module]
-  (mapv (fn [test]
-          (try
-            (runtime/precompile-test! test)
-            (catch Exception error
-              (assoc (discovery/error-report error) :test test :status :failed))))
-        (->> (runtime/registered-declarations module)
-             (filter #(= :test (:kind %)))
-             (map #(symbol (str module) (str (:name %))))
-             sort)))
-
 (defn- load-namespace! [namespace images]
   (let [before (set (runtime/registered-modules))]
     (binding [runtime/*source-only-registration?* true]
@@ -74,14 +96,7 @@
                          configuration #(runtime/precompile-namespace-load! module))
                         (catch Exception error
                           (assoc (discovery/error-report error)
-                                 :namespace (symbol module) :status :failed)))
-                image (assoc image
-                             :test-checks
-                             (vec (get-in @runtime/*prepared-namespace-images*
-                                          [module :test-checks]))
-                             :test-owners
-                             (runtime/call-with-precompile-configuration
-                              configuration #(prepare-native-test-owners! module)))]
+                                 :namespace (symbol module) :status :failed)))]
             (swap! images assoc module image)
             ;; The compilation snapshot includes dependencies that were already
             ;; loaded before this run, as well as newly required namespaces.
@@ -104,6 +119,7 @@
                           (assoc (discovery/error-report error)
                                  :namespace namespace :status :load-failed))))
                     namespaces)
+        _ (resolve-precompile-images! images)
         prepare (requiring-resolve 'aguafria.zig.discovery/prepare!)]
     (with-open [executor (Executors/newFixedThreadPool parallelism (.factory (Thread/ofVirtual)))]
       (let [jobs (mapv (fn [{:keys [namespace status configuration] :as loaded}]
@@ -132,7 +148,8 @@
         results (mapv (fn [[profile type]]
                         (try
                           (assoc (runtime/call-with-precompile-configuration
-                                  (nth profiles profile) #(prepare type))
+                                  (nth profiles profile)
+                                  #(bundle/call-with-validation-scope (fn [] (prepare type))))
                                  :profile profile)
                           (catch Exception error
                             (assoc (discovery/error-report error)
@@ -205,6 +222,20 @@
                     (keep #(when-not (= :prepared (:status %))
                              (or (:reason %) (:status %))) handlers)))}))
 
+(defn- bundle-failure! [report-file report started error]
+  (let [failed (assoc report
+                      :compiler-work (compiler-work/report compiler-work/*collector*)
+                      :bundles (merge (discovery/error-report error)
+                                      (select-keys (ex-data error)
+                                                   [:aguafria/phase :reason :exit
+                                                    :command :out :err :configurations])
+                                      {:status :failed})
+                      :duration-ms (/ (- (System/nanoTime) started) 1e6))]
+    (io/make-parents report-file)
+    (spit report-file (artifact/print-data failed))
+    (throw (ex-info (ex-message error)
+                    (assoc (ex-data error) :report-file report-file) error))))
+
 (defn precompile!
   "Compile persistent JVM artifacts explicitly, never as part of :prepare.
 
@@ -216,10 +247,10 @@
   are reported as skipped, not executed to discover their signatures.
   Initial images for ordinary namespace loading are prepared as well and
   reported in :namespace-images, including failures and lazy imports.
-  Test definition checks encountered during loading use the normal test compiler
-  path without executing tests; their outcomes appear in each image's :test-checks.
-  Final native test snapshots are also prepared after the namespace has loaded,
-  including later declarations; these outcomes appear in each image's :test-owners.
+  Native test artifacts are not built here: calling an a/deftest uses the existing
+  native test compiler/runner. Test bodies still participate in :analyze so their
+  ordinary JVM handlers are prepared for evaluating those forms outside a native
+  test. This does not execute tests or change ordinary test registration/execution.
 
   :calls supplies exact native argument types for builtin/operator/imported or
   generic call adapters. Use {:comptime value} for source-level comptime inputs.
@@ -240,8 +271,15 @@
   :source-dirs discovers all
   .clj namespaces in directories already on the classpath. Per-operation gaps
   and compiler errors remain in :analysis. :parallelism defaults to 2; analysis
-  runs on bounded virtual-thread workers. Reports persist under :report-file
+  and frozen namespace-image builds run on bounded virtual-thread
+  workers. Inputs are captured during sequential loading, with at most twice that many
+  outstanding builds. Every result is resolved before reporting preparation.
+  Reports persist under :report-file
   (default .aguafria/precompile/report.edn).
+  :compiler-work counts actual compiler attempts across loading, type queries,
+  native tests, support/tools and bundling, including rejected builds. Its
+  :one-compilation? describes the whole preparation; :bundles counts only the
+  final pack. Command samples are capped at 32; totals remain exact.
 
   :ignore is a collection of namespace symbols excluded from explicit function,
   call and source-directory analysis requests, before loading them. The report's
@@ -250,10 +288,16 @@
 
   Compatible generated JVM handlers, including cached ones, are compiled into
   one immutable shared-cache library. Incompatible configurations fail instead
-  of silently splitting the bundle. :bundle? false keeps standalone artifacts.
-  The bundle is linked only after semantic validation; native code is never
-  loaded during preparation. Unsupported linker configurations stay standalone
-  and are listed in :bundles :standalone.
+  of silently splitting the bundle.
+  Adapter and native-wrapper validation, including external linkage, is deferred
+  to the bundle build. Initial namespace images retain their frozen sources and
+  compiler options in that same graph. Checkpoints distinguish pending validation from prepared
+  handlers. The bundle compiler validates and links them in one pass. A rejected
+  build aborts preparation with its diagnostics; it is not split and recompiled.
+  Application handlers are never loaded
+  or invoked during preparation; the bounded native tokenizer analyzes source.
+  Handlers with unsupported bundle configurations fail during planning instead
+  of compiling standalone libraries.
   A bundle failure preserves the completed analysis/coverage in :report-file,
   records :bundles :status :failed, and still throws the compiler exception.
 
@@ -262,79 +306,90 @@
   Preparation retains each namespace's load-time compiler configuration,
   including transitive imports, so later link settings cannot change its keys.
   The normal cache invalidation rules apply; handles and state are not saved."
-  [{:keys [namespaces calls coercions analyze source-dirs parallelism report-file bundle? ignore]
-    :or {parallelism 2 report-file ".aguafria/precompile/report.edn" bundle? true}
+  [{:keys [namespaces calls coercions analyze source-dirs parallelism report-file ignore]
+    :or {parallelism 2 report-file ".aguafria/precompile/report.edn"}
     :as options}]
   (validate-options! options)
-  (binding [runtime/*compile-only?* true
-            runtime/*prepared-namespace-images* (atom {})
-            runtime/*prepared-scalar-constructors* (atom #{})
-            bundle/*preparing* (when bundle? (atom {}))]
-    (let [started (System/nanoTime)
-          initial-configuration (runtime/configuration)
-          excluded (set ignore)
-          analysis-namespaces (vec (distinct (concat analyze (source-namespaces source-dirs))))
-          call-namespace (comp symbol namespace :function)
-          selected (distinct (concat namespaces analysis-namespaces (map call-namespace calls)))
-          ignored (mapv (fn [namespace]
-                          {:namespace namespace :status :ignored :reason :explicit-ignore})
-                        (filter excluded selected))
-          namespaces (remove excluded namespaces)
-          calls (remove #(excluded (call-namespace %)) calls)
-          analysis-namespaces (filterv #(not (excluded %)) analysis-namespaces)
-          images (atom {})
-          configurations (atom {})]
-      (doseq [namespace (distinct (concat namespaces
-                                          (map (comp symbol namespace :function) calls)))]
-        (swap! configurations assoc namespace (load-namespace! namespace images)))
-      (let [prepare-in (fn [namespace prepare]
-                         (runtime/call-with-precompile-configuration
-                          (get @configurations namespace) prepare))
-            report {:functions (into [] (mapcat (fn [namespace]
-                                                  (prepare-in namespace
-                                                              #(runtime/precompile-functions! namespace))))
-                                     (distinct namespaces))
-                    :calls (mapv (fn [call]
-                                   (prepare-in (call-namespace call)
-                                               #((requiring-resolve 'aguafria.zig.jvm/precompile-call!) call)))
-                                 calls)
-                    :coercions (mapv (requiring-resolve 'aguafria.zig.jvm/precompile-coercion!) coercions)
-                    :analysis (analyze-namespaces! analysis-namespaces parallelism report-file images)
-                    :ignored ignored
-                    :cache-dir (:cache-dir (runtime/configuration))
-                    :duration-ms (/ (- (System/nanoTime) started) 1e6)}
-            scalar-profiles (prepare-scalar-profiles! initial-configuration)
-            report (assoc report :scalar-constructor-profiles scalar-profiles
-                          :namespace-images (mapv val (sort-by key @images))
-                          :coverage (-> (coverage (:analysis report))
-                                        (assoc-in [:namespaces :ignored] (count ignored))
-                                        (assoc :namespace-images (frequencies (map :status (vals @images)))
-                                               :scalar-constructor-profiles (:statuses scalar-profiles)
-                                               :test-definition-checks
-                                               (frequencies
-                                                (map :status (mapcat :test-checks (vals @images))))
-                                               :native-test-owner-checks
-                                               (frequencies
-                                                (map :status (mapcat :test-owners (vals @images))))))
-                          :duration-ms (/ (- (System/nanoTime) started) 1e6))
-            bundles (try
-                      (when bundle?
-                        (runtime/finish-precompile-bundles! bundle/*preparing*))
-                      (catch Exception error
-                        (let [failed (assoc report
-                                            :bundles (merge (discovery/error-report error)
-                                                            (select-keys (ex-data error)
-                                                                         [:aguafria/phase :reason :exit
-                                                                          :command :out :err :configurations])
-                                                            {:status :failed})
-                                            :duration-ms (/ (- (System/nanoTime) started) 1e6))]
-                          (io/make-parents report-file)
-                          (spit report-file (artifact/print-data failed))
-                          (throw (ex-info (ex-message error)
-                                          (assoc (ex-data error) :report-file report-file)
-                                          error)))))
-            report (assoc report :bundles bundles
-                          :duration-ms (/ (- (System/nanoTime) started) 1e6))]
-        (io/make-parents report-file)
-        (spit report-file (artifact/print-data report))
-        report))))
+  (with-open [build-executor
+              (Executors/newFixedThreadPool parallelism (.factory (Thread/ofVirtual)))]
+    (binding [runtime/*compile-only?* true
+              compiler-work/*collector* (compiler-work/collector)
+              runtime/*precompile-build-submitter* (build-submitter build-executor parallelism)
+              runtime/*prepared-namespace-images* (atom {})
+              runtime/*prepared-scalar-constructors* (atom #{})
+              artifact/*source-key-cache* (artifact/source-key-cache)
+              bundle/*batch-validation?* true
+              bundle/*preparing* (atom {})]
+      (let [started (System/nanoTime)
+            initial-configuration (runtime/configuration)
+            excluded (set ignore)
+            analysis-namespaces (vec (distinct (concat analyze (source-namespaces source-dirs))))
+            call-namespace (comp symbol namespace :function)
+            selected (distinct (concat namespaces analysis-namespaces (map call-namespace calls)))
+            ignored (mapv (fn [namespace]
+                            {:namespace namespace :status :ignored :reason :explicit-ignore})
+                          (filter excluded selected))
+            namespaces (remove excluded namespaces)
+            calls (remove #(excluded (call-namespace %)) calls)
+            analysis-namespaces (filterv #(not (excluded %)) analysis-namespaces)
+            images (atom {})
+            configurations (atom {})]
+        (doseq [namespace (distinct (concat namespaces
+                                            (map (comp symbol namespace :function) calls)))]
+          (swap! configurations assoc namespace (load-namespace! namespace images)))
+        (resolve-precompile-images! images)
+        (let [prepare-in (fn [namespace prepare]
+                           (runtime/call-with-precompile-configuration
+                            (get @configurations namespace) prepare))
+              report {:functions (into [] (mapcat (fn [namespace]
+                                                    (prepare-in namespace
+                                                                #(runtime/precompile-functions! namespace))))
+                                       (distinct namespaces))
+                      :calls (mapv (fn [call]
+                                     (prepare-in (call-namespace call)
+                                                 #(bundle/call-with-validation-scope
+                                                   (fn [] ((requiring-resolve 'aguafria.zig.jvm/precompile-call!) call)))))
+                                   calls)
+                      :coercions (mapv (fn [type]
+                                         (bundle/call-with-validation-scope
+                                          #((requiring-resolve 'aguafria.zig.jvm/precompile-coercion!) type))) coercions)
+                      :analysis (analyze-namespaces! analysis-namespaces parallelism report-file images)
+                      :ignored ignored
+                      :cache-dir (:cache-dir (runtime/configuration))
+                      :duration-ms (/ (- (System/nanoTime) started) 1e6)}
+              scalar-profiles (prepare-scalar-profiles! initial-configuration)
+              _ (resolve-precompile-images! images)
+              report (assoc report :scalar-constructor-profiles scalar-profiles
+                            :namespace-images (mapv val (sort-by key @images))
+                            :coverage (-> (coverage (:analysis report))
+                                          (assoc-in [:namespaces :ignored] (count ignored))
+                                          (assoc :namespace-images (frequencies (map :status (vals @images)))
+                                                 :scalar-constructor-profiles (:statuses scalar-profiles)))
+                            :duration-ms (/ (- (System/nanoTime) started) 1e6))
+              compiled-bundles
+              (try
+                (binding [compiler-work/*phase* :handler-bundle]
+                  (runtime/finish-precompile-bundles! bundle/*preparing*
+                                                      {:validate-pending? true}))
+                (catch Exception error
+                  (bundle-failure! report-file report started error)))
+              report (try
+                       (bundle/resolve-validation-report!
+                        bundle/*preparing* report discovery/error-report)
+                       (catch Exception error (bundle-failure! report-file report started error)))
+              scalar-statuses (frequencies (map :status
+                                                (get-in report [:scalar-constructor-profiles :constructors])))
+              report (-> report
+                         (assoc-in [:scalar-constructor-profiles :statuses] scalar-statuses)
+                         (update :coverage merge (coverage (:analysis report)))
+                         (assoc-in [:coverage :namespaces :ignored] (count ignored))
+                         (assoc-in [:coverage :namespace-images]
+                                   (frequencies (map :status (:namespace-images report))))
+                         (assoc-in [:coverage :scalar-constructor-profiles] scalar-statuses))
+              report (assoc report :bundles compiled-bundles
+                            :compiler-work (compiler-work/report compiler-work/*collector*)
+                            :source-key-cache (artifact/source-key-statistics artifact/*source-key-cache*)
+                            :duration-ms (/ (- (System/nanoTime) started) 1e6))]
+          (io/make-parents report-file)
+          (spit report-file (artifact/print-data report))
+          report)))))

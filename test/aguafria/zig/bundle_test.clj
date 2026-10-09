@@ -43,7 +43,7 @@
         new-library (io/file directory "bundles" new-id
                              (System/mapLibraryName "aguafria_bundle"))
         item {:prefix "pack_old_" :exports ["__aguafria_probe"]}
-        manifest {:version 2 :id old-id :library-bytes 3 :entries {key item}}
+        manifest {:version 3 :id old-id :library-bytes 3 :entries {key item}}
         old-entry (merge (dissoc manifest :entries) item
                          {:artifact key :cache-root (#'bundle/cache-root directory)
                           :library (.getAbsolutePath old-library)})
@@ -68,6 +68,23 @@
                          (fn [_] (throw (ex-info "Loaded entry read the disk index" {})))}
           (fn [] (is (= old-entry (bundle/find-artifact directory artifact)))))))))
 
+(deftest foreign-abi-index-entries-are-cache-misses
+  (let [directory (.toFile (Files/createTempDirectory "aguafria-foreign-abi-"
+                                                      (make-array java.nio.file.attribute.FileAttribute 0)))
+        request {:module "aguafria.jvm.fixture" :hash "ordinary-call"}
+        key (#'bundle/artifact-id request)
+        id (apply str (repeat 64 "c"))
+        library (io/file directory "bundles" id (System/mapLibraryName "aguafria_bundle"))
+        index (#'bundle/index-file directory request)
+        ordinary {:version 3 :id id :artifact key :prefix "pack_" :exports ["call"] :library-bytes 3}]
+    (io/make-parents library)
+    (spit library "lib")
+    (io/make-parents index)
+    (spit index (artifact/print-data (assoc ordinary :backend :foreign-abi)))
+    (is (nil? (bundle/find-artifact directory request)))
+    (spit index (artifact/print-data ordinary))
+    (is (= id (:id (bundle/find-artifact directory request))))))
+
 (deftest bundle-materialization-keeps-source-on-disk-and-validates-its-identity
   (let [directory (.toFile (Files/createTempDirectory "aguafria-bundle-sources-"
                                                       (make-array java.nio.file.attribute.FileAttribute 0)))
@@ -82,7 +99,7 @@
     (spit source-file source)
     (let [candidate (bundle/candidate artifact)
           output (io/file directory "materialized")
-          entry (#'bundle/materialize-entry! output candidate)
+          entry (#'bundle/materialize-entry! output candidate {})
           group (first (:groups entry))]
       (is (some? candidate))
       (is (some? (bundle/candidate (assoc artifact :module "project.private-owner"))))
@@ -97,7 +114,7 @@
       (spit source-file (str source "// Changed after preparation.\n"))
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo #"Prepared bundle source changed before linking"
-           (#'bundle/materialize-entry! (io/file directory "changed") candidate))))))
+           (#'bundle/materialize-entry! (io/file directory "changed") candidate {}))))))
 
 (deftest repeated-handlers-are-validated-once-per-preparation
   (let [configuration (runtime/configuration)
@@ -263,11 +280,11 @@
         (is (= 1 @calls))
         (is (:requires-link-validation?
              (bundle/candidate (assoc-in artifact [:compiler-owned-linkage-support :fragments]
-                                        [(str fragment "// changed compiler support\n")]))))
+                                         [(str fragment "// changed compiler support\n")]))))
         (is (= 2 @calls))
         (is (false? (:requires-link-validation?
                      (bundle/candidate (assoc-in artifact [:compiler-owned-linkage-support :hash]
-                                                "another-compiler-support-artifact")))))
+                                                 "another-compiler-support-artifact")))))
         (is (= 2 @calls))
         (is (= 4 (count (:source-analyses @bundle/*preparing*))))))))
 
@@ -311,13 +328,15 @@
     (with-redefs-fn
       {#'convert/parse-source (tracking-ast-parser calls)
        #'bundle/build-pack! (fn [_ artifacts _ _]
-                             {:id "cached-pack" :handlers (count artifacts) :cached? true})}
+                              {:id "cached-pack" :handlers (count artifacts) :cached? true
+                               :compiler-invocations 0})}
       #(binding [bundle/*preparing* collected]
          (let [result (bundle/finish! "unused" collected {})]
            (is (= 1 (:packed-handlers result)))
            (is (= 1 (:reused-handlers result)))
            (is (= 1 (count (:packs result))))
            (is (true? (get-in result [:packs 0 :cached?])))
+           (is (= 0 (:compiler-invocations result)))
            (is (= 0 @calls))
            (is (= source (slurp source-file))))))))
 
@@ -858,13 +877,12 @@
         result
         (binding [explain/*reporter* #(swap! events conj %)]
           (case action
-            (:prepare :prepare-limited-printer :standalone-prepare)
+            (:prepare :prepare-limited-printer)
             (let [fail! (fn [& _] (throw (ex-info "Preparation invoked native code" {})))
                   prepare! (fn []
                              (with-redefs [runtime/invoke! fail! runtime/invoke-with-result! fail!]
                                (:bundles (precompile/precompile!
                                           {:coercions [:i32]
-                                           :bundle? (not= :standalone-prepare action)
                                            :calls [{:function 'aguafria.keyword/+ :args [:i32 :i32]}
                                                    {:function 'aguafria.keyword/== :args [:i32 :i32]}
                                                    {:function 'aguafria.std.debug/assert :args [:bool]}]
@@ -874,6 +892,13 @@
                           *print-dup* true *print-readably* false *print-namespace-maps* false]
                   (prepare!))
                 (prepare!)))
+            :standalone-prepare
+            (binding [runtime/*compile-only?* true]
+              (jvm/precompile-coercion! :i32)
+              (doseq [call [{:function 'aguafria.keyword/+ :args [:i32 :i32]}
+                            {:function 'aguafria.keyword/== :args [:i32 :i32]}
+                            {:function 'aguafria.std.debug/assert :args [:bool]}]]
+                (jvm/precompile-call! call)))
             (:run :run-other-values :run-limited-printer)
             (let [[left right] (if (= :run action) [10 20] [4 9])
                   check! (fn []

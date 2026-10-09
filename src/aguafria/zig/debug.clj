@@ -1,6 +1,7 @@
 (ns aguafria.zig.debug
   "Source-located type inspection. Probe compilation never supplies executable code."
   (:require [aguafria.zig.analysis :as analysis]
+            [aguafria.zig.compiler-work :as compiler-work]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
@@ -129,7 +130,10 @@
       (try
         (let [arguments (mapv #(inspection-argument % directory session probes copies) command)]
           (when (seq @probes)
-            (let [result (apply shell/sh (concat (no-output-command arguments) [:dir directory]))]
+            (let [command (no-output-command arguments)
+                  result (binding [compiler-work/*phase* :debug-inspection]
+                           (compiler-work/run-command!
+                            command #(apply shell/sh (concat command [:dir directory]))))]
               (report-compiler-output! (:err result) @probes options))))
         (finally
           (doseq [file @copies]

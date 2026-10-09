@@ -4,6 +4,7 @@
             [aguafria.zig.artifact :as artifact]
             [aguafria.zig.bundle :as bundle]
             [aguafria.zig.cache :as cache]
+            [aguafria.zig.compiler-work :as compiler-work]
             [aguafria.zig.declaration-data :as declaration-data]
             [aguafria.zig.emitter :as emit]
             [aguafria.zig.debug :as debug]
@@ -174,6 +175,13 @@
 
 (def ^:dynamic *prepared-namespace-images*
   "Initial compilation snapshots retained only for the current precompile run."
+  nil)
+
+(def ^:dynamic ^:private *namespace-image-preparation?* false)
+
+(def ^:dynamic *precompile-build-submitter*
+  "Precompile-owned bounded scheduler for frozen native compiler inputs.
+  Ordinary definition checking remains synchronous."
   nil)
 
 (def ^:dynamic *prepared-scalar-constructors*
@@ -1329,7 +1337,8 @@
 
 (defn- run-command
   [command directory]
-  (let [result (apply shell/sh (concat command [:dir directory]))]
+  (let [result (compiler-work/run-command!
+                command #(apply shell/sh (concat command [:dir directory])))]
     (when (zero? (:exit result))
       (debug/inspect-command! command directory @config))
     (assoc result :command command :directory directory)))
@@ -2039,7 +2048,7 @@
        "}\n\n"
        "pub const panic = "
        "__aguafria_panic_std.debug.FullPanic(__aguafria_forward_panic);\n\n"))
-(defn- development-panic-support!
+(defn- development-panic-support-plan
   [{:keys [cache-dir target cpu zig] :as options} compiler-version]
   (let [guard-source (slurp (io/resource "aguafria/jvm_guard.c"))
         support-source (str development-panic-support-source "\n"
@@ -2081,53 +2090,62 @@
           (when cpu ["-mcpu" (str cpu)])
           ["-lc" (.getAbsolutePath guard-file)
            (str "-Mroot=" (.getAbsolutePath source-file))]))]
-    (.mkdirs ^File support-dir)
-    (spit guard-file guard-source)
-    (when-not (= support-source
-                 (when (.isFile source-file) (slurp source-file)))
-      (spit source-file support-source))
-    (let [path library-path
-          artifact-lock
-          (get (swap! artifact-locks
-                      #(if (contains? % path)
-                         %
-                         (assoc % path (Object.))))
-               path)]
-      (locking artifact-lock
-        (when-not (usable-native-artifact? library-file debug-format)
-          (let [temporary-file
-                (io/file support-dir
-                         (str "." (java.util.UUID/randomUUID) "-"
-                              (.getName library-file)))
-                temporary-command
-                (assoc command 3
-                       (str "-femit-bin=" (.getAbsolutePath temporary-file)))]
-            (try
-              (let [{:keys [exit out err] :as result}
+    {:path library-path :hash support-hash :directory support-dir
+     :source-file source-file :guard-file guard-file :library-file library-file
+     :source support-source :guard-source guard-source
+     :debug-format debug-format :command command}))
+
+(defn- build-development-panic-support!
+  [{:keys [path hash directory source-file guard-file library-file source
+           guard-source debug-format command]}]
+  (let [support-dir directory
+        artifact-lock
+        (get (swap! artifact-locks
+                    #(if (contains? % path)
+                       %
+                       (assoc % path (Object.))))
+             path)]
+    (locking artifact-lock
+      (.mkdirs ^File support-dir)
+      (when-not (.isFile ^File guard-file)
+        (spit guard-file guard-source))
+      (when-not (.isFile ^File source-file)
+        (spit source-file source))
+      (when-not (usable-native-artifact? library-file debug-format)
+        (let [temporary-file
+              (io/file support-dir
+                       (str "." (java.util.UUID/randomUUID) "-"
+                            (.getName library-file)))
+              temporary-command
+              (assoc command 3
+                     (str "-femit-bin=" (.getAbsolutePath temporary-file)))]
+          (try
+            (let [{:keys [exit out err] :as result}
+                  (binding [compiler-work/*phase* :native-support]
                     (run-command temporary-command
-                                 (.getAbsolutePath support-dir))]
-                (when-not (zero? exit)
-                  (throw
-                   (ex-info "Unable to build Aguafria's development panic support"
-                            {:aguafria/phase :development-support
-                             :command temporary-command
-                             :exit exit
-                             :stdout out
-                             :stderr err
-                             :result result})))
-                (when-not (usable-artifact? temporary-file)
-                  (throw
-                   (ex-info "Zig produced no usable development panic support"
-                            {:aguafria/phase :development-support
-                             :command temporary-command
-                             :library-path path})))
-                (preserve-native-debug! temporary-file library-file debug-format)
-                (move-replacing! temporary-file library-file))
-              (finally
-                (Files/deleteIfExists (.toPath temporary-file)))))))
-      {:path path
-       :hash support-hash
-       :size-bytes (.length library-file)})))
+                                 (.getAbsolutePath support-dir)))]
+              (when-not (zero? exit)
+                (throw
+                 (ex-info "Unable to build Aguafria's development panic support"
+                          {:aguafria/phase :development-support
+                           :command temporary-command
+                           :exit exit
+                           :stdout out
+                           :stderr err
+                           :result result})))
+              (when-not (usable-artifact? temporary-file)
+                (throw
+                 (ex-info "Zig produced no usable development panic support"
+                          {:aguafria/phase :development-support
+                           :command temporary-command
+                           :library-path path})))
+              (preserve-native-debug! temporary-file library-file debug-format)
+              (move-replacing! temporary-file library-file))
+            (finally
+              (Files/deleteIfExists (.toPath temporary-file)))))))
+    {:path path
+     :hash hash
+     :size-bytes (.length ^File library-file)}))
 
 (defn- materialize-module-source!
   [module source]
@@ -2255,6 +2273,18 @@
                                     (.values development-dependency-entry-cache)))
      :weight-limit-chars development-dependency-entry-weight-limit}))
 
+(def ^:private stateless-transport-sources
+  (delay #{(slurp (io/resource "aguafria/jvm_result.zig"))
+           (slurp (io/resource "aguafria/jvm_layout.zig"))}))
+
+(defn- compiler-support-provenance [module declarations source]
+  (let [declaration (first declarations)]
+    (when (and (= 1 (count declarations)) (= :raw (:kind declaration))
+               (= :stateless-jvm-transport (:compiler-owned-support declaration))
+               (contains? @stateless-transport-sources (:code declaration)))
+      {:kind :stateless-jvm-transport :module (str module)
+       :source-key (artifact/key-for :bundle-source source)})))
+
 (defn- development-dependency-entry
   [module module-state direct-dependencies]
   (when module-state
@@ -2301,6 +2331,8 @@
                 entry {:module module
                        :cache-token (Object.)
                        :source source
+                       :compiler-support
+                       (compiler-support-provenance module declarations source)
                        :source-fingerprint
                        (when source (subs (sha256 source) 0 24))
                        :dependencies dependencies
@@ -2337,7 +2369,7 @@
          (if (contains? seen module)
            (recur (next pending) seen snapshot)
            (let [module-state (get module-states module)
-                 {:keys [source dependencies named-module-imports
+                 {:keys [source dependencies named-module-imports compiler-support
                          dispatch-entries state-entries type-declarations]}
                  (development-dependency-entry module module-state
                                                direct-dependencies)
@@ -2350,6 +2382,7 @@
                    (string? source)
                    (assoc module {:module module
                                   :source source
+                                  :compiler-support compiler-support
                                   :dependencies dependencies
                                   :type-declarations type-declarations
                                   :named-module-imports named-module-imports
@@ -2397,7 +2430,7 @@
                   (and (nil? existing) (string? (:source entry)))
                   (assoc module
                          (select-keys entry
-                                      [:module :source :source-fingerprint
+                                      [:module :source :source-fingerprint :compiler-support
                                        :dependencies :named-module-imports :type-declarations
                                        :dispatch-entries :state-entries])))]
             (recur (concat (next pending) dependencies)
@@ -2441,6 +2474,8 @@
                 (assoc module
                        {:module module
                         :source dependency-source
+                        :compiler-support
+                        (compiler-support-provenance module module-declarations dependency-source)
                         :dependencies dependencies
                         :named-module-imports
                         (declaration-named-module-imports module-declarations)
@@ -3186,6 +3221,8 @@
            (assoc snapshot module
                   (assoc entry
                          :source source
+                         :compiler-support
+                         (compiler-support-provenance module declarations source)
                          :source-fingerprint nil
                          :dependencies dependencies
                          :named-module-imports
@@ -3227,7 +3264,7 @@
 (defn- linkable-development-dependency-snapshot
   [dependency-snapshot declaration-ids linkage-ids]
   (let [cache-key
-        [:dependency-live-slices-v12
+        [:dependency-live-slices-v13
          (mapv (fn [[module entry]]
                  (let [linkable-dispatch
                        (->> (:dispatch-entries entry)
@@ -3242,6 +3279,7 @@
                         (some-> (:source entry) sha256 (subs 0 24)))
                     (:dependencies entry)
                     (:named-module-imports entry)
+                    (:compiler-support entry)
                     linkable-dispatch
                     linkable-state]))
                dependency-snapshot)
@@ -3780,6 +3818,394 @@
               [:jvm-callable-declaration-keys :jvm-value-declaration-keys
                :jvm-type-declaration-keys]))))
 
+(defn- immutable-compiler-inputs? [options]
+  (and (:cache-safe? options)
+       ;; These fixed flags cannot reference mutable files outside the snapshot.
+       (every? #{"-ferror-tracing" "-funwind-tables"} (:zig-args options))
+       (empty? (:module-zig-args options))))
+
+(defn- compile-source-plan
+  [module-name source declarations dependency-snapshot development-root-source
+   development-root-dependencies development-root-declarations]
+  (let [development-dependencies? true
+        jvm-adapter? (boolean
+                      (or (str/starts-with? (str module-name) "aguafria.jvm.")
+                          (some :jvm-adapter? declarations)))
+        profile-module (development-profile-module declarations)
+        profile-root-declarations
+        (or (when (= (str module-name) profile-module)
+               ;; An exact root-context slice can be larger than the callable
+               ;; declaration slice but smaller than the complete application.
+               ;; Re-export exactly what its generated module contains; naming
+               ;; the profile's `main` here is enough to instantiate an entire
+               ;; server or GUI graph even though the edited Var never uses it.
+              development-root-declarations)
+            (vals (get-in @registry [profile-module :definitions])))
+        profile-export-logical-ids
+        (when (and profile-module
+                   (not= (str module-name) profile-module))
+          (into #{}
+                (comp
+                 (filter :public?)
+                 (filter #(contains? #{:const :struct :fn :fn-proto}
+                                     (:kind %)))
+                 (keep :logical-id))
+                profile-root-declarations))
+        external-publication?
+        (boolean
+         (some #(get-in @registry [(str (:module %))
+                                   :external-publication?])
+               declarations))
+        dependency-snapshot
+        (extend-development-dependency-snapshot
+         dependency-snapshot
+         development-root-dependencies
+         [(str module-name)])
+        retained-root-logical-ids
+        (when development-root-declarations
+          (development-linkage-logical-ids development-root-declarations))
+        development-linkage-logical-ids
+        (development-linkage-logical-ids declarations)
+        {:keys [declaration-ids linkage-ids]}
+        (development-capsule-closure
+         dependency-snapshot
+          ;; The retained native root can include state/types not referenced by
+          ;; this JVM trampoline. Their foreign declarations must remain in the
+          ;; compiler inputs, without adding them to the trampoline's FFM hooks.
+         (into (into development-linkage-logical-ids profile-export-logical-ids)
+               retained-root-logical-ids)
+         (concat development-root-dependencies
+                 (direct-declaration-dependencies declarations))
+          ;; The retained root is emitted outside dependency-snapshot. Its
+          ;; lazy constants can therefore introduce foreign source references
+          ;; that neither the callable's linkage graph nor the dependency
+          ;; capsule walk visits. Preserve those inputs without exporting their
+          ;; native state or activating their unused implementations.
+         (into #{} (mapcat declaration-reference-logical-ids)
+               (concat development-root-declarations
+                       (filter #(= :comptime (:kind %)) declarations))))
+        dependency-snapshot
+        (linkable-development-dependency-snapshot
+         dependency-snapshot declaration-ids linkage-ids)
+        linkage-dependency-modules
+        (development-linkage-modules dependency-snapshot
+                                     development-linkage-logical-ids)
+        dependency-snapshot
+        (reachable-development-dependency-snapshot
+         dependency-snapshot
+         (concat development-root-dependencies
+                 linkage-dependency-modules))
+        {:keys [cache-dir optimize zig development-linkage-logical-ids]
+         :as compiler-options}
+        (compiler-options-for-declarations
+         (cond-> (assoc (cond-> @config
+                           ;; Zig 0.16's `-fstrip` is not safe for a dylib
+                           ;; whose private Zig implementations escape through
+                           ;; exported address getters. Even with an explicit
+                           ;; opaque-pointer relocation, a real TigerBeetle
+                           ;; parser/main publication crashed at address zero.
+                           ;; External development generations therefore keep
+                           ;; Zig's full native image; ordinary JVM-only hot
+                           ;; reload still honors `:none`.
+                          external-publication?
+                          (assoc :development-debug-info :full)
+                          jvm-adapter?
+                          (assoc :optimize (:jvm-optimize @config))
+                          jvm-adapter?
+                          (update :zig-args into ["-ferror-tracing" "-funwind-tables"]))
+                        :development-dependencies? development-dependencies?
+                        :development-root-source development-root-source
+                        :development-root-declarations development-root-declarations
+                        :development-root-dependencies
+                        development-root-dependencies)
+           dependency-snapshot (assoc :dependency-snapshot dependency-snapshot))
+         declarations)
+        compiler-version (zig-version)
+        project-panic?
+        (boolean
+         (some (fn [declaration]
+                 (and (:public? declaration)
+                      (= "panic"
+                         (str (or (:zig-name declaration)
+                                  (:name declaration))))))
+               profile-root-declarations))
+        _
+        (when-not (contains? #{:shared :full}
+                             (:development-panic compiler-options))
+          (throw
+           (ex-info "Unsupported development panic profile"
+                    {:development-panic
+                     (:development-panic compiler-options)
+                     :supported [:shared :full]})))
+        shared-panic-platform?
+        (not (str/includes?
+              (str/lower-case (System/getProperty "os.name")) "windows"))
+        shared-panic?
+        (and (or (= :shared (:development-panic compiler-options))
+                 (str/includes? source "const __aguafria_jvm_guard ="))
+             shared-panic-platform?
+             (not project-panic?))
+        effective-development-panic
+        (cond project-panic? :project
+              shared-panic? :shared
+              :else :full)
+        ;; Storage/transport support is required even when a module supplies
+        ;; its own panic handler. Panic forwarding remains independently chosen.
+        panic-support (development-panic-support-plan compiler-options compiler-version)
+        linkage-source
+        (development-linkage-source
+         dependency-snapshot development-linkage-logical-ids)
+        root-getter-linkage-source
+        (development-root-getter-linkage-source development-root-source)
+        debug-format (native-debug-format compiler-options)
+        test-context-source
+        (when *native-test-context?*
+          (slurp (io/resource "aguafria/jvm_test_context.zig")))
+        hash-input [source compiler-version
+                    (if test-context-source {:initialization-source test-context-source} false)
+                    debug-format
+                    (assoc (artifact/compiler-options-identity
+                            (select-keys compiler-options
+                                         [:optimize :development-debug-info
+                                          :target :cpu :zig-args
+                                          :modules :module-dependencies
+                                          :module-zig-args
+                                          :module-cache-tokens]))
+                           :development-compiler-arguments
+                           (development-compiler-arguments compiler-options)
+                           :development-panic effective-development-panic
+                           :development-panic-support-hash (:hash panic-support)
+                           ;; Hash what Zig actually analyzes, not the larger
+                           ;; runtime-only set used to select those references.
+                           ;; A module becoming live must not invalidate an
+                           ;; otherwise identical dependency-free artifact.
+                           :development-linkage-source linkage-source
+                           :development-root-getter-linkage-source
+                           root-getter-linkage-source)
+                    (System/getProperty "os.name") (System/getProperty "os.arch")]
+        source-hash (artifact/key-for :native-library hash-input)
+        module-dir (io/file cache-dir (safe-path-component module-name) source-hash)
+        source-file (io/file module-dir "module.zig")
+        module-container (emit/named-module-container module-name)
+        wrapped-development-root?
+        (str/includes? (or development-root-source "")
+                       (str "pub const " module-container " = struct"))
+        compiler-source
+        (if development-dependencies?
+          (str (when shared-panic? development-panic-forwarder-source)
+               "// Aguafria development loader.\n"
+               "const aguafria_module = @import("
+               (emit/emit-expr (str module-name)) ")"
+               (when wrapped-development-root?
+                 (str "." module-container))
+               ";\n"
+               (when (and profile-module
+                          (not= (str module-name) profile-module))
+                 (str "const aguafria_profile_root = @import("
+                      (emit/emit-expr profile-module) ")."
+                      (emit/named-module-container profile-module) ";\n"))
+               (->> profile-root-declarations
+                    (filter :public?)
+                    (filter #(contains? #{:const :struct :fn :fn-proto}
+                                        (:kind %)))
+                    (map (fn [declaration]
+                           (let [declaration-name
+                                 (emit/identifier
+                                  (or (:zig-name declaration)
+                                      (:name declaration)))
+                                 source-module
+                                 (if (= (str module-name) profile-module)
+                                   "aguafria_module"
+                                   "aguafria_profile_root")]
+                             (str "pub const " declaration-name " = "
+                                  source-module "." declaration-name ";\n"))))
+                    distinct
+                    sort
+                    (apply str))
+               "comptime { _ = aguafria_module; }\n"
+               root-getter-linkage-source
+               linkage-source)
+          (str (when shared-panic? development-panic-forwarder-source) source))
+        asset-module (or profile-module (str module-name))
+        compiler-source (project/localize-module-assets
+                         asset-module (str compiler-source test-context-source))
+        library-name (System/mapLibraryName
+                      (str "aguafria_" (safe-path-component module-name) "_" source-hash))
+        library-file (io/file module-dir library-name)
+        command (vec (concat
+                      [zig "build-lib" "-dynamic"
+                       (str "-femit-bin=" (.getAbsolutePath library-file))]
+                      (when panic-support [(:path panic-support)])
+                      (development-compiler-arguments compiler-options)
+                      (root-module-arguments source-file compiler-options)))
+        artifact {:module (str module-name) :hash source-hash :command command
+                  :jvm-adapter? jvm-adapter?
+                   ;; Native Var wrappers are pack candidates without changing
+                   ;; their native compiler/optimization profile.
+                  :jvm-wrapper? (materializing-jvm-wrapper? module-name)
+                  :jvm-namespace-image? *namespace-image-preparation?*
+                  :development-panic effective-development-panic
+                  :development-panic-support-path (:path panic-support)
+                  :compiler-owned-linkage-support
+                  (assoc (select-keys panic-support [:path :hash])
+                         :fragments @compiler-owned-linkage-fragments)
+                  :compiler-owned-shared-modules
+                  (into {}
+                        (keep (fn [[module {:keys [source compiler-support]}]]
+                                (when (and compiler-support
+                                           (= (:source-key compiler-support)
+                                              (artifact/key-for :bundle-source source)))
+                                  [module compiler-support])))
+                        dependency-snapshot)
+                  :debug-format debug-format :native-test-context? *native-test-context?*}]
+    (.mkdirs ^File module-dir)
+    (when-not (= compiler-source
+                 (when (.isFile source-file) (slurp source-file)))
+      (spit source-file compiler-source))
+    (project/materialize-module-assets! asset-module compiler-source module-dir)
+    {:module-name module-name
+     :source source
+     :compiler-options compiler-options
+     :compiler-version compiler-version
+     :panic-support panic-support
+     :source-hash source-hash
+     :module-dir module-dir
+     :source-file source-file
+     :library-name library-name
+     :library-file library-file
+     :debug-format debug-format
+     :command command
+     :artifact artifact
+     :jvm-adapter? jvm-adapter?}))
+
+(defn- build-compile-source-plan!
+  [{:keys [module-name source compiler-options compiler-version panic-support
+           source-hash module-dir source-file library-name library-file debug-format
+           command artifact jvm-adapter?]}]
+  (let [cache-dir (:cache-dir compiler-options)
+        panic-support (build-development-panic-support! panic-support)]
+    (let [artifact-lock (get (swap! artifact-locks
+                                    #(if (contains? % (.getAbsolutePath library-file))
+                                       %
+                                       (assoc % (.getAbsolutePath library-file) (Object.))))
+                             (.getAbsolutePath library-file))]
+      (locking artifact-lock
+        (let [cache-safe? (:cache-safe? compiler-options)
+              bundled (when cache-safe? (bundle/find-artifact cache-dir artifact))
+              cached? (boolean (and cache-safe? (or bundled (usable-native-artifact? library-file debug-format))))
+              collecting-handler? (and *compile-only?* bundle/*preparing*
+                                       bundle/*batch-validation?* bundle/*validation-dependencies*
+                                       (or jvm-adapter? (:jvm-wrapper? artifact)
+                                           (:jvm-namespace-image? artifact)))
+              candidate (when (or collecting-handler? (and bundle/*preparing* (not cached?)))
+                          (bundle/candidate artifact))
+              _ (when (and collecting-handler? (nil? candidate))
+                  (throw (ex-info "Handler cannot be included in the single AOT compilation"
+                                  {:aguafria/phase :adapter-planning
+                                   :reason :unsupported-bundle-handler
+                                   :module module-name :artifact-key source-hash
+                                   :source-path (.getAbsolutePath source-file)
+                                   :command command})))
+              deferred? (and bundle/*preparing* (not cached?)
+                             (not *validate-without-linking?*) candidate)
+              link-validation? (boolean (:requires-link-validation? deferred?))
+              prepared? (and cache-safe? deferred? (bundle/prepared-artifact artifact))
+              batch-validation? (and deferred?
+                                     *compile-only?* bundle/*batch-validation?*
+                                     bundle/*validation-dependencies*)
+              explain-start (System/nanoTime)
+              result
+              (cond
+                prepared? nil
+
+                batch-validation? nil
+
+                (or *validate-without-linking?*
+                    (and deferred? (not link-validation?)))
+                (let [validation-command (assoc command 3 "-fno-emit-bin")]
+                  (assoc (run-command validation-command (.getAbsolutePath module-dir))
+                         :command validation-command))
+
+                (not cached?)
+                (let [temporary-file
+                      (io/file module-dir
+                               (str "." (java.util.UUID/randomUUID) "-" library-name))
+                      temporary-command
+                      (assoc command 3 (str "-femit-bin="
+                                            (.getAbsolutePath temporary-file)))]
+                  (try
+                    (let [result (run-library-command temporary-command
+                                                      (.getAbsolutePath module-dir)
+                                                      (:native-test-context? artifact))]
+                      (when (and (zero? (:exit result))
+                                 (not (usable-artifact? temporary-file)))
+                        (throw (ex-info "Zig exited successfully but produced no usable library"
+                                        {:aguafria/phase :zig-compile
+                                         :module module-name
+                                         :source-path (.getAbsolutePath source-file)
+                                         :library-path (.getAbsolutePath library-file)
+                                         :command temporary-command})))
+                      (when (zero? (:exit result))
+                        (preserve-native-debug! temporary-file library-file debug-format)
+                        (move-replacing! temporary-file library-file))
+                      result)
+                    (finally
+                      (Files/deleteIfExists (.toPath temporary-file))))))]
+          (explanation/event!
+           {:event (cond (and result (not (zero? (:exit result)))) :compile-failed
+                         prepared? :preparation-cache-hit
+                         batch-validation? :validation-queued
+                         link-validation? :link-validated
+                         (or *validate-without-linking?* deferred?) :validated
+                         bundled :bundle-cache-hit
+                         cached? :disk-cache-hit
+                         :else :compiled)
+            :module module-name
+            :artifact-key source-hash
+            :bundle-id (:id bundled)
+            :path (or (:library bundled)
+                      (.getAbsolutePath (if (or *validate-without-linking?*
+                                                (and deferred? (not link-validation?)))
+                                          source-file library-file)))
+            :duration-ms (/ (- (System/nanoTime) explain-start) 1e6)})
+          (when (and result (not (zero? (:exit result))))
+            (let [command (or (:command result) command)
+                  {:keys [message diagnostics report location]}
+                  (pretty-zig-error module-name source
+                                    (.getAbsolutePath source-file)
+                                    command (:err result))]
+              (throw
+               (compilation-exception
+                message
+                {:aguafria/phase :zig-compile
+                 :aguafria/report report
+                 :module module-name
+                 :source-path (.getAbsolutePath source-file)
+                 :library-path (.getAbsolutePath library-file)
+                 :command command
+                 :exit (:exit result)
+                 :stdout (:out result)
+                 :stderr (:err result)
+                 :diagnostics diagnostics}
+                location nil))))
+          (bundle/observe!
+           (merge artifact
+                  {:bundle bundled
+                   :validation-pending? (boolean (or batch-validation?
+                                                     (:validation-pending? prepared?)))
+                   :cached? cached?
+                   :zig-version compiler-version
+                   :development-debug-info (:development-debug-info compiler-options)
+                   :development-panic-support-size-bytes (:size-bytes panic-support)
+                   :compiled-source source
+                   :source-path (.getAbsolutePath source-file)
+                   :library-path (or (:library bundled) (.getAbsolutePath library-file))
+                   :debug-symbol-path (or (:debug bundled)
+                                          (when debug-format
+                                            (.getAbsolutePath (native-debug-file library-file))))
+                   :library-size-bytes (if bundled (:library-bytes bundled) (.length library-file))
+                   :compiler-output result})))))))
+
 (defn- compile-source!
   ([module-name source declarations]
    (compile-source! module-name source declarations nil))
@@ -3795,333 +4221,10 @@
                     development-root-source development-root-dependencies nil))
   ([module-name source declarations dependency-snapshot development-root-source
     development-root-dependencies development-root-declarations]
-   (let [development-dependencies? true
-         jvm-adapter? (boolean
-                       (or (str/starts-with? (str module-name) "aguafria.jvm.")
-                           (some :jvm-adapter? declarations)))
-         profile-module (development-profile-module declarations)
-         profile-root-declarations
-         (or (when (= (str module-name) profile-module)
-               ;; An exact root-context slice can be larger than the callable
-               ;; declaration slice but smaller than the complete application.
-               ;; Re-export exactly what its generated module contains; naming
-               ;; the profile's `main` here is enough to instantiate an entire
-               ;; server or GUI graph even though the edited Var never uses it.
-               development-root-declarations)
-             (vals (get-in @registry [profile-module :definitions])))
-         profile-export-logical-ids
-         (when (and profile-module
-                    (not= (str module-name) profile-module))
-           (into #{}
-                 (comp
-                  (filter :public?)
-                  (filter #(contains? #{:const :struct :fn :fn-proto}
-                                      (:kind %)))
-                  (keep :logical-id))
-                 profile-root-declarations))
-         external-publication?
-         (boolean
-          (some #(get-in @registry [(str (:module %))
-                                    :external-publication?])
-                declarations))
-         dependency-snapshot
-         (extend-development-dependency-snapshot
-          dependency-snapshot
-          development-root-dependencies
-          [(str module-name)])
-         retained-root-logical-ids
-         (when development-root-declarations
-           (development-linkage-logical-ids development-root-declarations))
-         development-linkage-logical-ids
-         (development-linkage-logical-ids declarations)
-         {:keys [declaration-ids linkage-ids]}
-         (development-capsule-closure
-          dependency-snapshot
-          ;; The retained native root can include state/types not referenced by
-          ;; this JVM trampoline. Their foreign declarations must remain in the
-          ;; compiler inputs, without adding them to the trampoline's FFM hooks.
-          (into (into development-linkage-logical-ids profile-export-logical-ids)
-                retained-root-logical-ids)
-          (concat development-root-dependencies
-                  (direct-declaration-dependencies declarations))
-          ;; The retained root is emitted outside dependency-snapshot. Its
-          ;; lazy constants can therefore introduce foreign source references
-          ;; that neither the callable's linkage graph nor the dependency
-          ;; capsule walk visits. Preserve those inputs without exporting their
-          ;; native state or activating their unused implementations.
-          (into #{} (mapcat declaration-reference-logical-ids)
-                (concat development-root-declarations
-                        (filter #(= :comptime (:kind %)) declarations))))
-         dependency-snapshot
-         (linkable-development-dependency-snapshot
-          dependency-snapshot declaration-ids linkage-ids)
-         linkage-dependency-modules
-         (development-linkage-modules dependency-snapshot
-                                      development-linkage-logical-ids)
-         dependency-snapshot
-         (reachable-development-dependency-snapshot
-          dependency-snapshot
-          (concat development-root-dependencies
-                  linkage-dependency-modules))
-         {:keys [cache-dir optimize zig development-linkage-logical-ids]
-          :as compiler-options}
-         (compiler-options-for-declarations
-          (cond-> (assoc (cond-> @config
-                           ;; Zig 0.16's `-fstrip` is not safe for a dylib
-                           ;; whose private Zig implementations escape through
-                           ;; exported address getters. Even with an explicit
-                           ;; opaque-pointer relocation, a real TigerBeetle
-                           ;; parser/main publication crashed at address zero.
-                           ;; External development generations therefore keep
-                           ;; Zig's full native image; ordinary JVM-only hot
-                           ;; reload still honors `:none`.
-                           external-publication?
-                           (assoc :development-debug-info :full)
-                           jvm-adapter?
-                           (assoc :optimize (:jvm-optimize @config))
-                           jvm-adapter?
-                           (update :zig-args into ["-ferror-tracing" "-funwind-tables"]))
-                         :development-dependencies? development-dependencies?
-                         :development-root-source development-root-source
-                         :development-root-declarations development-root-declarations
-                         :development-root-dependencies
-                         development-root-dependencies)
-            dependency-snapshot (assoc :dependency-snapshot dependency-snapshot))
-          declarations)
-         compiler-version (zig-version)
-         project-panic?
-         (boolean
-          (some (fn [declaration]
-                  (and (:public? declaration)
-                       (= "panic"
-                          (str (or (:zig-name declaration)
-                                   (:name declaration))))))
-                profile-root-declarations))
-         _
-         (when-not (contains? #{:shared :full}
-                              (:development-panic compiler-options))
-           (throw
-            (ex-info "Unsupported development panic profile"
-                     {:development-panic
-                      (:development-panic compiler-options)
-                      :supported [:shared :full]})))
-         shared-panic-platform?
-         (not (str/includes?
-               (str/lower-case (System/getProperty "os.name")) "windows"))
-         shared-panic?
-         (and (or (= :shared (:development-panic compiler-options))
-                  (str/includes? source "const __aguafria_jvm_guard ="))
-              shared-panic-platform?
-              (not project-panic?))
-         effective-development-panic
-         (cond project-panic? :project
-               shared-panic? :shared
-               :else :full)
-        ;; Storage/transport support is required even when a module supplies
-        ;; its own panic handler. Panic forwarding remains independently chosen.
-         panic-support (development-panic-support! compiler-options compiler-version)
-         linkage-source
-         (development-linkage-source
-          dependency-snapshot development-linkage-logical-ids)
-         root-getter-linkage-source
-         (development-root-getter-linkage-source development-root-source)
-         debug-format (native-debug-format compiler-options)
-         test-context-source
-         (when *native-test-context?*
-           (slurp (io/resource "aguafria/jvm_test_context.zig")))
-         hash-input [source compiler-version
-                     (if test-context-source {:initialization-source test-context-source} false)
-                     debug-format
-                     (assoc (artifact/compiler-options-identity
-                             (select-keys compiler-options
-                                          [:optimize :development-debug-info
-                                           :target :cpu :zig-args
-                                           :modules :module-dependencies
-                                           :module-zig-args
-                                           :module-cache-tokens]))
-                            :development-compiler-arguments
-                            (development-compiler-arguments compiler-options)
-                            :development-panic effective-development-panic
-                            :development-panic-support-hash (:hash panic-support)
-                           ;; Hash what Zig actually analyzes, not the larger
-                           ;; runtime-only set used to select those references.
-                           ;; A module becoming live must not invalidate an
-                           ;; otherwise identical dependency-free artifact.
-                            :development-linkage-source linkage-source
-                            :development-root-getter-linkage-source
-                            root-getter-linkage-source)
-                     (System/getProperty "os.name") (System/getProperty "os.arch")]
-         source-hash (artifact/key-for :native-library hash-input)
-         module-dir (io/file cache-dir (safe-path-component module-name) source-hash)
-         source-file (io/file module-dir "module.zig")
-         module-container (emit/named-module-container module-name)
-         wrapped-development-root?
-         (str/includes? (or development-root-source "")
-                        (str "pub const " module-container " = struct"))
-         compiler-source
-         (if development-dependencies?
-           (str (when shared-panic? development-panic-forwarder-source)
-                "// Aguafria development loader.\n"
-                "const aguafria_module = @import("
-                (emit/emit-expr (str module-name)) ")"
-                (when wrapped-development-root?
-                  (str "." module-container))
-                ";\n"
-                (when (and profile-module
-                           (not= (str module-name) profile-module))
-                  (str "const aguafria_profile_root = @import("
-                       (emit/emit-expr profile-module) ")."
-                       (emit/named-module-container profile-module) ";\n"))
-                (->> profile-root-declarations
-                     (filter :public?)
-                     (filter #(contains? #{:const :struct :fn :fn-proto}
-                                         (:kind %)))
-                     (map (fn [declaration]
-                            (let [declaration-name
-                                  (emit/identifier
-                                   (or (:zig-name declaration)
-                                       (:name declaration)))
-                                  source-module
-                                  (if (= (str module-name) profile-module)
-                                    "aguafria_module"
-                                    "aguafria_profile_root")]
-                              (str "pub const " declaration-name " = "
-                                   source-module "." declaration-name ";\n"))))
-                     distinct
-                     sort
-                     (apply str))
-                "comptime { _ = aguafria_module; }\n"
-                root-getter-linkage-source
-                linkage-source)
-           (str (when shared-panic? development-panic-forwarder-source) source))
-         asset-module (or profile-module (str module-name))
-         compiler-source (project/localize-module-assets
-                          asset-module (str compiler-source test-context-source))
-         library-name (System/mapLibraryName
-                       (str "aguafria_" (safe-path-component module-name) "_" source-hash))
-         library-file (io/file module-dir library-name)
-         command (vec (concat
-                       [zig "build-lib" "-dynamic"
-                        (str "-femit-bin=" (.getAbsolutePath library-file))]
-                       (when panic-support [(:path panic-support)])
-                       (development-compiler-arguments compiler-options)
-                       (root-module-arguments source-file compiler-options)))
-         artifact {:module (str module-name) :hash source-hash :command command
-                   :jvm-adapter? jvm-adapter?
-                   ;; Native Var wrappers are pack candidates without changing
-                   ;; their native compiler/optimization profile.
-                   :jvm-wrapper? (materializing-jvm-wrapper? module-name)
-                   :development-panic effective-development-panic
-                   :development-panic-support-path (:path panic-support)
-                   :compiler-owned-linkage-support
-                   (assoc (select-keys panic-support [:path :hash])
-                          :fragments @compiler-owned-linkage-fragments)
-                   :debug-format debug-format :native-test-context? *native-test-context?*}]
-     (.mkdirs ^File module-dir)
-     (when-not (= compiler-source
-                  (when (.isFile source-file) (slurp source-file)))
-       (spit source-file compiler-source))
-     (project/materialize-module-assets! asset-module compiler-source module-dir)
-     (let [artifact-lock (get (swap! artifact-locks
-                                     #(if (contains? % (.getAbsolutePath library-file))
-                                        %
-                                        (assoc % (.getAbsolutePath library-file) (Object.))))
-                              (.getAbsolutePath library-file))]
-       (locking artifact-lock
-         (let [cache-safe? (:cache-safe? compiler-options)
-               bundled (when cache-safe? (bundle/find-artifact cache-dir artifact))
-               cached? (boolean (and cache-safe? (or bundled (usable-native-artifact? library-file debug-format))))
-               deferred? (and bundle/*preparing* (not cached?)
-                              (not *validate-without-linking?*) (bundle/candidate artifact))
-               link-validation? (boolean (:requires-link-validation? deferred?))
-               prepared? (and cache-safe? deferred? (bundle/prepared-artifact artifact))
-               explain-start (System/nanoTime)
-               result
-               (cond
-                 prepared? nil
-
-                 (or *validate-without-linking?*
-                     (and deferred? (not link-validation?)))
-                 (let [validation-command (assoc command 3 "-fno-emit-bin")]
-                   (assoc (run-command validation-command (.getAbsolutePath module-dir))
-                          :command validation-command))
-
-                 (not cached?)
-                 (let [temporary-file
-                       (io/file module-dir
-                                (str "." (java.util.UUID/randomUUID) "-" library-name))
-                       temporary-command
-                       (assoc command 3 (str "-femit-bin="
-                                             (.getAbsolutePath temporary-file)))]
-                   (try
-                     (let [result (run-library-command temporary-command
-                                                       (.getAbsolutePath module-dir)
-                                                       *native-test-context?*)]
-                       (when (and (zero? (:exit result))
-                                  (not (usable-artifact? temporary-file)))
-                         (throw (ex-info "Zig exited successfully but produced no usable library"
-                                         {:aguafria/phase :zig-compile
-                                          :module module-name
-                                          :source-path (.getAbsolutePath source-file)
-                                          :library-path (.getAbsolutePath library-file)
-                                          :command temporary-command})))
-                       (when (zero? (:exit result))
-                         (preserve-native-debug! temporary-file library-file debug-format)
-                         (move-replacing! temporary-file library-file))
-                       result)
-                     (finally
-                       (Files/deleteIfExists (.toPath temporary-file))))))]
-           (explanation/event!
-            {:event (cond (and result (not (zero? (:exit result)))) :compile-failed
-                          prepared? :preparation-cache-hit
-                          link-validation? :link-validated
-                          (or *validate-without-linking?* deferred?) :validated
-                          bundled :bundle-cache-hit
-                          cached? :disk-cache-hit
-                          :else :compiled)
-             :module module-name
-             :artifact-key source-hash
-             :bundle-id (:id bundled)
-             :path (or (:library bundled)
-                       (.getAbsolutePath (if (or *validate-without-linking?*
-                                                 (and deferred? (not link-validation?)))
-                                           source-file library-file)))
-             :duration-ms (/ (- (System/nanoTime) explain-start) 1e6)})
-           (when (and result (not (zero? (:exit result))))
-             (let [command (or (:command result) command)
-                   {:keys [message diagnostics report location]}
-                   (pretty-zig-error module-name source
-                                     (.getAbsolutePath source-file)
-                                     command (:err result))]
-               (throw
-                (compilation-exception
-                 message
-                 {:aguafria/phase :zig-compile
-                  :aguafria/report report
-                  :module module-name
-                  :source-path (.getAbsolutePath source-file)
-                  :library-path (.getAbsolutePath library-file)
-                  :command command
-                  :exit (:exit result)
-                  :stdout (:out result)
-                  :stderr (:err result)
-                  :diagnostics diagnostics}
-                 location nil))))
-           (bundle/observe!
-            (merge artifact
-                   {:bundle bundled
-                    :cached? cached?
-                    :zig-version compiler-version
-                    :development-debug-info (:development-debug-info compiler-options)
-                    :development-panic-support-size-bytes (:size-bytes panic-support)
-                    :compiled-source source
-                    :source-path (.getAbsolutePath source-file)
-                    :library-path (or (:library bundled) (.getAbsolutePath library-file))
-                    :debug-symbol-path (or (:debug bundled)
-                                           (when debug-format
-                                             (.getAbsolutePath (native-debug-file library-file))))
-                    :library-size-bytes (if bundled (:library-bytes bundled) (.length library-file))
-                    :compiler-output result}))))))))
+   (build-compile-source-plan!
+    (compile-source-plan module-name source declarations dependency-snapshot
+                         development-root-source development-root-dependencies
+                         development-root-declarations))))
 
 (defn- scalar-key
   [type]
@@ -8545,15 +8648,13 @@
     (publication-plan-view module declaration-key module-state old-declaration
                            declaration definitions plan)))
 
-(defn- compile-slice!
-  [module slice]
-  (let [compiled (compile-source! module (:compile-source slice)
-                                  (:declarations slice)
-                                  (:dependency-snapshot slice)
-                                  (:development-root-source slice)
-                                  (:development-root-dependencies slice)
-                                  (:development-root-declarations slice))
-        type-declarations
+(defn- slice-source-arguments [module slice]
+  [module (:compile-source slice) (:declarations slice) (:dependency-snapshot slice)
+   (:development-root-source slice) (:development-root-dependencies slice)
+   (:development-root-declarations slice)])
+
+(defn- slice-compilation-snapshot [slice]
+  (let [type-declarations
         (or (:materialization-type-declarations slice)
             (into {}
                   (comp (filter type-producing-declaration?)
@@ -8562,18 +8663,30 @@
                   (concat (:declarations slice)
                           (mapcat :type-declarations
                                   (vals (:dependency-snapshot slice))))))]
+    (assoc (select-keys slice
+                        [:declarations :dependency-snapshot
+                         :development-root-source
+                         :development-root-declarations
+                         :development-root-dependencies
+                         :embedded-root-dispatch-entries
+                         :embedded-root-state-entries])
+           :materialization-type-declarations type-declarations
+           :jvm-adapter-publication?
+           (boolean (:jvm-adapter? *materialize-declaration*)))))
+
+(defn- compile-slice! [module slice]
+  (let [compiled (apply compile-source! (slice-source-arguments module slice))]
     (assoc slice :compiled
-           (assoc compiled :compilation-snapshot
-                  (assoc (select-keys slice
-                                      [:declarations :dependency-snapshot
-                                       :development-root-source
-                                       :development-root-declarations
-                                       :development-root-dependencies
-                                       :embedded-root-dispatch-entries
-                                       :embedded-root-state-entries])
-                         :materialization-type-declarations type-declarations
-                         :jvm-adapter-publication?
-                         (boolean (:jvm-adapter? *materialize-declaration*)))))))
+           (assoc compiled :compilation-snapshot (slice-compilation-snapshot slice)))))
+
+(defn- freeze-compilation-slice! [module slice]
+  {:slice slice
+   :snapshot (slice-compilation-snapshot slice)
+   :source-plan (apply compile-source-plan (slice-source-arguments module slice))})
+
+(defn- build-frozen-compilation-slice! [{:keys [slice snapshot source-plan]}]
+  (assoc slice :compiled
+         (assoc (build-compile-source-plan! source-plan) :compilation-snapshot snapshot)))
 
 (defn- compile-plan!
   [module {:keys [primary fallback prefer-fallback?]}]
@@ -11501,20 +11614,37 @@
                                 "-fno-entry" "--test-runner" (.getAbsolutePath runner)]
                                (root-module-arguments file options)))]
       (let [started (System/nanoTime)
-            result (apply shell/sh (concat command [:dir (.getAbsolutePath directory)]))]
+            result (binding [compiler-work/*phase* :type-query]
+                     (compiler-work/run-command!
+                      command #(apply shell/sh (concat command [:dir (.getAbsolutePath directory)]))))]
         (explanation/event! {:event :analysis :module module :path (.getAbsolutePath file)
                              :exit (:exit result)
                              :duration-ms (/ (- (System/nanoTime) started) 1e6)})
         (assoc result :command command :source-path (.getAbsolutePath file))))))
 
-(defn- native-test-library!
+(defn- native-test-commands
+  [compiler-options selector source-file runner-file object-file library-file panic-support]
+  {:compile-command
+   (vec (concat [(:zig compiler-options) "test-obj" "--test-filter" selector
+                 "--test-no-exec" "--test-runner" (.getAbsolutePath ^File runner-file)
+                 "-fno-entry" "-fPIC" "-fllvm"
+                 (str "-femit-bin=" (.getAbsolutePath ^File object-file)) "-lc"]
+                (root-module-arguments source-file compiler-options)))
+   :link-command
+   (vec (concat [(:zig compiler-options) "build-lib" (.getAbsolutePath ^File object-file)
+                 (:path panic-support) "-dynamic" "-lc"
+                 (str "-femit-bin=" (.getAbsolutePath ^File library-file))]
+                (when-let [target (:target compiler-options)] ["-target" (str target)])
+                (when-let [cpu (:cpu compiler-options)] ["-mcpu" (str cpu)])))})
+
+(defn- native-test-plan
   [module test-name & [candidate]]
   (let [{:keys [selected source dependencies compiler-options]}
         (native-test-snapshot module test-name candidate)
         runner (str development-panic-forwarder-source
                     (slurp (io/resource "aguafria/jvm_guard.zig")) "\n"
                     (slurp (io/resource "aguafria/jvm_test_runner.zig")))
-        panic-support (development-panic-support! compiler-options (zig-version))
+        panic-support (development-panic-support-plan compiler-options (zig-version))
         materialized (io/file (materialize-module-source! module source))
         directory (.getParentFile materialized)
         basename (str/replace (last (str/split module #"\.")) "-" "_")
@@ -11522,44 +11652,55 @@
         debug-format (native-debug-format compiler-options)
         token (subs (sha256 [source runner compiler-options (:hash panic-support) debug-format]) 0 24)
         runner-file (io/file directory (str "jvm_test_runner_" token ".zig"))
-        bitcode-file (io/file directory (str "test_" token ".bc"))
+        object-file (io/file directory (str "test_" token ".o"))
         library-file (io/file directory (System/mapLibraryName (str "test_" token)))
         selector (str basename ".test." (:test-name selected))
-        ;; `zig test` supplies builtin.is_test and real test discovery. Emit
-        ;; code only, then link a library: neither command executes the test.
-        compile-command
-        (vec (concat [(:zig compiler-options) "test" "--test-filter" selector
-                      "--test-no-exec" "--test-runner" (.getAbsolutePath runner-file)
-                      "-fno-entry" "-fPIC" "-fllvm" "-fno-emit-bin"
-                      (str "-femit-llvm-bc=" (.getAbsolutePath bitcode-file)) "-lc"]
-                     (root-module-arguments source-file compiler-options)))
-        link-command
-        (vec (concat [(:zig compiler-options) "build-lib" (.getAbsolutePath bitcode-file)
-                      (:path panic-support)
-                      "-dynamic" "-lc"
-                      (str "-femit-bin=" (.getAbsolutePath library-file))]
-                     (when-let [target (:target compiler-options)] ["-target" (str target)])
-                     (when-let [cpu (:cpu compiler-options)] ["-mcpu" (str cpu)])))
+        ;; The compiler's test-object frontend retains real test discovery and
+        ;; builtin.is_test. Link its object without a second LLVM codegen pass.
+        {:keys [compile-command link-command]}
+        (native-test-commands compiler-options selector source-file runner-file
+                              object-file library-file panic-support)
         details {:module module :test test-name :test-name (:test-name selected)
                  :source-path (.getAbsolutePath source-file)
                  :library-path (.getAbsolutePath library-file)
                  :dependencies dependencies :execution :in-process
                  :command compile-command :link-command link-command}]
+    ;; Root and transitive generated sources use immutable content-addressed
+    ;; paths. Materialize them before the loader can register later declarations.
     (locking compile-lock
       (doseq [[file text] [[source-file source] [runner-file runner]]]
         (when-not (.isFile ^File file)
           (Files/writeString (.toPath ^File file) text StandardCharsets/UTF_8
-                             (make-array StandardOpenOption 0))))
+                             (make-array StandardOpenOption 0)))))
+    {:module module :source source :directory directory
+     :library-file library-file :debug-format debug-format
+     :panic-support panic-support :details details
+     ;; Arbitrary extra compiler arguments can name mutable external inputs.
+     ;; Compile those immediately in their original loading context.
+     :parallel-safe? (immutable-compiler-inputs? compiler-options)}))
+
+(defn- build-native-test-plan!
+  [{:keys [module source directory library-file debug-format panic-support details]}]
+  (build-development-panic-support! panic-support)
+  (let [path (.getAbsolutePath ^File library-file)
+        artifact-lock (get (swap! artifact-locks
+                                  #(if (contains? % path) % (assoc % path (Object.))))
+                           path)
+        {:keys [command link-command source-path]} details]
+    ;; Independent snapshots can compile concurrently. Same-key requests still
+    ;; share one build; no compiler process holds the declaration-registry lock.
+    (locking artifact-lock
       (let [cached? (usable-native-artifact? library-file debug-format)
             started (System/nanoTime)]
         (when-not cached?
-          (doseq [command [compile-command link-command]]
-            (let [result (run-command command (.getAbsolutePath directory))]
+          (doseq [command [command link-command]]
+            (let [result (binding [compiler-work/*phase* :native-test]
+                           (run-command command (.getAbsolutePath directory)))]
               (when-not (zero? (:exit result))
                 (explanation/event! {:event :compile-failed :module module
                                      :path (.getAbsolutePath library-file)})
                 (let [{:keys [message diagnostics report location]}
-                      (pretty-zig-error module source (.getAbsolutePath source-file)
+                      (pretty-zig-error module source source-path
                                         command (:err result))]
                   (throw
                    (compilation-exception
@@ -11576,16 +11717,54 @@
                              :duration-ms (/ (- (System/nanoTime) started) 1e6)})))
     details))
 
+(defn- native-test-library!
+  [module test-name & [candidate]]
+  (build-native-test-plan! (native-test-plan module test-name candidate)))
+
+(defn- prepare-native-test!
+  [test candidate]
+  (let [prepared (fn [artifact]
+                   {:test test :status :prepared
+                    :artifact (select-keys artifact [:library-path :source-path])})]
+    (if *precompile-build-submitter*
+      (let [plan (native-test-plan (namespace test) (symbol (name test)) candidate)]
+        (if (:parallel-safe? plan)
+          {:test test :status :pending
+           :native-test-job (*precompile-build-submitter*
+                             #(prepared (build-native-test-plan! plan)))}
+          (prepared (build-native-test-plan! plan))))
+      (prepared (apply native-test-library! (namespace test) (symbol (name test))
+                       (when candidate [candidate]))))))
+
 (defn precompile-test!
   "Compile the final registered native test snapshot without executing it.
   Uses the same source selection and artifact key as ordinary test invocation."
   [test]
   (when-not (qualified-symbol? test)
     (throw (ex-info "Expected a qualified native test symbol" {:test test})))
-  {:test test
-   :status :prepared
-   :artifact (select-keys (native-test-library! (namespace test) (symbol (name test)))
-                          [:library-path :source-path])})
+  (prepare-native-test! test nil))
+
+(defn- test-definition-failure [test error]
+  (let [causes (take-while some? (iterate ex-cause error))
+        diagnostic (or (some #(when (:aguafria/phase (ex-data %)) %) causes) error)]
+    {:test test :status :failed :error (ex-message diagnostic)
+     :details (select-keys (ex-data diagnostic)
+                           [:aguafria/phase :aguafria/summary
+                            :diagnostics :source-path :command])}))
+
+(defn resolve-precompiled-test!
+  "Await a frozen native test build before publishing its preparation report."
+  [check error-report]
+  (if-let [job (:native-test-job check)]
+    (try
+      (.get ^java.util.concurrent.Future job)
+      (catch java.util.concurrent.ExecutionException error
+        (let [cause (ex-cause error)]
+          (when-not (instance? Exception cause) (throw cause))
+          (if (:native-test-definition? check)
+            (test-definition-failure (:test check) cause)
+            (assoc (error-report cause) :test (:test check) :status :failed)))))
+    check))
 
 (defn check-test-definition!
   "Compile a proposed test against declarations available now, without running
@@ -11593,39 +11772,9 @@
   to their caller, as they do for other declarations."
   [declaration]
   (project/ensure-source-catalog! (get-in declaration [:source :file]))
-  (let [test (symbol (:module declaration) (str (:name declaration)))
-        lazy-import? (and (project/converted-module? (:module declaration))
+  (let [lazy-import? (and (project/converted-module? (:module declaration))
                           (loading-clojure-file?))]
-    (cond
-      (and *compile-only?* *prepared-namespace-images*
-           (not *registration-batch*) (not lazy-import?))
-      (let [check
-            (try
-              {:test test
-               :status :prepared
-               :artifact (select-keys
-                          (native-test-library! (:module declaration)
-                                                (:name declaration) declaration)
-                          [:library-path :source-path])}
-              (catch Exception error
-                (let [causes (take-while some? (iterate ex-cause error))
-                      diagnostic (or (some #(when (:aguafria/phase (ex-data %)) %)
-                                           causes)
-                                     error)]
-                  {:test test
-                   :status :failed
-                   :error (ex-message diagnostic)
-                   :details (select-keys (ex-data diagnostic)
-                                         [:aguafria/phase :aguafria/summary
-                                          :diagnostics :source-path :command])})))]
-        ;; Capture the same check at the same registration point as normal
-        ;; loading. Later declarations must not change its compilation input.
-        (swap! *prepared-namespace-images* update-in
-               [(:module declaration) :test-checks] (fnil conj []) check))
-
-      (or *source-only-registration?* *registration-batch* lazy-import?) nil
-
-      :else
+    (when-not (or *source-only-registration?* *registration-batch* lazy-import?)
       (native-test-library! (:module declaration) (:name declaration) declaration)))
   nil)
 
@@ -12856,6 +13005,31 @@
                                {:declarations declarations
                                 :development-root-source (:compile-source root-sources)}))))))
 
+(defn- prepared-namespace-image [module compilation]
+  (when *prepared-namespace-images*
+    (swap! *prepared-namespace-images* update module assoc
+           :snapshot (get-in compilation [:compiled :compilation-snapshot])
+           :dispatch-specs (:dispatch-specs compilation)))
+  {:namespace (symbol module) :status :prepared
+   :dependencies (vec (sort (keys (:dependency-snapshot compilation))))
+   :artifact (select-keys (:compiled compilation) [:hash :library-path])})
+
+(defn- prepare-namespace-image! [module plan]
+  (binding [*namespace-image-preparation?* true]
+    (if (and *precompile-build-submitter* (nil? (:fallback plan))
+             (not (:prefer-fallback? plan)))
+      (let [frozen (freeze-compilation-slice! module (:primary plan))
+            build #(bundle/call-with-validation-scope
+                    (fn [] (prepared-namespace-image
+                            module (build-frozen-compilation-slice! frozen))))]
+        (if (immutable-compiler-inputs? (get-in frozen [:source-plan :compiler-options]))
+          {:namespace (symbol module) :status :pending
+           :dependencies (vec (sort (keys (get-in frozen [:slice :dependency-snapshot]))))
+           :namespace-image-job (*precompile-build-submitter* build)}
+          (build)))
+      (bundle/call-with-validation-scope
+       #(prepared-namespace-image module (compile-plan! module plan))))))
+
 (defn precompile-namespace-load!
   "Prepare the initial namespace image used by ordinary Clojure file loading.
   This complements per-callable preparation without loading a native library."
@@ -12889,15 +13063,8 @@
                     (let [plan (compilation-plan module initial-state declarations
                                                  nil declaration)]
                       (retain-prepared-source-identities! module state plan)
-                      plan))))
-              compilation (compile-plan! module (refresh-plan-dependency-snapshots plan))]
-          (when *prepared-namespace-images*
-            (swap! *prepared-namespace-images* update module assoc
-                   :snapshot (get-in compilation [:compiled :compilation-snapshot])
-                   :dispatch-specs (:dispatch-specs compilation)))
-          {:namespace (symbol module) :status :prepared
-           :dependencies (vec (sort (keys (:dependency-snapshot compilation))))
-           :artifact (select-keys (:compiled compilation) [:hash :library-path])})))))
+                      (refresh-plan-dependency-snapshots plan)))))]
+          (prepare-namespace-image! module plan))))))
 
 (defn- precompile-declaration-generation! [declaration request-key]
   (let [module (:module declaration)
@@ -13736,7 +13903,8 @@
 
 (defn precompile-type!
   "Prepare a declared native type's construction/layout adapter without loading
-  it or allocating an instance. Uses the same path as the callable type Var."
+  it or allocating an instance, including immutable and mutable field readers.
+  Uses the same paths as the callable type Var and ordinary field access."
   [qualified-name]
   (when-not (qualified-symbol? qualified-name)
     (throw (ex-info "Type preparation requires a qualified declaration" {:type qualified-name})))
@@ -13745,19 +13913,26 @@
     (let [module (:module declaration)
           description (container-type-description declaration)
           fields (if description (container-storage-fields description) (:fields declaration))]
-      (binding [*compile-only?* true]
-        ((requiring-resolve 'aguafria.zig.jvm/precompile-construction-profile!) qualified-name)
-        (ensure-native-type-binding! (namespace qualified-name) (symbol (name qualified-name)))
-        (precompile-type-layout-dependencies! declaration)
-        (doseq [field fields
-                :when (some #(and (simple-symbol? %)
-                                  (nil? (native-type-declaration module %)))
-                            (tree-seq vector? rest (:type field)))]
-          ((requiring-resolve 'aguafria.zig.jvm/precompile-reflected-layout!)
-           module (or (native-field-child-expression
-                       (native-field-type-expression declaration field) (:type field))
-                      (native-field-type-expression declaration field)))))
-      {:type qualified-name :status :prepared})
+      (bundle/call-with-validation-scope
+       (fn []
+         (binding [*compile-only?* true]
+           ((requiring-resolve 'aguafria.zig.jvm/precompile-construction-profile!) qualified-name)
+           (ensure-native-type-binding! (namespace qualified-name) (symbol (name qualified-name)))
+           (precompile-type-layout-dependencies! declaration)
+           (doseq [field fields
+                   pointer [:*const :*]]
+             ((requiring-resolve 'aguafria.zig.jvm/precompile-storage!)
+              {:kind :field :receiver qualified-name
+               :address [pointer qualified-name] :member (:name field)}))
+           (doseq [field fields
+                   :when (some #(and (simple-symbol? %)
+                                     (nil? (native-type-declaration module %)))
+                               (tree-seq vector? rest (:type field)))]
+             ((requiring-resolve 'aguafria.zig.jvm/precompile-reflected-layout!)
+              module (or (native-field-child-expression
+                          (native-field-type-expression declaration field) (:type field))
+                         (native-field-type-expression declaration field)))))
+         {:type qualified-name :status :prepared})))
     {:type qualified-name :status :unsupported :reason :external-type-layout}))
 
 (defn materialize-type!
@@ -13951,13 +14126,31 @@
                 (vector? (first arguments))
                 (every? string? (first arguments))))))
 
-(defn finish-precompile-bundles!
-  "Link the collected, validated JVM adapters without opening any library."
+(defn validate-precompile-bundles!
+  "Validate queued exact adapter graphs without opening native code."
   [collected]
   (when-not *compile-only?*
-    (throw (ex-info "Bundle publication requires compile-only preparation" {})))
-  (bundle/finish! (:cache-dir @config) collected
-                  {:run-command run-command :preserve-debug! preserve-native-debug!}))
+    (throw (ex-info "Batch validation requires compile-only preparation" {})))
+  (bundle/validate-pending!
+   (:cache-dir @config) collected
+   {:run-command run-command
+    :validate-artifact
+    (fn [artifact]
+      (let [command (assoc (:command artifact) 3 "-fno-emit-bin")
+            result (run-command command (.getParent (io/file (:source-path artifact))))]
+        (assoc result :command command
+               :status (if (zero? (:exit result)) :validated :failed))))}))
+
+(defn finish-precompile-bundles!
+  "Link collected JVM adapters without opening any library. :validate-pending?
+  uses that same compiler build to validate queued handlers before publication."
+  ([collected] (finish-precompile-bundles! collected {}))
+  ([collected options]
+   (when-not *compile-only?*
+     (throw (ex-info "Bundle publication requires compile-only preparation" {})))
+   (bundle/finish! (:cache-dir @config) collected
+                   (assoc options :run-command run-command
+                          :preserve-debug! preserve-native-debug!))))
 
 (defn precompile-function!
   "Prepare one concrete JVM callable without invoking its body."
@@ -14036,7 +14229,8 @@
             (if (= :test (:kind declaration))
               {:function (symbol module (str (:name declaration)))
                :status :skipped :reason :test-runner}
-              (precompile-function! (symbol module (str (:name declaration))))))
+              (bundle/call-with-validation-scope
+               #(precompile-function! (symbol module (str (:name declaration)))))))
           declarations)))
 
 (defn- invoke-uncaptured!

@@ -532,6 +532,8 @@
   (doseq [options [nil {} {:namespace ['somewhere]}
                    {:namespaces 'somewhere} {:namespaces ['somewhere/function]}
                    {:warmup ['somewhere/run!]}
+                   {:coercions [:i32] :bundle? false}
+                   {:coercions [:i32] :bundle? true}
                    {:calls [{:function 'unqualified :args []}]}]]
     (is (thrown? clojure.lang.ExceptionInfo (a/precompile! options)))))
 
@@ -573,9 +575,9 @@
         file (str (io/file (.toFile directory) "report.edn"))
         failure (with-redefs [jvm/precompile-coercion! #(hash-map :type % :status :prepared)
                               runtime/finish-precompile-bundles!
-                              (fn [_] (throw (ex-info "Bundle compile failed"
-                                                      {:aguafria/phase :bundle-compile
-                                                       :reason :fixture-link-failure})))]
+                              (fn [& _] (throw (ex-info "Bundle compile failed"
+                                                        {:aguafria/phase :bundle-compile
+                                                         :reason :fixture-link-failure})))]
                   (try
                     (precompile/precompile! {:coercions [:i32] :report-file file})
                     nil
@@ -671,7 +673,8 @@
                                 [module (:functions state)])))
                       @(var-get (ns-resolve 'aguafria.zig.runtime 'registry)))
         events (atom [])]
-    (is (= 42 (a/value (function :i32 argument))))
+    (with-open [result (function :i32 argument)]
+      (is (= 42 (a/value result))))
     (let [before (loaded)]
       (is (seq before) "The preservation check must include loaded native bindings")
       (try
@@ -680,7 +683,6 @@
                        (a/precompile!
                         {:calls '[{:function aguafria.zig.precompile-fixture/generic-identity
                                    :args [{:comptime :i32} :i32]}]
-                         :bundle? false
                          :report-file (str (io/file cache "report.edn"))}))]
           (is (every? #(= :prepared (:status %)) (:calls report)))
           (is (some #(= :compiled (:event %)) @events))
@@ -700,7 +702,6 @@
       (runtime/configure! {:cache-dir cache})
       (let [report (a/precompile!
                     {:namespaces ['aguafria.zig.precompile-dependent-fixture]
-                     :bundle? false
                      :report-file (str (io/file cache "report.edn"))})
             images (into {} (map (juxt :namespace identity)) (:namespace-images report))]
         (doseq [namespace '[aguafria.zig.precompile-dependency-fixture

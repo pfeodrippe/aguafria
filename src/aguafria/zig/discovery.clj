@@ -3,6 +3,7 @@
   records supply operation identity, never Clojure type inference."
   (:require [aguafria.keyword :as keyword]
             [aguafria.zig.artifact :as artifact]
+            [aguafria.zig.bundle :as bundle]
             [aguafria.zig.emitter :as emitter]
             [aguafria.zig.runtime :as runtime]
             [clojure.edn :as edn]
@@ -1194,10 +1195,19 @@
      (fn [declarations]
        {:source (str (emitter/emit-module module declarations) (roots declarations))}))))
 
+(declare local-type-identities!)
+
 (defn- analyze-roots! [module]
-  (let [baseline (inspect-roots! module nil)]
+  (let [local-types (local-type-identities! module true)
+        combined (:compiler-result local-types)
+        ;; A successful query also checks the unchanged function/test roots.
+        ;; Failed queries cannot establish baseline validity or hide errors.
+        baseline (if (and combined (zero? (:exit combined)))
+                   combined
+                   (inspect-roots! module nil))]
     (if (zero? (:exit baseline))
-      {:baseline baseline :analysis-baseline baseline :attempts 1 :failures {}}
+      {:baseline baseline :analysis-baseline baseline :attempts 1 :failures {}
+       :local-types (when-not (and combined (compiler-errors? combined)) local-types)}
       (let [empty-result (inspect-roots! module #{})]
         (if-not (zero? (:exit empty-result))
           {:baseline baseline :analysis-baseline baseline :attempts 2 :failures {}}
@@ -1227,7 +1237,7 @@
               {:baseline baseline :analysis-baseline verified :selected selected
                :failures @failures :attempts (inc @attempts)})))))))
 
-(defn- local-type-identities! [module]
+(defn- local-type-identities! [module & [check-roots?]]
   ;; Query the uninstrumented module. Asking about an initializer while its
   ;; operation probes are resolving the catalog would introduce a type cycle.
   (let [candidates (->> (runtime/registered-declarations module)
@@ -1247,9 +1257,11 @@
                                  (for [[index {:keys [name zig-name]}] (map-indexed vector candidates)]
                                    (str "    if (@TypeOf(" (emitter/identifier (or zig-name name))
                                         ") == type) @compileLog(\"aguafria.local-type:" index "\");\n")))
-                          "}\n")})))
+                          "}\n"
+                          (when check-roots? (roots declarations)))})))
         log (second (str/split (or (:err result) "") #"Compile Log Output:\r?\n" 2))]
-    {:identities (set (map (fn [[_ index]] (:name (nth candidates (Long/parseLong index))))
+    {:compiler-result result
+     :identities (set (map (fn [[_ index]] (:name (nth candidates (Long/parseLong index))))
                            (re-seq #"\"aguafria\.local-type:([0-9]+)\"" (or log ""))))
      :query (when result
               (assoc (select-keys result [:exit :command :source-path])
@@ -1506,11 +1518,11 @@
      (fn []
        (binding [*inspection-specializations*
                  (source-specializations (runtime/registered-declarations module))]
-         (let [{:keys [baseline analysis-baseline selected failures attempts]}
+         (let [{:keys [baseline analysis-baseline selected failures attempts local-types]}
                (analyze-roots! module)]
            (binding [*inspection-roots* selected
                      *rejected-inspection-roots* (set (keys failures))]
-             (let [local-types (local-type-identities! module)]
+             (let [local-types (or local-types (local-type-identities! module))]
                (binding [*local-type-identities* (:identities local-types)]
                  (let [initial (inspect-operations! module nil)
                        type-identities (observed-type-identities initial)
@@ -1710,7 +1722,7 @@
             (if (= :test kind)
               {:function function :status :skipped :reason :test-runner}
               (try
-                (runtime/precompile-function! function)
+                (bundle/call-with-validation-scope #(runtime/precompile-function! function))
                 (catch Exception error
                   (assoc (error-report error) :function function :status :failed))))))
         (->> (runtime/registered-declarations module)
@@ -1725,7 +1737,7 @@
               (if (contains? rejected-roots name)
                 {:constant constant :status :skipped :reason :compiler-rejected-root}
                 (try
-                  (prepare declaration)
+                  (bundle/call-with-validation-scope #(prepare declaration))
                   (catch Exception error
                     (assoc (error-report error) :constant constant :status :failed))))))
           (->> (runtime/registered-declarations module)
@@ -1736,17 +1748,19 @@
 (defn- prepare-in-observed-context [declaration-kind prepare]
   ;; JVM callers normally use build-lib. Only a compiler rejection inside an
   ;; authored test warrants testing the same adapter in Zig's test environment.
-  (try
-    (assoc (prepare) :execution-context
-           (if runtime/*native-test-context?* :test :runtime))
-    (catch Exception error
-      (if (and (= :test declaration-kind)
-               (not runtime/*native-test-context?*)
-               (some #(= :zig-compile (:aguafria/phase (ex-data %)))
-                     (take-while some? (iterate ex-cause error))))
-        (binding [runtime/*native-test-context?* true]
-          (assoc (prepare) :execution-context :test))
-        (throw error)))))
+  (bundle/call-with-validation-scope
+   (fn []
+     (try
+       (assoc (prepare) :execution-context
+              (if runtime/*native-test-context?* :test :runtime))
+       (catch Exception error
+         (if (and (= :test declaration-kind)
+                  (not runtime/*native-test-context?*)
+                  (some #(= :zig-compile (:aguafria/phase (ex-data %)))
+                        (take-while some? (iterate ex-cause error))))
+           (binding [runtime/*native-test-context?* true]
+             (assoc (prepare) :execution-context :test))
+           (throw error)))))))
 
 (defn- retain-declared-initializer-owner [module readers operation]
   (if (and (= :observed (:status operation))
@@ -2200,14 +2214,17 @@
                  jvm-maps (assoc :jvm-map-representation-refinement (dissoc jvm-maps :observed))
                  jvm-refinement (assoc :jvm-representation-refinement (dissoc jvm-refinement :observed :plans))
                  jvm-values (assoc :jvm-value-representation-refinement (dissoc jvm-values :observed :plans)))
-        type-preparation-errors
-        (into {}
-              (keep (fn [type]
-                      (try (runtime/precompile-type! type) nil
-                           (catch Exception error [type (error-report error)]))))
+        type-preparations
+        (mapv (fn [type]
+                (try (runtime/precompile-type! type)
+                     (catch Exception error
+                       (assoc (error-report error) :type type :status :failed))))
               (distinct (concat (when-not (:compiler-errors? jvm-refinement) (vals (:plans jvm-refinement)))
                                 (when-not (:compiler-errors? jvm-values) (vals (:plans jvm-values)))
                                 (when-not (:compiler-errors? jvm-constructions) (vals (:plans jvm-constructions))))))
+        type-preparation-errors
+        (into {} (comp (filter #(= :failed (:status %))) (map (juxt :type identity)))
+              type-preparations)
         prepare-call (requiring-resolve 'aguafria.zig.jvm/precompile-call!)
         prepare-type (requiring-resolve 'aguafria.zig.jvm/precompile-coercion!)
         prepare-literal-type (requiring-resolve 'aguafria.zig.jvm/precompile-literal-coercion!)
@@ -2235,7 +2252,8 @@
                         {:type root-type
                          :handlers (cond->
                                     (mapv (fn [[input]]
-                                            (try (assoc (prepare-construction root-type input) :input input)
+                                            (try (assoc (bundle/call-with-validation-scope
+                                                         #(prepare-construction root-type input)) :input input)
                                                  (catch Exception error
                                                    (assoc (error-report error) :input input :status :failed))))
                                           signatures)
@@ -2245,7 +2263,7 @@
         (into {}
               (keep (fn [{:keys [type status handlers] :as dependency}]
                       (when-let [failure (or (when (= :failed status) dependency)
-                                             (first (remove #(= :prepared (:status %)) handlers)))]
+                                             (first (remove #(#{:prepared :pending-validation} (:status %)) handlers)))]
                         [type (assoc failure :status :failed :dependency :construction-input)])))
               construction-dependencies)
         functions (prepare-declared-functions! module)
@@ -2256,6 +2274,7 @@
              (assoc :jvm-construction-input-refinement
                     (assoc (dissoc jvm-constructions :observed :plans)
                            :dependencies construction-dependencies)))
+           :type-preparations type-preparations
            :functions functions
            :constant-readers constant-readers
            :operations

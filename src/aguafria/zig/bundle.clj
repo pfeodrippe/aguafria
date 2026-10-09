@@ -2,17 +2,22 @@
   "One immutable AOT library per preparation, indexed by ordinary artifact keys."
   (:require [aguafria.zig.artifact :as artifact]
             [aguafria.zig.explain :as explain]
+            [aguafria.zig.source-scanner :as scanner]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
-            [clojure.string :as str])
+            [clojure.string :as str]
+            [clojure.walk :as walk])
   (:import [java.lang.foreign Arena SymbolLookup]
            [java.nio.channels FileChannel]
            [java.nio.charset StandardCharsets]
            [java.nio.file Files StandardCopyOption StandardOpenOption]
            [java.util UUID]))
 
-(def ^:private version 2)
+(def ^:private version 3)
 (def ^:dynamic *preparing* nil)
+(def ^:dynamic *batch-validation?* false)
+(def ^:dynamic *validation-dependencies* nil)
+(def ^:private validation-batch-limit 256)
 (defonce ^:private locks (atom {}))
 (defonce ^:private images (atom {}))
 (defonce ^:private loaded-artifacts (atom {}))
@@ -58,6 +63,9 @@
         (let [{:keys [id prefix exports library-bytes debug-bytes] :as entry}
               (read-edn (index-file cache-dir artifact))]
           (when (and (= version (:version entry))
+                     ;; This index accepts only the ordinary ABI. Unknown
+                     ;; experimental backend entries are cache misses.
+                     (nil? (:backend entry))
                      (= key (:artifact entry))
                      (string? id) (re-matches #"[a-f0-9]{64}" id)
                      (string? prefix) (vector? exports) (every? string? exports))
@@ -83,6 +91,7 @@
                           (keep (fn [[key {:keys [prefix exports] :as item}]]
                                   (when (and (string? key) (re-matches #"[a-f0-9]{64}" key)
                                              (string? prefix) (vector? exports)
+                                             (nil? (:backend item))
                                              (every? string? exports))
                                     [key (merge common item {:artifact key})])))
                           (:entries manifest))]
@@ -91,34 +100,17 @@
         (swap! loaded-artifacts update (:cache-root entry)
                #(merge entries %))))))
 
-;; This lexer is only for emitted ABI identifier isolation, never type inference.
-;; Strings, character literals, quoted identifiers, multiline strings and comments
-;; remain verbatim, including any text that resembles an exported ABI identifier.
-(def ^:private zig-token
-  #"(?s)//[^\n]*|@\"(?:\\.|[^\"\\])*\"|\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|\\\\[^\n]*|[A-Za-z_][A-Za-z_0-9]*|\s+|.")
-
-(defn- tokens [source] (re-seq zig-token source))
-
 (defn- analyze-source [source]
-  (let [significant (into [] (remove #(or (str/blank? %) (str/starts-with? % "//")))
-                          (tokens source))
-        declarations (filterv #(= "export" (first %)) (partition 3 1 significant))]
-    {:external-exports? (boolean
-                         (some #(or (not= "fn" (second %))
-                                    (not (re-matches #"__aguafria_[A-Za-z_0-9]+" (nth % 2))))
-                               declarations))
-     :dynamic-exports? (boolean (some #(= ["@" "export"] (vec %))
-                                      (partition 2 1 significant)))
-     :external-declaration-syntax? (boolean (some #{"extern"} significant))
-     :exports (mapv #(nth % 2) declarations)
-     :imports (into []
-                    (keep (fn [[at builtin open argument close after]]
-                            (when (and (= "@" at) (= "(" open)
-                                       (#{"embedFile" "import"} builtin))
-                              [builtin (when (or (= ")" close)
-                                                 (and (= "," close) (= ")" after)))
-                                         argument)])))
-                    (partition-all 6 1 significant))}))
+  (scanner/analyze! source))
+
+(defn- lexical-source-analysis [source key]
+  (if-not *preparing*
+    (analyze-source source)
+    (locking *preparing*
+      (or (get-in @*preparing* [:lexical-source-analyses key])
+          (let [analysis (analyze-source source)]
+            (swap! *preparing* assoc-in [:lexical-source-analyses key] analysis)
+            analysis)))))
 
 (defn- mask-linked-support [source fragments]
   (let [bytes (.getBytes ^String source StandardCharsets/UTF_8)]
@@ -135,7 +127,10 @@
 (defn- library-source-analysis
   ([source] (library-source-analysis source []))
   ([source linked-support-fragments]
-   (let [analysis (analyze-source source)
+   (library-source-analysis source linked-support-fragments
+                            (artifact/key-for :bundle-source source)))
+  ([source linked-support-fragments key]
+   (let [analysis (lexical-source-analysis source key)
          asset-import? (some (fn [[kind argument]]
                                (or (= "embedFile" kind) (nil? argument)
                                    (and argument
@@ -145,7 +140,9 @@
          masked-source (when (or asset-import? (:external-declaration-syntax? analysis))
                          (mask-linked-support source linked-support-fragments))
          application-extern? (and (:external-declaration-syntax? analysis)
-                                  (some #{"extern"} (tokens masked-source)))
+                                  (:external-declaration-syntax?
+                                   (lexical-source-analysis
+                                    masked-source (artifact/key-for :bundle-source masked-source))))
          parsed (when (or asset-import? application-extern?)
                   ((requiring-resolve 'aguafria.zig.convert/parse-source)
                    masked-source))
@@ -190,19 +187,19 @@
                                         (<= test-start start (+ end length) test-end))
                                       tests))]
                (java.util.Arrays/fill bytes (int start) (int (+ end length)) (byte 32)))
-             (assoc (analyze-source (String. bytes StandardCharsets/UTF_8))
+             (assoc (scanner/analyze! (String. bytes StandardCharsets/UTF_8))
                     :external-declarations? external-declarations?))))))))
 
 (defn- source-analysis [source key linked-support]
-  ;; Keep only small lexical facts, not source or token vectors. The lifetime
-  ;; is one preparation; content changes select a different key.
-  (let [key [key (artifact/key-for :bundle-linked-support linked-support)]]
+  ;; Both caches retain facts/spans only, for one preparation. Raw lexical facts
+  ;; also serve validation and final rewriting without tokenizing twice.
+  (let [analysis-key [key (artifact/key-for :bundle-linked-support linked-support)]]
     (if-not *preparing*
-      (library-source-analysis source (:fragments linked-support))
+      (library-source-analysis source (:fragments linked-support) key)
       (locking *preparing*
-        (or (get-in @*preparing* [:source-analyses key])
-            (let [analysis (library-source-analysis source (:fragments linked-support))]
-              (swap! *preparing* assoc-in [:source-analyses key] analysis)
+        (or (get-in @*preparing* [:source-analyses analysis-key])
+            (let [analysis (library-source-analysis source (:fragments linked-support) key)]
+              (swap! *preparing* assoc-in [:source-analyses analysis-key] analysis)
               analysis))))))
 
 (defn- linked-compiler-support [artifact]
@@ -218,19 +215,10 @@
       support)))
 
 (defn- rename-identifiers [source renames]
-  (apply str (map #(get renames % %) (tokens source))))
+  (scanner/rewrite source (analyze-source source) renames nil))
 
 (defn- bind-root-imports [source module-name]
-  (loop [remaining (seq (tokens source)), previous [], output (transient [])]
-    (if-let [token (first remaining)]
-      (let [significant? (not (or (str/blank? token) (str/starts-with? token "//")))
-            replacement (if (and (= ["@" "import" "("] previous) (= "\"root\"" token))
-                          (artifact/print-data module-name)
-                          token)]
-        (recur (next remaining)
-               (if significant? (vec (take-last 3 (conj previous token))) previous)
-               (conj! output replacement)))
-      (apply str (persistent! output)))))
+  (scanner/rewrite source (analyze-source source) {} module-name))
 
 (defn- validate-source! [{:keys [deps analysis]}]
   (let [allowed (into #{"std" "builtin" "root"}
@@ -287,9 +275,10 @@
         {:groups groups :link-args link-args}))))
 
 (defn candidate
-  "Describe a packable emitted graph; unsupported configurations stay standalone."
+  "Describe an emitted compiler graph eligible for the shared AOT image."
   [artifact]
-  (when (or (:jvm-adapter? artifact) (:jvm-wrapper? artifact))
+  (when (or (:jvm-adapter? artifact) (:jvm-wrapper? artifact)
+            (:jvm-namespace-image? artifact))
     (try
       (when (or (not= :shared (:development-panic artifact)) (:native-test-context? artifact))
         (throw (ex-info "Handler requires standalone linking"
@@ -299,8 +288,19 @@
             groups (mapv (fn [group]
                            (let [source (slurp (:path group))
                                  key (artifact/key-for :bundle-source source)
-                                 analysis (source-analysis source key linked-support)]
+                                 analysis (source-analysis source key linked-support)
+                                 proof (get-in artifact [:compiler-owned-shared-modules (:name group)])
+                                 shared-support
+                                 (when (and (= :stateless-jvm-transport (:kind proof))
+                                            (= (:name group) (:module proof))
+                                            (= key (:source-key proof))
+                                            (not= "root" (:name group))
+                                            (empty? (:deps group))
+                                            (empty? (:exports analysis))
+                                            (= #{["import" "\"std\""]} (set (:imports analysis))))
+                                   proof)]
                              (assoc group :source source :source-key key
+                                    :shared-support shared-support
                                     :implicit-root?
                                     (and (some #{["import" "\"root\""]}
                                                (:imports analysis))
@@ -311,7 +311,7 @@
             names (->> groups (mapcat #(get-in % [:analysis :exports])) distinct sort vec)
             forwarder (first (str/split (:source (first groups))
                                         #"// Aguafria development loader\." 2))]
-        (when (seq names)
+        (when (or (seq names) (:jvm-namespace-image? artifact))
           (assoc artifact
                  :groups (mapv #(-> %
                                     (dissoc :source :analysis)) groups)
@@ -332,14 +332,67 @@
 
 (defn observe! [artifact]
   (when *preparing*
-    (swap! *preparing* assoc-in [:artifacts (artifact-id artifact)] artifact))
+    (swap! *preparing* assoc-in [:artifacts (artifact-id artifact)] artifact)
+    (when (and *validation-dependencies* (:validation-pending? artifact))
+      (swap! *validation-dependencies* conj (artifact-id artifact))))
   artifact)
 
-(defn- materialize-entry! [directory artifact]
+(defn call-with-validation-scope
+  "Collect exact queued dependencies of one preparation result. The result
+  remains pending until compiler validation, including its cleanup adapters."
+  [prepare]
+  (if-not (and *preparing* *batch-validation?*)
+    (prepare)
+    (let [dependencies (atom #{})
+          parent *validation-dependencies*
+          retry (bound-fn [] (binding [*batch-validation?* false] (prepare)))
+          result (binding [*validation-dependencies* dependencies] (prepare))]
+      (when parent (swap! parent into @dependencies))
+      (if (and (map? result) (seq @dependencies))
+        (let [id (:scope-sequence (swap! *preparing* update :scope-sequence (fnil inc 0)))]
+          (swap! *preparing* assoc-in [:validation-scopes id]
+                 {:dependencies @dependencies :retry retry})
+          (cond-> (assoc result :validation-scope id)
+            (= :prepared (:status result)) (assoc :status :pending-validation)))
+        result))))
+
+(defn resolve-validation-report!
+  "Resolve pending report records only after their exact dependencies pass.
+  Rejected scopes retry the original generator for its ordinary diagnostics and
+  test-context handling. No compiler or native validation is bypassed."
+  [collected report error-report]
+  (let [resolved (atom {})]
+    (walk/postwalk
+     (fn [record]
+       (if-let [id (and (map? record) (:validation-scope record))]
+         (let [{:keys [dependencies retry]} (get-in @collected [:validation-scopes id])
+               _ (when-not (seq dependencies)
+                   (throw (ex-info "Missing preparation validation scope" {:scope id})))
+               accepted? (every? #(= :validated (get-in @collected [:validation-results % :status]))
+                                 dependencies)
+               replacement (when-not accepted?
+                             (or (get @resolved id)
+                                 (let [result (try (retry)
+                                                   (catch Exception error
+                                                     (assoc (error-report error) :status :failed)))]
+                                   (swap! resolved assoc id result)
+                                   result)))]
+           (cond-> (dissoc record :validation-scope)
+             (and accepted? (= :pending-validation (:status record))) (assoc :status :prepared)
+             replacement (merge replacement)))
+         record)) report)))
+
+(defn- shared-support-key [group]
+  (when-let [proof (:shared-support group)]
+    [proof (:flags group) (.getName (io/file (:path group)))]))
+
+(defn- materialize-entry! [directory artifact {:keys [shared-names written-support]}]
   (let [id (artifact-id artifact)
         prefix (str "pack_" id "_")
         groups (:groups artifact)
-        names (into {} (map-indexed #(vector (:name %2) (str "m_" id "_" %1)) groups))
+        names (into {} (map-indexed #(vector (:name %2)
+                                             (or (get shared-names (shared-support-key %2))
+                                                 (str "m_" id "_" %1))) groups))
         renames (into {} (map #(vector % (str prefix %))) (:exports artifact))]
     (assoc artifact :prefix prefix :entry (names "root")
            :groups
@@ -351,10 +404,14 @@
                              (throw (ex-info "Prepared bundle source changed before linking"
                                              {:aguafria/phase :bundle-compile
                                               :path (:path group) :module name})))
-                         path (io/file directory (names name) (.getName (io/file (:path group))))]
+                         path (io/file directory (names name) (.getName (io/file (:path group))))
+                         shared? (contains? shared-names (shared-support-key group))]
                      (io/make-parents path)
-                     (spit path (cond-> (rename-identifiers source renames)
-                                  implicit-root? (bind-root-imports (names "root"))))
+                     (when-not (and shared? (contains? @written-support (shared-support-key group)))
+                       (spit path (scanner/rewrite source (lexical-source-analysis source source-key)
+                                                   (if shared? {} renames)
+                                                   (when implicit-root? (names "root"))))
+                       (when shared? (vswap! written-support conj (shared-support-key group))))
                      (assoc group :new-name (names name) :new-path (.getAbsolutePath path)
                             :new-deps
                             (mapv (fn [dependency]
@@ -368,6 +425,29 @@
                                   (cond-> deps
                                     implicit-root? (conj (str (names "root") "=root")))))))
                  groups))))
+
+(defn- materialize-entries! [directory artifacts]
+  (let [repeated (->> artifacts (mapcat :groups) (keep shared-support-key) frequencies)
+        shared-names (into {}
+                           (keep (fn [[key count]]
+                                   (when (> count 1)
+                                     [key (str "support_" (artifact/key-for :bundle-support key))])))
+                           repeated)
+        context {:shared-names shared-names :written-support (volatile! #{})}]
+    (mapv #(materialize-entry! directory % context) artifacts)))
+
+(defn- unique-compilation-groups [entries]
+  (loop [pending (seq (mapcat :groups entries)), by-name {}, groups []]
+    (if-let [{:keys [new-name] :as group} (first pending)]
+      (if-let [previous (get by-name new-name)]
+        (do
+          (when-not (= (select-keys previous [:source-key :flags :new-deps :new-path])
+                       (select-keys group [:source-key :flags :new-deps :new-path]))
+            (throw (ex-info "Shared compiler support has inconsistent inputs"
+                            {:module new-name})))
+          (recur (next pending) by-name groups))
+        (recur (next pending) (assoc by-name new-name group) (conj groups group)))
+      groups)))
 
 (defn- response-argument [argument]
   ;; Zig response files use Args.IteratorGeneral quoting.
@@ -393,7 +473,95 @@
                       (assoc result :command (vec command) :aguafria/phase :bundle-compile))))
     result))
 
-(defn- build-pack! [cache-dir artifacts link-args {:keys [run-command preserve-debug!]}]
+(defn- graph-command [artifacts entries link-args source output]
+  (let [first-artifact (first artifacts)]
+    (vec (concat [(first (:command first-artifact)) "build-lib" "-dynamic" output
+                  (:development-panic-support-path first-artifact)]
+                 link-args
+                 (get-in entries [0 :groups 0 :flags])
+                 (mapcat #(vector "--dep" (:entry %)) entries)
+                 [(str "-Mroot=" source)]
+                 (mapcat (fn [{:keys [flags new-deps new-name new-path]}]
+                           (concat flags (mapcat #(vector "--dep" %) new-deps)
+                                   [(str "-M" new-name "=" new-path)]))
+                         (unique-compilation-groups entries))))))
+
+(defn- write-graph-root! [source artifacts entries]
+  (spit source (str (:forwarder (first artifacts)) "\ncomptime {\n"
+                    (apply str (map #(str "    _ = @import(\"" (:entry %) "\");\n") entries))
+                    "}\n")))
+
+(defn- validate-batch! [cache-dir artifacts run-command]
+  (let [id (artifact/key-for :bundle-validation (mapv artifact-id artifacts))
+        directory (.getAbsoluteFile (io/file cache-dir "validation" id))]
+    (.mkdirs directory)
+    (locking (lock-for (.getAbsolutePath directory))
+      (with-open [channel (FileChannel/open (.toPath (io/file directory ".lock"))
+                                            (into-array java.nio.file.OpenOption
+                                                        [StandardOpenOption/CREATE StandardOpenOption/WRITE]))
+                  file-lock (.lock channel)]
+        (let [entries (materialize-entries! directory artifacts)
+              source (io/file directory "validate.zig")
+              command (graph-command artifacts entries (:link-args (first artifacts))
+                                     source "-fno-emit-bin")]
+          (write-graph-root! source artifacts entries)
+          (try
+            (run-compiler! run-command command directory)
+            true
+            (catch clojure.lang.ExceptionInfo error
+              (if (number? (:exit (ex-data error))) false (throw error)))))))))
+
+(defn validate-pending!
+  "Validate bounded batches without linking or publishing artifacts. A failed
+  batch is split iteratively; isolated failures use their original compiler
+  command. Native invocation and disk-index publication remain separate."
+  [cache-dir collected {:keys [run-command validate-artifact]}]
+  (let [started (System/nanoTime)
+        artifacts (->> (:artifacts @collected) vals
+                       (filter :validation-pending?) (keep candidate)
+                       (sort-by artifact-id) vec)
+        groups (group-by #(vector (first (:command %))
+                                  (:development-panic-support-path %)
+                                  (:forwarder %) (:link-args %)) artifacts)
+        batches (into [] (mapcat #(partition-all validation-batch-limit %))
+                      (vals groups))
+        results (atom {})
+        commands (atom 0)
+        rechecks (atom 0)]
+    (loop [pending batches]
+      (when-let [batch (peek pending)]
+        (when (> @commands (* 2 (count artifacts)))
+          (throw (ex-info "Validation batch isolation exceeded its bound" {})))
+        (swap! commands inc)
+        (if (validate-batch! cache-dir (vec batch) run-command)
+          (do (swap! results into (map #(vector (artifact-id %) {:status :validated}) batch))
+              (recur (pop pending)))
+          (if (= 1 (count batch))
+            (let [artifact (first batch)]
+              (swap! rechecks inc)
+              (swap! results assoc (artifact-id artifact) (validate-artifact artifact))
+              (recur (pop pending)))
+            (let [middle (quot (count batch) 2)
+                  batch (vec batch)]
+              (recur (conj (pop pending) (subvec batch 0 middle) (subvec batch middle))))))))
+    (swap! collected
+           (fn [state]
+             (reduce-kv
+              (fn [state id {:keys [status]}]
+                (if (= :validated status)
+                  (assoc-in state [:artifacts id :validation-pending?] false)
+                  (update state :artifacts dissoc id)))
+              (update state :validation-results merge @results) @results)))
+    (let [report {:candidates (count artifacts) :batch-limit validation-batch-limit
+                  :compiler-batches @commands :individual-rechecks @rechecks
+                  :statuses (frequencies (map :status (vals @results)))
+                  :duration-ms (/ (- (System/nanoTime) started) 1e6)}]
+      (swap! collected assoc :validation report)
+      (explain/event! (assoc report :event :batch-validation))
+      report)))
+
+(defn- build-pack!
+  [cache-dir artifacts link-args {:keys [run-command preserve-debug! accept-validated!]}]
   (let [artifacts (vec (sort-by artifact-id artifacts))
         id (artifact/key-for :bundle [version (mapv artifact-id artifacts)])
         directory (.getAbsoluteFile (io/file cache-dir "bundles" id))
@@ -409,7 +577,7 @@
               debug (io/file (str library ".dwarf"))
               first-artifact (first artifacts)
               debug? (some? (:debug-format first-artifact))
-              entries (when-not existing (mapv #(materialize-entry! directory %) artifacts))]
+              entries (when-not existing (materialize-entries! directory artifacts))]
           (when existing
             (when-not (and (= (:library-bytes existing) (.length library))
                            (or (not debug?) (= (:debug-bytes existing) (.length debug))))
@@ -418,20 +586,9 @@
           (when-not existing
             (let [source (io/file directory "bundle.zig")
                   temporary (io/file directory (str "." (UUID/randomUUID) "-" (.getName library)))
-                  command (concat [(first (:command first-artifact)) "build-lib" "-dynamic"
-                                   (str "-femit-bin=" temporary)
-                                   (:development-panic-support-path first-artifact)]
-                                  link-args
-                                  (get-in entries [0 :groups 0 :flags])
-                                  (mapcat #(vector "--dep" (:entry %)) entries)
-                                  [(str "-Mroot=" source)]
-                                  (mapcat (fn [{:keys [flags new-deps new-name new-path]}]
-                                            (concat flags (mapcat #(vector "--dep" %) new-deps)
-                                                    [(str "-M" new-name "=" new-path)]))
-                                          (mapcat :groups entries)))]
-              (spit source (str (:forwarder first-artifact) "\ncomptime {\n"
-                                (apply str (map #(str "    _ = @import(\"" (:entry %) "\");\n") entries))
-                                "}\n"))
+                  command (graph-command artifacts entries link-args source
+                                         (str "-femit-bin=" temporary))]
+              (write-graph-root! source artifacts entries)
               (try
                 (run-compiler! run-command command directory)
                 (preserve-debug! temporary library (:debug-format first-artifact))
@@ -444,6 +601,9 @@
                               :entries (into {} (for [entry entries]
                                                   [(artifact-id entry)
                                                    (select-keys entry [:prefix :exports])]))})]
+            ;; A successful full build proves semantic validation before any
+            ;; manifest/index can make the queued handlers visible to readers.
+            (when accept-validated! (accept-validated! artifacts (boolean existing)))
             (when-not existing (publish-edn! manifest-file manifest))
             ;; Publish pointers last. Concurrent readers see either a complete
             ;; old pack or a complete new pack, never a half-linked library.
@@ -453,14 +613,41 @@
                                    (get-in manifest [:entries (artifact-id artifact)])
                                    {:artifact (artifact-id artifact)})))
             {:id id :handlers (count artifacts) :cached? (boolean existing)
+             :compiler-invocations (if existing 0 1)
              :library-bytes (:library-bytes manifest) :debug-bytes (:debug-bytes manifest)}))))))
+
+(defn- accept-pack-validation! [collected artifacts cached? started]
+  (let [pending (filterv :validation-pending? artifacts)
+        ids (mapv artifact-id pending)
+        report {:candidates (count ids) :batch-limit validation-batch-limit
+                :mode :compile-and-link
+                :compiler-batches (if (and (seq ids) (not cached?)) 1 0)
+                :individual-rechecks 0
+                :statuses (if (seq ids) {:validated (count ids)} {})
+                :duration-ms (/ (- (System/nanoTime) started) 1e6)}]
+    (swap! collected
+           (fn [state]
+             (let [waiting (into #{} (keep #(when (:validation-pending? %)
+                                              (artifact-id %)))
+                                 (vals (:artifacts state)))]
+               (when-not (= waiting (set ids))
+                 (throw (ex-info "Bundle validation inputs changed during compilation" {})))
+               (reduce (fn [state id]
+                         (-> state
+                             (assoc-in [:artifacts id :validation-pending?] false)
+                             (assoc-in [:validation-results id] {:status :validated})))
+                       (assoc state :validation report) ids))))
+    (explain/event! (assoc report :event :batch-validation))))
 
 (defn finish!
   "Compile all eligible handlers into one library, including cached handlers.
   Incompatible configurations fail explicitly instead of silently splitting the
-  preparation into independent compilation images. No native code is invoked."
+  preparation into independent compilation images. No native code is invoked.
+  :validate-pending? lets the full compiler build validate queued handlers before
+  publication; otherwise every handler must already have passed validation."
   [cache-dir collected callbacks]
-  (let [records (vals (:artifacts @collected))
+  (let [started (System/nanoTime)
+        records (vals (:artifacts @collected))
         already (filter :bundle records)
         candidates (vec (keep candidate records))
         link-args (vec (last (sort-by count (map :link-args candidates))))
@@ -489,10 +676,27 @@
                                                      {:configuration configuration
                                                       :modules (mapv :module artifacts)})
                                                    groups)})))
+        _ (when (and (some :validation-pending? records)
+                     (not (:validate-pending? callbacks)))
+            (throw (ex-info "Bundle publication requires validated artifacts"
+                            {:aguafria/phase :bundle-compile :reason :pending-validation})))
+        _ (when (and (:validate-pending? callbacks)
+                     (not= (set (map artifact-id (filter :validation-pending? records)))
+                           (set (map artifact-id (filter :validation-pending? candidates)))))
+            (throw (ex-info "Queued validation requires bundle-eligible artifacts"
+                            {:aguafria/phase :bundle-compile :reason :pending-validation})))
+        callbacks (cond-> callbacks
+                    (:validate-pending? callbacks)
+                    (assoc :accept-validated!
+                           #(accept-pack-validation! collected %1 %2 started)))
         packs (if (seq candidates)
                 [(build-pack! cache-dir candidates link-args callbacks)]
                 [])]
+    (when (and (:validate-pending? callbacks) (empty? candidates))
+      (accept-pack-validation! collected [] true started))
     {:packs packs :packed-handlers (reduce + 0 (map :handlers packs))
+     :compiler-invocations (reduce + 0 (map :compiler-invocations packs))
+     :validation (:validation @collected)
      :reused-handlers (count already)
      :standalone (mapv (fn [[id exclusion]]
                          (assoc exclusion :artifact-id id))

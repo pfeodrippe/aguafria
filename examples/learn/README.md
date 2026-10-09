@@ -86,18 +86,39 @@ outcome verification. Override with `:ignore []` when explicitly investigating i
 Generic `a/precompile!` also accepts `:ignore [namespace ...]`; ignored selections
 are reported separately, never counted as prepared operations.
 
-After preparing the Learn namespaces, check selected ordinary JVM test bodies
-against that exact bundle in a fresh JVM:
+Prepare every namespace in Learn's example directory explicitly:
 
 ```sh
-clojure -M:dev -m learn.bundle-cache-check .aguafria/precompile/your-report.edn
+clojure -X:precompile :source-dirs '["resources/learn/example"]' :parallelism 4
 ```
 
-This gate evaluates 79 top-level bodies from 36 safe lessons; it does not run
-all Learn subforms. It observes native testing expectations even when the body
-discards their results, and rejects failed assertions, new native builds,
-standalone JVM handlers, and any pack other than the producer's single bundle.
-Deliberate panic/exit examples remain isolated in the complete audit.
+Native artifacts are shared under `~/.aguafria/zig`; the coverage report remains
+project-local at `.aguafria/precompile/report.edn`. Preparation compiles and
+analyzes the examples without running their native function or test bodies.
+JVM adapters and native type/callable wrappers are validated and linked together
+in one bundle compilation. Reports distinguish pending validation from prepared
+handlers and include `:bundles :compiler-invocations` and `:bundles :validation`.
+A rejected bundle build preserves its diagnostics and aborts preparation. Source
+analysis uses a cached, bounded native helper written in Aguafria; it runs Zig's
+tokenizer, not example function bodies. Compiler type queries, namespace startup
+images and native test preparation still issue additional compiler commands;
+the whole preparation pipeline is not yet a single compilation.
+
+Then verify ordinary JVM evaluation against that exact bundle. Each command
+starts a fresh JVM:
+
+```sh
+clojure -M:dev -m learn.values-cache-check .aguafria/precompile/report.edn
+clojure -M:dev -m learn.bundle-cache-check .aguafria/precompile/report.edn
+```
+
+The Values gate evaluates all five actual bodies and compares their output with
+native `main`. The broader gate evaluates 80 top-level bodies from 37 safe
+lessons, three constants and 12 native test owners; it does not run all Learn
+subforms. Both reject new native builds, standalone JVM handlers and any pack
+other than the producer's single bundle. The broader gate also observes native
+testing expectations when a body discards their results. Deliberate panic/exit
+examples remain isolated in the complete audit.
 
 `serve` reuses the existing HTML snapshot; restarting it does not invalidate
 recorded REPL output. After compiler or example changes, rerun the verification

@@ -819,17 +819,22 @@ significant because location may affect `@src`, relative assets or linking.
 Key-version changes invalidate old entries without deleting them. There is no
 fallback to the old key format; binaries are rebuilt/prepared under the new keys.
 
-Explicit precompilation automatically packs compatible generated JVM handlers
-into one immutable native library per preparation, without a handler-count cap.
+Explicit precompilation packs generated JVM handlers into one immutable native
+library per preparation, without a handler-count cap.
 Already cached handlers are included, so earlier packs do not leave the new
 preparation split across libraries. Incompatible compiler configurations produce
 an explicit error rather than silently creating multiple bundles. Fresh
-preparation validates each eligible handler without emitting a standalone binary,
-then links the pack; it does not load or execute the handlers. Use `:bundle? false`
-to disable creating a bundle. The report's `:bundles` entry records packed/reused
-handlers and reasons for keeping handlers standalone. Ordinary user modules,
-native test contexts, custom linker arguments and relative embedded/imported
-assets remain standalone.
+preparation validates and links the collected handlers in a single compiler build;
+it does not load or execute them. A rejected build aborts preparation with its
+diagnostics, without publishing the pack or retrying smaller groups. A handler
+that cannot join the pack is reported as unsupported, not built separately.
+The report's `:bundles :compiler-invocations` counts pack builds only. Compiler
+type queries, namespace images, infrastructure and native test programs currently
+still use additional compiler invocations during preparation.
+`:compiler-work :compiler-invocations` counts the whole preparation, including
+rejected compiler attempts and infrastructure builds. Its `:one-compilation?`
+flag therefore stays false while those extra passes remain. Debug-information
+and compiler-metadata commands are counted separately; samples are bounded.
 
 Runtime lookup checks a content-keyed bundle index first, then the individual
 artifact, then compiles a missing specialization normally. It never scans packs.

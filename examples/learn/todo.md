@@ -154,6 +154,9 @@
   - [ ] test_slices.clj
   - [ ] slicing_by_length.clj
 
+- [ ] add ability to setup models so errors are better explained
+  - [ ] test with a decision-one model (jev-like)
+  - [ ] do we have something small that could be run locally ?
 - [ ] in-context autocompletion, would we use cider-nrepl cider/complete with context? is there really a good way to do that in clojure, so when we have ( some-symbol) and we add the `:` as (: some-symbol), the autocompletion can work ?
 - [ ] add assertions from the JVM as alternative to comptime assertions (e.g. inside test_arrays.clj)
 - [ ] test check-like generators

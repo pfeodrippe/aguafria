@@ -3,6 +3,7 @@
   (:require [aguafria.keyword :as keyword]
             [aguafria.zig.artifact :as artifact]
             [aguafria.zig.cache :as cache]
+            [aguafria.zig.compiler-work :as compiler-work]
             [aguafria.zig.emitter :as emitter]
             [aguafria.zig.project :as project]
             [aguafria.zig.runtime :as runtime]
@@ -61,17 +62,21 @@
 
 (defn- run-command
   [command directory]
-  (let [builder (doto (ProcessBuilder. ^java.util.List (mapv str command))
-                  (.directory (io/file directory)))
-        process (.start builder)
-        stdout (future (slurp (.getInputStream process)))
-        stderr (future (slurp (.getErrorStream process)))
-        exit (.waitFor process)]
-    {:command (mapv str command)
-     :directory (str directory)
-     :exit exit
-     :out @stdout
-     :err @stderr}))
+  (binding [compiler-work/*phase* :zig-tooling]
+    (compiler-work/run-command!
+     command
+     (fn []
+       (let [builder (doto (ProcessBuilder. ^java.util.List (mapv str command))
+                       (.directory (io/file directory)))
+             process (.start builder)
+             stdout (future (slurp (.getInputStream process)))
+             stderr (future (slurp (.getErrorStream process)))
+             exit (.waitFor process)]
+         {:command (mapv str command)
+          :directory (str directory)
+          :exit exit
+          :out @stdout
+          :err @stderr})))))
 
 (defn- run-command-input
   [command directory input]

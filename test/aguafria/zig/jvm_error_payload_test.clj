@@ -158,7 +158,9 @@
     (is (zero? (get-in prepared [:coverage :runtime-candidates :not-fully-prepared]))
         (pr-str (:operations prepared)))
     (is (zero? (get-in prepared [:coverage :handler-records :failed] 0)))
-    (is (= [{:ok nil} {:ok nil} {:ok nil}] (:results restarted)))
+    ;; The first body unwraps its errors inside a void block. Its success is
+    ;; nil, unlike the following bodies' final testing/expectEqual envelopes.
+    (is (= [nil {:ok nil} {:ok nil}] (:results restarted)))
     (is (seq (filter #(= :bundle-cache-hit (:event %)) events)))
     (is (= 1 (count (filter #(= :bundle-loaded (:event %)) events))) (pr-str events))
     (is (empty? (filter #(#{:compiled :compile-failed} (:event %)) events)) (pr-str events))

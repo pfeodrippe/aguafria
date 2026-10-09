@@ -23,8 +23,11 @@
 (deftest integer-literals-stay-exact-and-range-checked
   (is (= 18446744073709551615N
          (a/value (k/as (a/number-literal "0xffff_ffff_ffff_ffff") :u64))))
-  (is (thrown? clojure.lang.Compiler$CompilerException
-               (k/as (a/number-literal "256") :u8))))
+  ;; Once the concrete u8 constructor exists, range rejection happens at the
+  ;; ordinary ABI boundary rather than by compiling a new literal handler.
+  (is (= 255 (a/value (k/as (a/number-literal "255") :u8))))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"out of range"
+                       (k/as (a/number-literal "256") :u8))))
 
 (deftest jvm-coercion-agrees-with-a-native-declaration
   (binding [runtime/*source-only-registration?* true]

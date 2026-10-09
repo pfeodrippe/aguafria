@@ -385,7 +385,8 @@
       (when-not (runtime/registered-declaration? module [:raw name])
         (binding [runtime/*source-only-registration?* true]
           (register! context {:kind :raw :name name
-                              :declaration-key [:raw name] :code source})))
+                              :declaration-key [:raw name] :code source
+                              :compiler-owned-support :stateless-jvm-transport})))
       (alter-meta! (or (ns-resolve context name) (intern context name nil))
                    assoc :aguafria/zig-reference reference))
     helper))
