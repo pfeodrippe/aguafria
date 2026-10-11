@@ -9,13 +9,20 @@
 (require 'json)
 (require 'cider)
 
+;; clojure-mode also consults the unqualified name for arbitrary ns aliases.
+(put-clojure-indent 'switch 1)
+
 (defgroup aguafria-eval nil "Visible, sequential body evaluation." :group 'cider)
 (defcustom aguafria-eval-delay 0.1
   "Seconds to keep the current form highlighted after CIDER finishes evaluating it."
   :type 'number :group 'aguafria-eval)
 
 (cl-defstruct aguafria-eval--state
-  connection buffers source tick rows index request timer overlay)
+  connection buffers source tick rows index request timer overlay preview)
+(defface aguafria-eval-preview '((t :inherit highlight))
+  "Whole forms selected by the evaluation preview."
+  :group 'aguafria-eval)
+(defvar-local aguafria-eval--preview-overlays nil)
 (defvar aguafria-eval--run nil)
 (defvar aguafria-eval-last-results nil
   "Responses observed during the last run, in evaluation order.")
@@ -95,7 +102,10 @@
                              (error "Could not locate body forms: %s" failure)
                            (setf (aguafria-eval--state-rows state)
                                  (alist-get 'rows (aguafria-eval--decode value)))
-                           (save-current-buffer (aguafria-eval--next state)))
+                           (save-current-buffer
+                             (if (aguafria-eval--state-preview state)
+                                 (aguafria-eval--show-preview state)
+                               (aguafria-eval--next state))))
                        (error (aguafria-eval-stop) (message "%s" (error-message-string error)))))))
                (aguafria-eval--state-connection state) "user" nil nil nil t))))))
 
@@ -123,13 +133,68 @@
       (goto-char end)
       (list start end))))
 
-(defun aguafria-eval--explained-source (bounds)
-  "Wrap BOUNDS, carrying the same unmodified buffer text for explain! to display."
-  (let ((source (apply #'buffer-substring-no-properties bounds)))
+;;;###autoload
+(defun aguafria-eval-clear-highlights (&rest _)
+  "Clear this buffer's evaluation preview, without changing its contents."
+  (interactive)
+  (mapc #'delete-overlay aguafria-eval--preview-overlays)
+  (setq aguafria-eval--preview-overlays nil)
+  (remove-hook 'after-change-functions #'aguafria-eval-clear-highlights t))
+
+(defun aguafria-eval--show-preview (state)
+  "Highlight every executable row in STATE, without evaluating any of them."
+  (if (not (aguafria-eval--current-p state))
+      (progn (aguafria-eval-stop) (message "Preview discarded: source changed"))
+    (with-current-buffer (aguafria-eval--state-source state)
+      (aguafria-eval-clear-highlights)
+      (save-excursion
+        (save-restriction
+          (widen)
+          (dolist (row (aguafria-eval--state-rows state))
+            (unless (equal "skipped" (alist-get 'status row))
+              (let* ((start (aguafria-eval--position (alist-get 'line row) (alist-get 'column row)))
+                     (end (aguafria-eval--position (alist-get 'end-line row) (alist-get 'end-column row)))
+                     (overlay (make-overlay start end)))
+                (overlay-put overlay 'face 'aguafria-eval-preview)
+                (overlay-put overlay 'help-echo
+                             (format "Planned evaluation: %s" (alist-get 'declaration row)))
+                (push overlay aguafria-eval--preview-overlays))))))
+      (add-hook 'after-change-functions #'aguafria-eval-clear-highlights nil t)
+      (message "Highlighted %d whole forms; %d skipped. No buffer code was loaded or evaluated."
+               (length aguafria-eval--preview-overlays)
+               (- (length (aguafria-eval--state-rows state)) (length aguafria-eval--preview-overlays)))))
+  (when (eq state aguafria-eval--run) (aguafria-eval-stop)))
+
+;;;###autoload
+(defun aguafria-eval-highlight-buffer ()
+  "Preview exactly the whole forms `aguafria-eval-buffer' would evaluate.
+Uses a metadata-only CIDER query. Never loads or evaluates this buffer.
+The namespace must already be loaded. Edits automatically clear the preview;
+use `aguafria-eval-clear-highlights' to clear it manually."
+  (interactive)
+  (cider-ensure-connected)
+  (aguafria-eval-stop)
+  (aguafria-eval-clear-highlights)
+  (setq aguafria-eval--run
+        (make-aguafria-eval--state :connection (cider-current-connection)
+                                  :source (current-buffer) :tick (buffer-chars-modified-tick)
+                                  :preview t))
+  (condition-case error
+      (progn
+        (aguafria-eval--check-connection aguafria-eval--run)
+        (aguafria-eval--plan aguafria-eval--run))
+    (error (aguafria-eval-stop) (signal (car error) (cdr error)))))
+
+(defun aguafria-eval--explained-source (bounds &optional type-context)
+  "Wrap BOUNDS, preserving source display and an initializer's TYPE-CONTEXT."
+  (let* ((source (apply #'buffer-substring-no-properties bounds))
+         (expression (if type-context
+                         (concat "(aguafria.keyword/as " source " " type-context ")")
+                       source)))
     ;; JSON string escaping is also valid in Clojure strings. Escaped newlines
     ;; in metadata do not shift the actual expression's original source lines.
     (concat "^{:aguafria.explain/source " (json-encode-string source) "} "
-            "(aguafria.zig/explain! " source ")")))
+            "(aguafria.zig/explain! " expression ")")))
 
 (defun aguafria-eval--next (state)
   (when (eq state aguafria-eval--run)
@@ -152,7 +217,7 @@
                 (cider-interactive-eval
                  ;; Keep the prefix on the same line so CIDER's original line
                  ;; numbers also apply inside explain!. Never edit the buffer.
-                 (aguafria-eval--explained-source bounds)
+                 (aguafria-eval--explained-source bounds (alist-get 'type-context row))
                  (aguafria-eval--follow
                   state (cider-interactive-eval-handler nil bounds)
                   (lambda (result)
@@ -175,6 +240,7 @@
     (if (null buffer)
         (progn (aguafria-eval-stop) (message "Aguafria evaluation complete"))
       (with-current-buffer buffer
+        (aguafria-eval-clear-highlights)
         (setf (aguafria-eval--state-source state) buffer
               (aguafria-eval--state-tick state) (buffer-chars-modified-tick)
               (aguafria-eval--state-index state) 0)

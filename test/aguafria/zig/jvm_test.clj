@@ -54,6 +54,9 @@
   (let [result (ak/++ [(ak/u32 1234) (ak/f64 12.34)]
                       [[(ak/i16 7)]])
         [integer floating nested] result]
+    (is (value/zig-value? result))
+    (is (= 3 (a/value (:len result))))
+    (is (= 1234 (a/value (:0 result))))
     (is (= :u32 (value/qualified-type integer)))
     (is (= :f64 (value/qualified-type floating)))
     (is (= :i16 (value/qualified-type (first nested))))
@@ -882,6 +885,34 @@
     (is (some? error))
     (is (str/includes? (:aguafria/report (runtime/error-data error))
                        "expected type 'bool'"))))
+
+(deftest comptime-only-mutable-captures-write-back-after-native-execution
+  (with-open [i (ak/var 0 nil {:attrs #{ak/comptime}})
+              sum (ak/var 0 :usize)]
+    (is (= :comptime_int (value/qualified-type i)))
+    (is (value/comptime-mutable? i))
+    (is (thrown? clojure.lang.ExceptionInfo (value/segment i)))
+    (a/while-loop {:inline? true :continue (a/assign-expr "+=" i 1)}
+                  (ak/< i 3)
+                  (ak/+= sum 2))
+    (is (= 3 @i))
+    (is (= 6 @sum))
+    ;; A later scope must start at the updated value, not replay its initializer.
+    (a/while-loop {:inline? true :continue (a/assign-expr "+=" i 1)}
+                  (ak/< i 5)
+                  (ak/+= sum 1))
+    (is (= 5 @i))
+    (is (= 8 @sum))
+    (is (= :comptime_int (value/qualified-type i)))))
+
+(deftest failed-native-scopes-do-not-publish-comptime-writebacks
+  (with-open [i (ak/var 0 nil {:attrs #{ak/comptime}})]
+    (is (thrown-with-msg?
+         clojure.lang.ExceptionInfo #"comptime writeback failure"
+         (a/while-loop {:inline? true :continue (a/assign-expr "+=" i 1)}
+                       (ak/< i 3)
+                       (ak/panic "comptime writeback failure"))))
+    (is (= 0 @i))))
 
 (deftest mutable-native-values-in-ordinary-clojure-let
   (with-open [optional-value (ak/var (ak/as nil [:optional [:slice-const :u8]]))]

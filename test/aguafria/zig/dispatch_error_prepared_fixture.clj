@@ -1,0 +1,17 @@
+(ns aguafria.zig.dispatch-error-prepared-fixture
+  (:require [aguafria.keyword :as k]
+            [aguafria.std.testing :as testing]
+            [aguafria.zig :as a]))
+
+(a/defstruct FailureBox [[:result [:error-union :anyerror :i32]]])
+
+(a/defn native-failure :!i32 [[fail? :bool]]
+  (if fail? (a/error-value :PreparedFailure) (k/as 0 :i32)))
+
+(a/defn make-box FailureBox [[fail? :bool]]
+  (FailureBox {:result (if fail? (a/error-value :PreparedBoxFailure) (k/as 0 :i32))}))
+
+(a/deftest named-errors
+  (k/try (testing/expectError (a/error-value :PreparedFailure) (native-failure true)))
+  (let [box (make-box true)]
+    (k/try (testing/expectError (a/error-value :PreparedBoxFailure) (:result box)))))

@@ -43,6 +43,27 @@
                        (catch clojure.lang.ExceptionInfo error (:exit (ex-data error)))))))
     (is (= before @collected))))
 
+(deftest compiler-callability-preserves-lazy-roots-without-hiding-authored-demand
+  (let [configuration (runtime/configuration)
+        cache (str (Files/createTempDirectory "aguafria-lazy-admission-"
+                                              (make-array java.nio.file.attribute.FileAttribute 0)))
+        good 'aguafria.zig.namespace-admission-lazy-fixture
+        naked 'aguafria.zig.namespace-admission-naked-reference-fixture
+        foreign 'aguafria.zig.namespace-admission-extern-demand-fixture]
+    (try
+      (runtime/configure! {:cache-dir cache})
+      (let [report (precompile/precompile! {:analyze [good naked foreign]
+                                            :report-file (str cache "/report.edn")})
+            rejected (into {} (map (juxt :namespace :reason))
+                           (get-in report [:namespace-admission :rejected-namespaces]))
+            accepted (first (filter #(= good (:namespace %)) (:analysis report)))]
+        (is (not (contains? rejected good)))
+        (is (= #{'entry} (:non-callable-functions accepted)))
+        (is (= :source-discovery (get rejected naked)))
+        (is (= :ordinary-jvm-compilation (get rejected foreign)))
+        (is (pos? (get-in report [:bundles :packed-handlers]))))
+      (finally (runtime/configure! configuration)))))
+
 (deftest source-and-normal-context-rejections-do-not-poison-working-namespaces
   (let [configuration (runtime/configuration)
         cache (str (Files/createTempDirectory "aguafria-namespace-admission-"

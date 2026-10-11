@@ -69,6 +69,22 @@
   []
   (:primitives generated-catalog))
 
+(def ^:private primitive-spellings
+  (into #{"_" "null" "undefined" "true" "false"}
+        (map :name) (:primitives generated-catalog)))
+
+(defn enum-literal-keyword?
+  "Unqualified value keywords denote enum tags, except Zig primitive spellings.
+  Dotted keywords remain readable for older source; explicit enum-literal syntax
+  disambiguates a tag whose name is also a primitive type. Field-name positions
+  and explicit type schemas do not use this predicate."
+  [value]
+  (and (keyword? value) (nil? (namespace value))
+       (let [spelling (name value)]
+         (or (str/starts-with? spelling ".")
+             (not (or (contains? primitive-spellings spelling)
+                      (re-matches #"[iu][0-9]+" spelling)))))))
+
 (defn- constructible-primitive?
   [type-name]
   (or (boolean (re-matches #"[iu][0-9]+" type-name))
@@ -404,6 +420,8 @@
                                                                   ((requiring-resolve
                                                                     'aguafria.zig.emitter/scoped-result?)
                                                                    *ns* form)))))
+          (when (= "switch" (:zig-token token))
+            (alter-meta! v assoc :style/indent 1))
           (alter-meta! v assoc :macro true :aguafria/scoped? true
                        :doc "Native scoped control form. Runs native Zig in the same process, captures lexical values and preserves mutable native storage. Only the selected switch branch executes; switch returns its native result."))))))
 

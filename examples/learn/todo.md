@@ -151,8 +151,11 @@
   - [x] sentinel_terminated_pointer.clj
   - [ ] test_pointer_casting.clj (again after v0.17.0 upgrade)
     - [x] automatically test forms/subforms in emacs/cider
-    - [ ] why do we have try and also k/try ???
+    - [ ] command to highlight all subforms that will be evaluated
+    - [ ] why do we have try and also k/try ? we should support only one of them, not both
+    - [ ] and do we really need :.whatever and couldn't just use :whatever ?
     - [ ] refactor k/switch
+    - [ ] check that the const at learn.example.test-pointer-casting is one of the evaluated
   - [ ] test_basic_slices.clj
   - [ ] test_slices.clj
   - [ ] slicing_by_length.clj

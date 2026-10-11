@@ -6,14 +6,15 @@
             [learn.jvm-assertions :as assertions]))
 
 (def lessons
-  [["values" 5]
+  [["values" 6]
    ["test_vector" 2]
    ["test_single_item_pointer" 4]
    ["test_pointer_arithmetic" 2]
    ["test_optional_type" 1]
-   ["test_multidimensional_arrays" 4]])
+   ["test_multidimensional_arrays" 5]
+   ["test_pointer_casting" 3]])
 
-(deftest planned-bodies-are-unmodified-ordinary-evaluations
+(deftest planned-bodies-and-initializers-use-ordinary-evaluation
   (doseq [[file expected] lessons]
     (testing file
       (let [resource (io/resource (str "learn/example/" file ".clj"))
@@ -28,7 +29,10 @@
           (binding [*ns* (the-ns namespace) *file* (.getPath resource)
                     *out* writer *err* writer]
             (doseq [row rows]
-              (assertions/call-with-checks #(eval (read-string (:expression row))))))
+              (let [expression (if-let [type (:type-context row)]
+                                 (str "(aguafria.keyword/as " (:expression row) " " type ")")
+                                 (:expression row))]
+                (assertions/call-with-checks #(eval (read-string expression))))))
           (when (= file "values")
             (doseq [text ["1 + 1 = 2" "7.0 / 3.0 =" "false\ntrue\nfalse"
                           "optional 1" "optional 2" "error union 1" "error union 2"]]

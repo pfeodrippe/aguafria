@@ -22,7 +22,9 @@
                   (push form ordinary-evals))))
   (make-directory root t)
   (cider-connect-clj (list :host "127.0.0.1" :port port :project-dir project))
-  (nrepl-sync-request:eval "(require 'aguafria.zig.repl :reload)" (cider-current-connection) "user")
+  (nrepl-sync-request:eval
+   "(do (require 'aguafria.zig.repl :reload) (require 'aguafria.zig.explain) (alter-var-root #'aguafria.zig.explain/*verbose* (constantly true)))"
+   (cider-current-connection) "user")
   (advice-add 'cider-interactive-eval :before observe)
   (aguafria-eval-namespaces
    '("learn.example.values" "learn.example.test-vector"
@@ -32,8 +34,8 @@
     (while (and aguafria-eval--run (< (float-time) deadline))
       (accept-process-output nil 0.05)))
   (advice-remove 'cider-interactive-eval observe)
-  (unless (= 18 (length ordinary-evals))
-    (error "Expected 18 calls through cider-interactive-eval, got %s" (length ordinary-evals)))
+  (unless (= 20 (length ordinary-evals))
+    (error "Expected 20 calls through cider-interactive-eval, got %s" (length ordinary-evals)))
   (when (get-buffer "*Aguafria Eval*") (error "Custom output buffer was created"))
   (unless (= 1 (length (cider-repls))) (error "The runner created another REPL"))
   (with-current-buffer (cider-current-connection)
@@ -44,8 +46,8 @@
   (with-temp-file (expand-file-name "emacs-results.json" root)
     (insert (json-encode aguafria-eval-last-results)))
   (when aguafria-eval--run (error "Editor evaluation timed out"))
-  (unless (= 18 (length aguafria-eval-last-results))
-    (error "Expected 18 completed body forms, got %s" (length aguafria-eval-last-results)))
+  (unless (= 20 (length aguafria-eval-last-results))
+    (error "Expected 20 completed bodies/initializers, got %s" (length aguafria-eval-last-results)))
   (dolist (result aguafria-eval-last-results)
     (unless (equal "evaluated" (alist-get 'status result))
       (error "Body evaluation failed: %S" result))
@@ -65,7 +67,7 @@
          ;; Zig debug output is stderr. The new stdout form listing also
          ;; contains format-string literals; those are not repeated execution.
          (output (mapconcat (lambda (r) (alist-get 'err r)) values "")))
-    (unless (= 5 (length values)) (error "Values was not evaluated exactly five times"))
+    (unless (= 6 (length values)) (error "Values did not evaluate its initializer and five body forms"))
     (dolist (text '("1 + 1 = 2" "7.0 / 3.0 =" "optional 1" "optional 2"
                     "error union 1" "error union 2"))
       (let ((start 0) (count 0))
@@ -117,4 +119,21 @@
         (with-current-buffer buffer (set-buffer-modified-p nil))
         (kill-buffer buffer))
       (delete-file file)))
-  (princ "REAL CIDER: 18 verbatim source reports with BEGIN/END boundaries; unsaved comment/formatting, error stop and no repeated Values output verified.\n"))
+  ;; Normal quiet mode must hide successful cache reuse and its summaries,
+  ;; without suppressing the program's own output or any fallback work.
+  (nrepl-sync-request:eval
+   "(alter-var-root #'aguafria.zig.explain/*verbose* (constantly false))"
+   (cider-current-connection) "user")
+  (aguafria-eval-namespaces '("learn.example.values" "learn.example.test-pointer-casting"))
+  (let ((deadline (+ (float-time) 120)))
+    (while (and aguafria-eval--run (< (float-time) deadline))
+      (accept-process-output nil 0.05)))
+  (unless (= 9 (length aguafria-eval-last-results)) (error "Quiet run did not finish"))
+  (dolist (result aguafria-eval-last-results)
+    (unless (equal "evaluated" (alist-get 'status result)) (error "Quiet eval failed: %S" result))
+    (when (string-match-p "^\\[aguafria\\] \\(bundle-cache-hit\\|memory-cache-hit\\|bundle-loaded\\|[0-9]+ \\)"
+                          (alist-get 'out result))
+      (error "Quiet mode printed successful cache hits/summary: %S" result)))
+  (with-temp-file (expand-file-name "quiet-results.json" root)
+    (insert (json-encode aguafria-eval-last-results)))
+  (princ "REAL CIDER: 20 verbose source reports plus 9 quiet evaluations; formatting, boundaries, error stop and output routing verified.\n"))

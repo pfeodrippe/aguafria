@@ -1582,7 +1582,7 @@
             (is (empty? (#'runtime/declaration-reference-logical-ids reader)))
             (is (= #{(:logical-id js-api) (:logical-id unrelated)}
                    (#'runtime/declaration-reference-logical-ids
-                   (assoc reader :jvm-adapter? false))))))
+                    (assoc reader :jvm-adapter? false))))))
         (let [reader (assoc member-reader
                             :body [(list '(field __aguafria_jvm :constantResult)
                                          (list 'aguafria.keyword/& root) false)])]
@@ -2218,8 +2218,8 @@
                  {:name 'Zig :type :type :properties {:zig/prefix "comptime"}}]
           :return :type
           :body '[(return (switch Target
-                                  (case [:zig] Zig)
-                                  (case [:c] Zig)))]})
+                            (case [:zig] Zig)
+                            (case [:c] Zig)))]})
         alias
         (runtime/declaration-info
          {:module "fixture.api"
@@ -2330,8 +2330,9 @@
                 (get-in @reference-index
                         [:references (:logical-id consumer)])
                 (:logical-id consumer))))
-      (is ((var-get #'aguafria.zig.runtime/dispatchable-declaration?)
-           consumer))
+      (is (not ((var-get #'aguafria.zig.runtime/dispatchable-declaration?)
+                consumer))
+          "An inferred-error signature must stay local even without a self-cycle")
       (is ((var-get
             #'aguafria.zig.runtime/declaration-references-impact?)
            consumer

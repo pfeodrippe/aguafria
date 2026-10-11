@@ -1,6 +1,7 @@
 (ns aguafria.zig.artifact-native-test
   (:require [aguafria.zig.emitter :as emitter]
             [aguafria.zig.runtime :as runtime]
+            [aguafria.zig.compiler-work :as work]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
             [clojure.string :as str]
@@ -18,6 +19,25 @@
                                   (FunctionDescriptor/of ValueLayout/JAVA_INT (make-array MemoryLayout 0))
                                   (make-array java.lang.foreign.Linker$Option 0))]
       (.invokeWithArguments handle (ArrayList.)))))
+
+(deftest compiler-observation-identity-separates-diagnostics-from-semantics
+  (let [declaration {:kind :fn :name 'f :args [{:name 'x :type :i32}]
+                     :return :i32 :body ['x]
+                     :source {:file "a.clj" :line 1 :column 1}}
+        relocated (assoc declaration :source {:file "/other/b.clj" :line 90 :column 7})
+        fingerprint runtime/declaration-compilation-fingerprint]
+    (is (= (fingerprint declaration) (fingerprint relocated)))
+    (is (= (fingerprint (assoc declaration :body ['src]))
+           (fingerprint (assoc relocated :body ['src])))
+        "An ordinary local named src is not the location-observing builtin")
+    (doseq [changed [(assoc declaration :body [42])
+                     (assoc declaration :return :i64)
+                     (assoc-in declaration [:args 0 :type] :u32)
+                     (assoc declaration :body [(with-meta 'x {:var true})])]]
+      (is (not= (fingerprint declaration) (fingerprint changed))))
+    (doseq [body [['(aguafria.keyword/src)] ['(aguafria.zig/raw "@src().line")]]]
+      (is (not= (fingerprint (assoc declaration :body body))
+                (fingerprint (assoc relocated :body body)))))))
 
 (deftest adapter-tracking-counts-nested-calls-and-unwinds-to-zero
   (let [module "aguafria.adapter-tracking-native-fixture"
@@ -89,6 +109,35 @@
       (is (str/includes? @output ":loaded-images 640") @output)
       (is (str/includes? @output ":unique-symbol-addresses 640") @output)
       (is (str/includes? @output ":tls-sections 0") @output))))
+
+(deftest diagnostic-relocation-reuses-library-but-code-changes-invalidate
+  (let [directory (str (Files/createTempDirectory "aguafria-source-location-"
+                                                  (make-array java.nio.file.attribute.FileAttribute 0)))
+        configuration (runtime/configuration)
+        module "aguafria.source-location-native-fixture"
+        compile! (fn [location n]
+                   (#'runtime/compile-source!
+                    module
+                    (str (when location (str "// Aguafria source: " location "\n"))
+                         "export fn artifact_probe() i32 { return " n "; }\n")
+                    [{:module module :kind :fn :name 'artifact_probe
+                      :qualified-name (symbol module "artifact_probe")
+                      :args [] :return :i32}]))]
+    (try
+      (runtime/configure! {:cache-dir directory})
+      (let [prepared (compile! "project/original.clj:7:1" 42)]
+        (is (false? (:cached? prepared)))
+        (with-redefs [work/run-command! (fn [& _] (throw (ex-info "Location-only change compiled" {})))]
+          (doseq [location ["/completely/different/renamed.clj:999:17" nil]]
+            (let [reused (compile! location 42)]
+              (is (:cached? reused))
+              (is (= (:hash prepared) (:hash reused)))
+              (is (= 42 (probe reused))))))
+        (let [changed (compile! "project/original.clj:7:1" 43)]
+          (is (not= (:hash prepared) (:hash changed)))
+          (is (false? (:cached? changed)))
+          (is (= 43 (probe changed)))))
+      (finally (runtime/configure! configuration)))))
 
 (deftest relocated-object-reuses-real-library-and-changed-object-invalidates
   (let [directory (.toFile (Files/createTempDirectory "aguafria-artifact-native-"

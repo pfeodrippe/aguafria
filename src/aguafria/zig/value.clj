@@ -144,44 +144,44 @@
 (def-native-value-type ZigValue [descriptor state materialize]
   clojure.lang.ILookup
   (valAt [this key]
-    (lookup-field this key))
+         (lookup-field this key))
   (valAt [_ key _not-found]
-    (reject-lookup-default! key))
+         (reject-lookup-default! key))
 
   clojure.lang.IDeref
   (deref [this]
-    (let [result (decoded this)]
-      (if (zig-pointer? result)
-        ((requiring-resolve 'aguafria.zig.jvm/dereference-pointer!) this)
-        result)))
+         (let [result (decoded this)]
+           (if (zig-pointer? result)
+             ((requiring-resolve 'aguafria.zig.jvm/dereference-pointer!) this)
+             result)))
 
   clojure.lang.Seqable
   (seq [this]
-    (seq (sequence-values this)))
+       (seq (sequence-values this)))
 
   clojure.lang.Indexed
   (nth [this index]
-    (sequence-element this index))
+       (sequence-element this index))
   (nth [this index not-found]
-    (sequence-element this index not-found))
+       (sequence-element this index not-found))
   (count [this]
-    (count (decoded this)))
+         (count (decoded this)))
 
   java.lang.AutoCloseable
   (close [this]
-    (let [state (value-state this)]
-      (when-not (= :closed (:status @state))
-        (let [{:keys [close! cleanable]} (realize! this)]
-          (if cleanable
-            (.clean ^Cleaner$Cleanable cleanable)
-            (do
-              (when close! (close!))
-              (swap! state assoc :status :closed)))))
-      nil))
+         (let [state (value-state this)]
+           (when-not (= :closed (:status @state))
+             (let [{:keys [close! cleanable]} (realize! this)]
+               (if cleanable
+                 (.clean ^Cleaner$Cleanable cleanable)
+                 (do
+                   (when close! (close!))
+                   (swap! state assoc :status :closed)))))
+           nil))
 
   Object
   (toString [this]
-    (pr-str this)))
+            (pr-str this)))
 
 (defn zig-value?
   "True when value is an Aguafria native Zig value handle."
@@ -205,7 +205,7 @@
     (merge
      (select-keys (.-descriptor value)
                   [:module :name :kind :type :inspection-type
-                   :logical-id :execution-context :align])
+                   :logical-id :execution-context :align :comptime-mutable?])
      (select-keys state-map
                   [:status :representation :size :alignment :generation]))))
 
@@ -1280,7 +1280,7 @@
 (defn address-value
   "Own a pointer to existing storage, retaining its pointee without copying it."
   ([owner mutable?]
-   (address-value owner mutable? (qualified-type owner)))
+   (address-value owner mutable? (storage-type owner)))
   ([owner mutable? child]
    (let [{:keys [segment pointer-alignment]} (realize! owner)
          type (if-let [alignment (or pointer-alignment (:align (info owner)))]
@@ -1310,7 +1310,7 @@
   "Borrow an ordinary array's element storage as a many-item pointer.
   Length stays with the caller for native bounds checks; the owner stays live."
   [owner]
-  (let [type (qualified-type owner)]
+  (let [type (storage-type owner)]
     (when-not (and (vector? type) (= :array (first type)) (= 3 (count type)))
       (throw (ex-info "Expected an ordinary native array" {:type type})))
     (let [mutable? (= :var (:kind (info owner)))
@@ -1358,6 +1358,38 @@
       (catch Throwable failure
         (.close arena)
         (throw failure)))))
+
+(defn comptime-mutable?
+  "True for a mutable compiler-time scalar, which has no native address."
+  [value]
+  (and (zig-value? value) (:comptime-mutable? (info value))))
+
+(defn- checked-comptime-scalar [input type]
+  (when-not (case type
+              :comptime_int (integer? input)
+              :comptime_float (number? input)
+              false)
+    (throw (ex-info "Invalid compiler-time mutable scalar" {:type type :value input})))
+  input)
+
+(defn comptime-mutable
+  "Create a compiler-time scalar cell during ordinary JVM evaluation.
+  Its value is passed as source, never as a fictitious runtime integer address."
+  [initial type]
+  (let [initial (checked-comptime-scalar initial type)]
+    (native-value {:kind :var :type type :comptime-mutable? true}
+                  (constantly {:representation :scalar :value initial}))))
+
+(defn update-comptime-mutable!
+  "Publish a scalar returned by a successfully executed native scoped adapter."
+  [target result]
+  (when-not (comptime-mutable? target)
+    (throw (ex-info "Expected compiler-time mutable storage" {})))
+  (let [result (checked-comptime-scalar
+                (if (zig-value? result) (decoded result) result) (:type (info target)))]
+    (realize! target)
+    (swap! (value-state target) assoc :value result))
+  nil)
 
 (defn mutable-copy
   "Copy native storage into a mutable handle, preserving pointee owners."

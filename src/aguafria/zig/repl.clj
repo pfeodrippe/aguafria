@@ -13,11 +13,14 @@
 (defn- token [n]
   (when (and n (= :token (node/tag n))) (node/sexpr n)))
 
+(defn- documentation? [n]
+  (or (#{:map :multi-line} (node/tag n)) (string? (token n))))
+
 (defn- signature-tail [nodes]
-  (drop-while #(#{:string :map} (node/tag %)) nodes))
+  (drop-while documentation? nodes))
 
 (defn plan
-  "Locate whole body forms in an already loaded namespace, without evaluating or
+  "Locate native initializers and whole body forms in an already loaded namespace, without evaluating or
   reading any body through Clojure's reader. Tagged literals and reader macros
   remain source text. Ranges are one-based, end-exclusive, UTF-16 coordinates."
   [source namespace]
@@ -41,6 +44,23 @@
                                :line row :column col :end-line end-row :end-column end-col
                                :expression (node/string body)}))]
                (cond
+                 (and (= 'aguafria.zig owner) (#{'defconst 'defvar} op))
+                 (let [parts (loop [parts tail]
+                               (if (and (next parts) (documentation? (first parts)))
+                                 (recur (next parts)) parts))
+                       type (if (= 'defconst op)
+                              (when (= 2 (count parts)) (first parts))
+                              (when (and (next tail)
+                                         (not (documentation? (first tail))))
+                                (first tail)))]
+                   [(cond-> (assoc (record (last tail)) :kind :initializer)
+                      (and type (not (#{'_ :_} (token type))))
+                      (assoc :type-context (node/string type)))])
+
+                 (and (= 'aguafria.zig owner) (#{'defn 'defn-} op)
+                      (#{:noreturn 'noreturn 'aguafria.keyword/noreturn} (token (first tail))))
+                 [(assoc (record form) :status :skipped :reason :non-returning-function)]
+
                  (and (#{'aguafria.zig 'clojure.core} owner) (#{'defn 'defn-} op))
                  (let [signature (signature-tail (if (= 'aguafria.zig owner) (rest tail) tail))
                        signature (if (= :vector (some-> signature first node/tag)) signature

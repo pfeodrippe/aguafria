@@ -1,5 +1,6 @@
 (ns aguafria.zig.repl-test
-  (:require [aguafria.zig.repl :as repl]
+  (:require [aguafria.zig :as a]
+            [aguafria.zig.repl :as repl]
             [clojure.data.json :as json]
             [clojure.test :refer [deftest is]])
   (:import [java.nio.charset StandardCharsets]
@@ -34,6 +35,27 @@
     (is (= [:requires-arguments nil :function-contract] (mapv :reason rows)))
     (is (= "42" (:expression (second rows))))))
 
+(deftest multiline-docstrings-do-not-become-function-arguments
+  (let [rows (:rows (repl/plan
+                     (str "(a/defn main :void \"First line\nSecond line\" [] (run-main))\n"
+                          "(defn helper \"First line\nSecond line\" [] 42)\n"
+                          "(a/defconst typed \"First line\nSecond line\" :i32 (value))")
+                     "aguafria.zig.repl-test"))]
+    (is (= ["(run-main)" "42" "(value)"] (mapv :expression rows)))
+    (is (not-any? :reason rows))
+    (is (= ":i32" (:type-context (last rows))))))
+
+(deftest native-noreturn-bodies-are-not-standalone-editor-evaluations
+  (let [rows (:rows (repl/plan
+                     (str "(a/defn- stop :noreturn [] (must-not-run))\n"
+                          "(a/defn entry :noreturn {:zig/qualifiers \"callconv(.naked)\"} [] (stop))\n"
+                          "(defn stop [] 42)\n"
+                          "(a/deftest ordinary (check-result))")
+                     "aguafria.zig.repl-test"))]
+    (is (= [:non-returning-function :non-returning-function nil nil] (mapv :reason rows)))
+    (is (= [:skipped :skipped nil nil] (mapv :status rows)))
+    (is (= ["42" "(check-result)"] (mapv :expression (drop 2 rows))))))
+
 (deftest namespace-aliases-resolve-against-the-loaded-namespace
   (let [namespace (gensym "aguafria.repl.alias")]
     (try
@@ -45,6 +67,21 @@
                                        "(ns unused) (c/defn main [] (let [x 1] (inc x)))"
                                        (str namespace))))))
       (finally (remove-ns namespace)))))
+
+(deftest native-initializers-are-whole-forms-with-declaration-context
+  (let [source (str "(a/defconst native-endian ((:endian (:arch (:cpu builtin/target)))))\n"
+                    "(a/defconst text \"literal value\")\n"
+                    "(a/defconst typed \"doc\" {:private true} :i32 (k/intCast source))\n"
+                    "(a/defvar counter :u32 \"doc\" {:private true} (k/+ one two))\n"
+                    "(def ordinary (must-not-run-again))")
+        rows (:rows (repl/plan source "aguafria.zig.repl-test"))]
+    (is (= 4 (count rows)))
+    (is (every? #(= :initializer (:kind %)) rows))
+    (is (= ["((:endian (:arch (:cpu builtin/target))))" "\"literal value\""
+            "(k/intCast source)" "(k/+ one two)"] (mapv :expression rows)))
+    (is (= [nil nil ":i32" ":u32"] (mapv :type-context rows)))
+    (is (= [1 2 3 4] (mapv :line rows)))
+    (is (= [27 18 46 46] (mapv :column rows)))))
 
 (deftest json-interface-transports-source-not-evaluated-values
   (let [request {:namespace "user" :source "(ns user) (defn main [] (str \"✓\" \"😀\"))"}

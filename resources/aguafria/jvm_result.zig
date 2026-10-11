@@ -122,7 +122,7 @@ pub const __aguafria_jvm = struct {
 
     // Only emit schemas that reproduce the exact compiler type. Nominal types
     // and pointer qualifiers not represented here retain their Zig expression.
-    fn hasStructuralType(comptime T: type) bool {
+    pub fn hasStructuralType(comptime T: type) bool {
         return switch (@typeInfo(T)) {
             .int, .float, .bool, .void, .noreturn, .comptime_int, .comptime_float, .type => true,
             .array => |a| hasStructuralType(a.child) and
@@ -341,7 +341,20 @@ pub const __aguafria_jvm = struct {
 
     fn borrowedResultWithType(value: anytype, comptime nominal_type: ?[]const u8) usize {
         const T = @TypeOf(value);
-        if (comptime @typeInfo(T) != .@"struct" or !@hasDecl(T, "aguafria_borrowed_view")) return result(value);
+        if (comptime @typeInfo(T) != .@"struct" or !@hasDecl(T, "aguafria_borrowed_view")) {
+            // Non-addressable fields still use ordinary result transport. Keep
+            // its allocation/envelope policy, but retain the compiler-confirmed
+            // field type for native results instead of the helper's whole body.
+            if (nominal_type) |identity| {
+                switch (@typeInfo(T)) {
+                    .int, .float, .array, .vector, .pointer, .optional, .@"enum" => return nominalResult(value, T, identity),
+                    .@"struct" => |info| if (!info.is_tuple and T != BoundMethod)
+                        return nominalResult(value, T, identity),
+                    else => {},
+                }
+            }
+            return result(value);
+        }
         const P = @typeInfo(@TypeOf(value.pointer)).pointer;
         var sink = NativeWriter.init();
         defer sink.deinit();
@@ -774,6 +787,12 @@ pub const __aguafria_jvm = struct {
         return sink.finish();
     }
 
+    // A scoped statement can encode its writebacks before its comptime locals
+    // leave scope. Do not wrap that already-owned transport buffer a second time.
+    pub fn encodedResult(value: usize) usize {
+        return value;
+    }
+
     pub fn result(value: anytype) usize {
         var sink = NativeWriter.init();
         defer sink.deinit();
@@ -939,6 +958,19 @@ pub const __aguafria_jvm = struct {
         return sink.finish();
     }
 
+    pub fn concatenationValueResult(value: anytype) usize {
+        const T = @TypeOf(value);
+        if (comptime @typeInfo(T) == .@"struct" and @typeInfo(T).@"struct".is_tuple and !requiresComptime(T)) {
+            // Preserve the aggregate's field lookup, length and native storage,
+            // not only a JVM vector of individually transported elements.
+            var sink = NativeWriter.init();
+            defer sink.deinit();
+            writeNativeResult(&sink.writer, value) catch @panic("Cannot encode concatenated tuple");
+            return sink.finish();
+        }
+        return result(value);
+    }
+
     pub fn concatenationResult(comptime value: anytype) usize {
         const T = @TypeOf(value);
         if (@typeInfo(T) == .pointer) {
@@ -958,7 +990,7 @@ pub const __aguafria_jvm = struct {
                 return sink.finish();
             }
         }
-        return result(value);
+        return concatenationValueResult(value);
     }
 
     fn writeResult(writer: *std.Io.Writer, value: anytype) !void {

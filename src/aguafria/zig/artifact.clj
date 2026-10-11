@@ -223,6 +223,19 @@
     (cached-source-key *source-key-cache* domain inputs)
     (calculate-key domain inputs)))
 
+(defn generated-source-identity
+  "Ignore generated Clojure diagnostic locations, not executable Zig inputs.
+  Keep ordinary comments, strings, declarations and whitespace significant.
+  @src makes the generated source's location observable, so retain exact text
+  in that case (conservatively, even if @src appears in a string/comment)."
+  [source]
+  (if (or (not (str/includes? source "// Aguafria "))
+          (re-find #"@src\s*\(" source))
+    source
+    ;; Zig strings cannot contain unescaped physical newlines. Multiline string
+    ;; lines start with \\, not //, so this cannot erase string contents.
+    (str/replace source #"(?m)^[\t ]*// Aguafria (?:source|form):[^\r\n]*(?:\r?\n|$)" "")))
+
 (defn- file-digest [file]
   ;; Do not trust (size, mtime) as content identity: editors/build tools can
   ;; preserve both while replacing bytes. Stream instead of retaining file data.

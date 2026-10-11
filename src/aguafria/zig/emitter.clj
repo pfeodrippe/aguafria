@@ -835,6 +835,39 @@
                  nil)]
       (with-meta (apply list operator arguments) (meta form)))))
 
+(defn- switch-clauses [context clauses]
+  (let [clause? (fn [form]
+                  (and (seq? form)
+                       (contains? #{'case 'inline-case 'case-else 'inline-case-else}
+                                  (resolved-syntax-operator context (first form)))))
+        selector (fn [value]
+                   (if (and (keyword? value) (nil? (namespace value)))
+                     (list 'enum-literal
+                           (if (str/starts-with? (name value) ".")
+                             (name value)
+                             (str "." (identifier value))))
+                     value))]
+    (if (clause? (first clauses))
+      (do
+        (when-not (every? clause? clauses)
+          (fail! "Do not mix explicit switch clauses with selector/result pairs" clauses))
+        (map (fn [clause]
+               (with-meta (cons (resolved-syntax-operator context (first clause)) (rest clause))
+                 (meta clause))) clauses))
+      (let [pairs (partition 2 clauses)
+            default (when (odd? (count clauses)) (last clauses))]
+        (concat
+         (map (fn [[pattern target]]
+                (list 'case (mapv selector (if (vector? pattern) pattern [pattern])) target)) pairs)
+         (when (odd? (count clauses)) [(list 'case-else default)]))))))
+
+(defn- normalize-switch-form [context operator form]
+  (if (contains? #{'switch 'switch-stmt 'labeled-switch 'labeled-switch-stmt} operator)
+    (let [prefix (if (contains? #{'labeled-switch 'labeled-switch-stmt} operator) 3 2)]
+      (with-meta (apply list (concat (take prefix form)
+                                     (switch-clauses context (drop prefix form)))) (meta form)))
+    form))
+
 (defn- qualify-seq
   [context-ns form]
   (let [[op & raw-args] form
@@ -984,6 +1017,7 @@
                      (or (resolved-syntax-operator context-ns (first form))
                          (some-> (keyword/resolve-token context-ns (first form))
                                  :zig-token symbol)))
+          form (normalize-switch-form context-ns operator form)
           form (if (and (seq? form)
                         (contains? #{'with-block 'block 'if-capture 'if-capture-stmt
                                      'catch-capture 'switch 'switch-stmt 'labeled-switch
@@ -1209,7 +1243,7 @@
                   (some-> (keyword/resolve-token context-ns (first form)) :zig-token symbol)
                   (first form))))
           (contextual? [form]
-            (if (and (keyword? form) (str/starts-with? (name form) "."))
+            (if (keyword/enum-literal-keyword? form)
               true
               (when (seq? form)
                 (let [head (first form)]
@@ -1221,7 +1255,8 @@
                         (let do block) (contextual? (last form))
                         (switch labeled-switch)
                         (some #(contextual? (last %))
-                              (drop (if (= 'labeled-switch (operator form)) 3 2) form))
+                              (switch-clauses context-ns
+                                              (drop (if (= 'labeled-switch (operator form)) 3 2) form)))
                         while-loop
                         (or (contextual? (:else-expression (second form)))
                             (some loop-break-contextual? (drop 3 form)))
@@ -2159,6 +2194,9 @@
     (contains? '#{(comptime unreachable) (comptime (unreachable))} target)
     "comptime unreachable"
 
+    (and (seq? target) (= :assignment (:kind (current-keyword-token (first target)))))
+    (braced [target] 0)
+
     (and (seq? target) (contains? #{'do 'block} (first target)))
     (braced (rest target) 0)
 
@@ -2215,7 +2253,8 @@
           (let [[label condition & clauses] args]
             [label condition clauses])
           (let [[condition & clauses] args]
-            [nil condition clauses]))]
+            [nil condition clauses]))
+        clauses (switch-clauses (or *keyword-context* *ns*) clauses)]
     (when-not (and condition (seq clauses)
                    (or (nil? label)
                        (symbol? label) (keyword? label) (string? label)))
@@ -2490,9 +2529,10 @@
                    form {:operator form :replacement 'aguafria.keyword/undefined})
             (identifier form)))))
     (keyword? form) (let [n (name form)]
-                      (if (str/starts-with? n ".")
-                        n
-                        (identifier form)))
+                      (cond
+                        (str/starts-with? n ".") n
+                        (keyword/enum-literal-keyword? form) (str "." (identifier form))
+                        :else (identifier form)))
     (map? form) (emit-map-literal form)
     (vector? form) (emit-vector-literal form)
 

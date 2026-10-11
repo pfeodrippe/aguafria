@@ -966,6 +966,20 @@
   [form]
   (source-data-fingerprint form))
 
+(defn declaration-compilation-fingerprint
+  "Compiler-observation identity without the declaration's diagnostic location.
+  Keep the full source-fingerprint separately for source rendering/error maps."
+  [declaration]
+  (let [location-observable?
+        (some #(or (and (string? %) (re-find #"@src\s*\(" %))
+                   (= 'aguafria.keyword/src %))
+              (tree-seq coll? seq declaration))]
+    (source-data-fingerprint
+     (cond-> (dissoc declaration :source-fingerprint :implementation-fingerprint
+                     :type-dependency-fingerprints :callable-dependency-fingerprints
+                     :clojure-form :logical-key)
+       (not location-observable?) (dissoc :source)))))
+
 (defn- declaration-zig-name
   [{:keys [name zig-name]}]
   (emit/identifier (or zig-name name)))
@@ -1699,9 +1713,34 @@
   [type]
   (contains-syntax-operator? type "container"))
 
+(defn- error-free-dispatch-type?
+  "Conservative error-freedom check, additional to the existing ABI identity.
+  Unknown/nominal/computed schemas stay local: absence of a visible error token
+  is not proof that a struct, alias, pointer or callback carries no error IDs."
+  [type]
+  (cond
+    (or (keyword? type) (symbol? type))
+    (let [spelling (when (or (nil? (namespace type))
+                             (= "aguafria.keyword" (namespace type)))
+                     (name type))]
+      (boolean
+       (and spelling
+            (or (re-matches #"[iu][0-9]+" spelling)
+                (contains? #{"void" "noreturn" "bool" "isize" "usize"
+                             "f16" "f32" "f64" "f80" "f128" "c_longdouble"
+                             "c_char" "c_short" "c_ushort" "c_int" "c_uint"
+                             "c_long" "c_ulong" "c_longlong" "c_ulonglong"}
+                           spelling)))))
+
+    (and (vector? type)
+         (contains? #{:* :*const :slice :slice-const :array :vector :? :optional}
+                    (first type)))
+    (error-free-dispatch-type? (last type))
+
+    :else false))
+
 (defn- dispatchable-declaration?
-  [{:keys [kind args return zig-prefix zig-qualifiers logical-id]
-    :as declaration}]
+  [{:keys [kind args return zig-prefix zig-qualifiers]}]
   (and (:reloadable? @config)
        (= :fn kind)
        ;; Forced-inline calls must keep their body at the callsite: even a
@@ -1712,16 +1751,14 @@
        (not (anonymous-type? return))
        (not-any? #(anonymous-type? (:type %)) args)
        (not-any? generic-function-argument? args)
-       ;; An inferred error set is part of Zig's call graph. Splitting a
-       ;; recursive function into wrapper -> implementation -> wrapper creates
-       ;; an inference cycle even though the original direct recursion is
-       ;; valid. Keep that declaration direct; edits still publish through the
-       ;; nearest reloadable caller that depends on it.
-       (not (and (or (emit/inferred-error-payload return)
-                     (str/starts-with? (or zig-qualifiers "") "!"))
-                 logical-id
-                 (contains? (declaration-reference-logical-ids declaration)
-                            logical-id)))))
+       ;; Raw dispatch pointers can target another native image. Error IDs
+       ;; cannot cross that boundary, even when both signatures/layouts match.
+       ;; Keep error-bearing (or unproven) inputs/results local; changes rebuild
+       ;; dependent callers through the existing non-dispatchable graph path.
+       ;; Inferred-error recursion also stays direct, avoiding inference cycles.
+       (error-free-dispatch-type? return)
+       (every? #(error-free-dispatch-type? (:type %)) args)
+       (not (str/starts-with? (or zig-qualifiers "") "!"))))
 
 (defn- declaration-dispatch-spec
   [{:keys [logical-id abi-fingerprint implementation-fingerprint]
@@ -2147,7 +2184,7 @@
      :hash hash
      :size-bytes (.length ^File library-file)}))
 
-(defn- materialize-module-source!
+(defn- materialize-module-input!
   [module source]
   (when-not (string? source)
     (throw
@@ -2174,7 +2211,21 @@
                                       StandardOpenOption/TRUNCATE_EXISTING
                                       StandardOpenOption/WRITE])))
     (project/materialize-module-assets! module source directory)
-    (.getAbsolutePath source-file)))
+    (let [identity-source (artifact/generated-source-identity source)
+          path (.getAbsolutePath source-file)]
+      ;; Compiler inputs remain immutable, byte-exact and fully annotated.
+      ;; Only automatically generated module identities omit diagnostic text;
+      ;; configured module paths and assets retain their ordinary identities.
+      {:path path
+       :identity (if (= source identity-source)
+                   path
+                   (.getAbsolutePath
+                    (io/file (:cache-dir @config) "dependencies"
+                             (safe-path-component module)
+                             (subs (sha256 identity-source) 0 24) "module.zig")))})))
+
+(defn- materialize-module-source! [module source]
+  (:path (materialize-module-input! module source)))
 
 (declare module-sources declaration-live-slice declarations-live-slice
          direct-declaration-dependencies)
@@ -2198,7 +2249,7 @@
                             :source-dirty? false}))))
         (get @registry module)))))
 
-(defn- materialize-registered-module-source!
+(defn- materialize-registered-module-input!
   [module development-dependencies?]
   (let [{:keys [source reload-source dependency-source] :as module-state}
         (ensure-static-module-source! module)
@@ -2214,7 +2265,7 @@
         {:aguafria/phase :zig-dependency
          :module (str module)
          :known-modules (sort (keys @registry))})))
-    (materialize-module-source! module source)))
+    (materialize-module-input! module source)))
 
 (defn- declaration-named-module-imports
   [declarations]
@@ -3388,39 +3439,40 @@
         root-named-module-imports
         (declaration-named-module-imports
          (or development-root-declarations declarations))
-        automatic
+        automatic-inputs
         (if transitive-dependencies?
           (into {}
                 (map (fn [[module {:keys [source]}]]
-                       [module (materialize-module-source! module source)]))
+                       [module (materialize-module-input! module source)]))
                 dependency-snapshot)
           (into {}
                 (keep (fn [[_ {:keys [import-name namespace]}]]
                         (when namespace
                           [import-name
-                           (materialize-registered-module-source!
+                           (materialize-registered-module-input!
                             namespace false)])))
                 (emit/declaration-imports declarations)))
-        automatic
+        automatic-inputs
         (if transitive-dependencies?
           (reduce
            (fn [modules module]
              (if (contains? modules module)
                modules
                (assoc modules module
-                      (materialize-registered-module-source!
+                      (materialize-registered-module-input!
                        module development-dependencies?))))
-           automatic
+           automatic-inputs
            root-dependencies)
-          automatic)
-        automatic
+          automatic-inputs)
+        automatic-inputs
         (if (and development-dependencies?
                  development-root-module
                  (string? development-root-source))
-          (assoc automatic development-root-module
-                 (materialize-module-source! development-root-module
-                                             development-root-source))
-          automatic)
+          (assoc automatic-inputs development-root-module
+                 (materialize-module-input! development-root-module
+                                            development-root-source))
+          automatic-inputs)
+        automatic (update-vals automatic-inputs :path)
         configured
         (into {}
               (map (fn [[module path]]
@@ -3453,14 +3505,15 @@
           (keys dependency-snapshot)
           (into (set (keys configured)) (keys preferred-generated)))
          preferred-generated)
-        generated
+        generated-inputs
         (into {}
               (keep (fn [[module-name {:keys [source]}]]
                       (when-not (contains? configured module-name)
                         [module-name
-                         (materialize-module-source!
+                         (materialize-module-input!
                           (str "build-generated-" module-name) source)])))
               captured-generated)
+        generated (update-vals generated-inputs :path)
         external-candidates (merge generated configured)
         required-external-names
         (loop [required
@@ -3577,6 +3630,9 @@
     (cond-> (assoc compiler-options
                    :zig (zig-executable)
                    :modules (merge external automatic)
+                   :generated-module-identities
+                   (merge (update-vals automatic-inputs :identity)
+                          (select-keys (update-vals generated-inputs :identity) (keys external)))
                    :module-cache-tokens external-cache-tokens
                    :development-linkage-logical-ids
                    development-linkage-logical-ids
@@ -3961,16 +4017,17 @@
         test-context-source
         (when *native-test-context?*
           (slurp (io/resource "aguafria/jvm_test_context.zig")))
-        hash-input [source compiler-version
+        hash-input [(artifact/generated-source-identity source) compiler-version
                     (if test-context-source {:initialization-source test-context-source} false)
                     debug-format
                     (assoc (artifact/compiler-options-identity
-                            (select-keys compiler-options
-                                         [:optimize :development-debug-info
-                                          :target :cpu :zig-args
-                                          :modules :module-dependencies
-                                          :module-zig-args
-                                          :module-cache-tokens]))
+                            (update (select-keys compiler-options
+                                                 [:optimize :development-debug-info
+                                                  :target :cpu :zig-args
+                                                  :modules :module-dependencies
+                                                  :module-zig-args
+                                                  :module-cache-tokens])
+                                    :modules merge (:generated-module-identities compiler-options)))
                            :development-compiler-arguments
                            (development-compiler-arguments compiler-options)
                            :development-panic effective-development-panic
@@ -6124,7 +6181,7 @@
             (mapv #(update % :type (fn [type] (bridge-storage-type module type #{})))
                   arguments))))
 
-(defn- jvm-callable-result-type
+(defn jvm-callable-result-type
   "Return the complete Zig result type used by a JVM call bridge.
 
   Inferred error unions may use a keyword (`:!void`), a composite type, or
@@ -11622,6 +11679,18 @@
                              :duration-ms (/ (- (System/nanoTime) started) 1e6)})
         (assoc result :command command :source-path (.getAbsolutePath file))))))
 
+(defn inspect-declarations!
+  "Inspect an explicit compiler declaration graph, including adapter-only roots.
+  Dependencies and compiler options come from that graph. Never executes or
+  publishes an image; unlike inspect-module!, no authored root is required."
+  [module declarations transform]
+  (let [module (str module)
+        declarations (vec declarations)]
+    (ensure-converted-dependency-sources! module declarations)
+    (binding [*inspection-context* {:module module :declarations declarations
+                                    :options (inspection-options module declarations)}]
+      (inspect-module! module transform))))
+
 (defn- native-test-commands
   [compiler-options selector source-file runner-file object-file library-file panic-support]
   {:compile-command
@@ -12629,8 +12698,9 @@
               ;; Transport schemas use the public type form; declarations have
               ;; already passed through the emitter's structural qualification.
               ;; Compare the same canonical form, including nested type forms.
-              ((requiring-resolve 'aguafria.zig.jvm/qualify-native-type)
-               context type)))
+              ((requiring-resolve 'aguafria.zig.jvm/constructor-type)
+               ((requiring-resolve 'aguafria.zig.jvm/qualify-native-type)
+                context type))))
           expected (canonical expected-type module)
           actual (canonical actual-type actual-module)]
       (when-not (or (= expected actual)

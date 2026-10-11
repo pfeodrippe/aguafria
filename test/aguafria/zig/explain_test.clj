@@ -3,7 +3,48 @@
             [aguafria.zig.explain :as explanation]
             [aguafria.zig.runtime :as runtime]
             [clojure.string :as str]
-            [clojure.test :refer [deftest is]]))
+            [clojure.test :refer [deftest is use-fixtures]]))
+
+;; Existing full-transcript assertions exercise the opt-in verbose mode.
+(use-fixtures :each (fn [f] (binding [explanation/*verbose* true] (f))))
+
+(deftest quiet-is-default-and-clean-reuse-does-not-print-headings-or-summaries
+  (is (false? (.getRawRoot #'explanation/*verbose*)))
+  (binding [explanation/*verbose* false]
+    (is (= "program output\n"
+           (with-out-str
+             (a/explain!
+              (explanation/event! {:event :bundle-cache-hit :module "ready"})
+              (explanation/event! {:event :bundle-loaded :module "ready"})
+              (explanation/event! {:event :memory-cache-hit :module "ready"})
+              (println "program output")))))))
+
+(deftest quiet-reports-fallback-work-with-the-responsible-form
+  (let [output (binding [explanation/*verbose* false]
+                 (with-out-str
+                   (a/explain!
+                    (explanation/event! {:event :bundle-cache-hit :module "ready"})
+                    (explanation/event! {:event :disk-cache-hit :module "fallback"})
+                    (explanation/event! {:event :compiled :module "new"})
+                    (explanation/event! {:event :compile-failed :module "bad"}))))]
+    (is (str/includes? output ">>> BEGIN explain"))
+    (is (str/includes? output "(explanation/event!"))
+    (is (str/includes? output "[aguafria] disk-cache-hit fallback"))
+    (is (str/includes? output "[aguafria] compiled new"))
+    (is (str/includes? output "[aguafria] compile-failed bad"))
+    (is (not (re-find #"(?m)^\[aguafria\] bundle-cache-hit" output)))
+    (is (not (re-find #"(?m)^\[aguafria\] [0-9]+ " output)))
+    (is (str/ends-with? output "[aguafria] <<< END explain\n\n"))))
+
+(deftest quiet-runtime-errors-still-show-the-form
+  (let [failure (ex-info "same failure" {})
+        output (binding [explanation/*verbose* false]
+                 (with-out-str
+                   (is (identical? failure
+                                   (try (a/explain! (throw failure))
+                                        (catch Throwable error error))))))]
+    (is (str/includes? output "(throw failure)"))
+    (is (str/ends-with? output "[aguafria] <<< END explain\n\n"))))
 
 (deftest reports-source-before-evaluation-without-print-truncation
   (let [expanded (binding [*file* "some/project/example.clj"
@@ -119,6 +160,24 @@
       (deliver gate true)
       (is (= :done (deref work 10000 :timeout)))
       (is (str/includes? (str writer) "[aguafria] compiled async"))
+      (finally (deliver gate true)))))
+
+(deftest quiet-late-events-have-complete-source-labelled-blocks
+  (let [gate (promise)
+        writer (java.io.StringWriter.)
+        work (binding [*out* writer explanation/*verbose* false]
+               (explanation/call-with-report
+                #(future @gate (explanation/event! {:event :compiled :module "async"}) :done)
+                {:file "async.clj" :line 7 :forms ["(future (native-call))"]}))]
+    (try
+      (is (not (realized? work)))
+      (is (= "" (str writer)))
+      (deliver gate true)
+      (is (= :done (deref work 10000 :timeout)))
+      (is (str/starts-with? (str writer) "\n[aguafria] >>> BEGIN explain async.clj:7\n(future (native-call))\n\n"))
+      (is (str/includes? (str writer) "[aguafria] compiled async"))
+      (is (str/ends-with? (str writer) "[aguafria] <<< END explain\n\n"))
+      (is (not (str/includes? (str writer) "1 compiled")))
       (finally (deliver gate true)))))
 
 (deftest real-native-compilation-and-reuse

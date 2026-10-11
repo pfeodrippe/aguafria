@@ -148,7 +148,15 @@ pub fn Inspector(comptime declarations: anytype) type {
 
         pub fn declarationArgumentSchema(comptime Container: type, comptime name: []const u8, comptime member_form: []const u8) []const u8 {
             const T = @TypeOf(@field(Container, name));
-            if (T == comptime_int or T == comptime_float) return literal(@field(Container, name));
+            // JVM field transport retains a storage-free declaration's source
+            // expression, not merely its decoded number. Preserve that same
+            // dependency when its container has a compiler-confirmed identity.
+            if (T == comptime_int or T == comptime_float) {
+                return if (!std.mem.eql(u8, schema(Container), "nil"))
+                    declarationExpression(Container, member_form)
+                else
+                    literal(@field(Container, name));
+            }
             if (T == type) return "{:comptime-type " ++ schema(@field(Container, name)) ++ "}";
             switch (@typeInfo(Container)) {
                 .@"struct", .@"union", .@"enum", .@"opaque" => {},
@@ -287,6 +295,17 @@ pub fn Inspector(comptime declarations: anytype) type {
         }
 
         fn declarationSchema(comptime T: type) ?[]const u8 {
+            // Borrowed JVM storage retains its source type when the runtime
+            // bridge cannot express the whole type structurally (including
+            // arrays/pointers containing nominal children). Use the very same
+            // compiler-owned predicate, never a display-name equivalence.
+            inline for (declarations) |declaration| {
+                if (@hasDecl(declaration, "storage_identity")) {
+                    if (declaration.storage_identity and
+                        !@import("jvm_result.zig").__aguafria_jvm.hasStructuralType(T) and
+                        T == declaration.get()) return declaration.name();
+                }
+            }
             switch (@typeInfo(T)) {
                 .@"struct", .@"enum", .@"union", .@"opaque", .@"fn" => {
                     // Search containers before unrelated function signatures.

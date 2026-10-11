@@ -80,7 +80,10 @@
   specialization path. Explicit native operand types are never discarded."
   [{:keys [kind zig-token]} arguments]
   (when (= kind :operator)
-    (let [numbers (mapv literal-number arguments)
+    (let [;; Zig character literals are comptime integer code points, just as
+          ;; the compiler-observed signature reports them during preparation.
+          arguments (mapv #(if (char? %) (int %) %) arguments)
+          numbers (mapv literal-number arguments)
           comparison? (contains? #{"==" "!=" "<" ">" "<=" ">="} zig-token)
           arithmetic? (contains? #{"+" "-" "*" "+%" "-%" "*%" "+|" "-|" "*|"} zig-token)
           numeric? (and (seq arguments) (every? number? numbers))

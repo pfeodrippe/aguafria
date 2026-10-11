@@ -11,5 +11,9 @@
                  a/union [[:inner 0]]
                  a/enum [[:inner 0]]
                  a/struct-decl [[:inner 0]]
+                 switch [[:block 1]]
+                 aguafria.keyword/switch [[:block 1]]
+                 k/switch [[:block 1]]
+                 ak/switch [[:block 1]]
                  k/for [[:block 1]]
                  a/inline-for [[:block 1]]}}

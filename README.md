@@ -276,6 +276,46 @@ thousands of generated source files:
     (a/cast [:c-pointer Circle]))
 ```
 
+### Enum tags, switch, and error propagation
+
+Use ordinary keywords for enum tags: `:little`, `:big`, `:some-tag`. They emit
+`.little`, `.big`, `.some_tag`, respectively, and work through the ordinary JVM
+bridge too—for example `(k/as :little Endian)` or a typed native function call.
+Field-name positions and type schemas are unchanged. Primitive keywords such as
+`:u32` still denote types; the older dotted spelling remains an escape for a tag
+that collides with a primitive name, and remains accepted in existing source.
+
+Simple switches use selector/result pairs, with an optional final default:
+
+```clojure
+(k/switch native-endian
+  :little (k/try (testing/expectEqual 0x40302010 @u32-ptr))
+  :big (k/try (testing/expectEqual 0x10203040 @u32-ptr)))
+```
+
+A vector selector groups tags, e.g. `[:little :big] result`. Keywords in flat
+selector positions are explicitly enum tags, including primitive-name collisions.
+Existing explicit `case`, `inline-case`, and capture clauses remain available
+for advanced Zig switches; do not mix those clauses with the flat notation.
+Only the selected branch executes. CIDER metadata and `.cljfmt.edn` give
+`k/switch` the same indentation shape as `case`.
+
+Use **`k/try` for native error-union propagation**, in declarations and ordinary
+JVM evaluation. It unwraps success or throws a native-error `ExceptionInfo` on
+the JVM. Clojure **`try` / `catch` / `finally`** is a different operation:
+
+```clojure
+(try
+  (k/try (native-operation))
+  (catch clojure.lang.ExceptionInfo error
+    (handle-error error)))
+```
+
+A bare Clojure `(try (native-operation))` does not unwrap a returned native error
+union. Older native declarations may use the historical bare-`try` spelling;
+prefer `k/try` in authored source so the meaning is consistent in both execution
+paths. Clojure exception handling is not being removed or renamed.
+
 ### Clojure-computed types and values
 
 Use `a/clj!` to evaluate a Clojure expression in the caller's namespace and
@@ -415,6 +455,23 @@ compilation:
 ```clojure
 (a/set-value! requests-served 0)
 ```
+
+### Reload dispatch and native error identity
+
+Zig error numbers are local to a compiled image. Equal integers from two
+libraries need not name the same error. Generated reload dispatch therefore
+requires an error-free signature in addition to the existing ABI checks.
+Error-bearing arguments/results, and nominal or computed schemas whose error
+freedom is not established, stay local; edits rebuild dependent callers instead
+of routing raw error bytes through a foreign implementation pointer. Known
+error-free scalar signatures and supported compositions retain indirect dispatch.
+This is deliberately conservative and can increase rebuild work.
+
+Native storage transfers use named-error translation where the destination's
+error set supports it. An unproven cross-image transfer into an open `anyerror`
+set fails closed rather than guessing a numeric code. This dispatch guard is not
+an ownership guarantee for arbitrary externally supplied pointers or callbacks;
+their ABI, producing image and lifetime still need valid contracts.
 
 ## Native values
 

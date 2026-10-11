@@ -62,19 +62,20 @@
   `(host-value! (clojure.core/fn [] ~expression) '~&form))
 
 (defmacro explain!
-  "Print the call-site file, line and forms, then native compiler/cache activity.
+  "Explain disk reuse, native compilation and failures with the responsible forms.
 
   (a/explain! (a/defn add :i32 [[x :i32]] (k/+ x 1)))
   (a/explain! (add 41))
 
   Returns the last form's result unchanged; exceptions still propagate.
-  Reports go to stdout (the normal REPL output), before the forms execute.
+  Reports go to stdout (the normal REPL output). Successful bundle/memory hits
+  and summaries are hidden by default; quiet forms produce no report headings.
+  Bind aguafria.zig.explain/*verbose* true to show all hits and summaries.
   File and line are captured at macro expansion, including CIDER eval locations.
   Tooling may provide exact text in :aguafria.explain/source call metadata;
   otherwise forms are pretty-printed. BEGIN/END markers delimit each report.
-  Reports actual compilation, disk-cache and already-loaded native reuse.
-  Does not force compilation or wait for asynchronous work. Events from work
-  that conveys dynamic bindings may arrive after the immediate summary."
+  Does not force compilation or wait for asynchronous work. Late events from
+  work that conveys dynamic bindings retain their source context."
   [& forms]
   `(explanation/call-with-report
     (clojure.core/fn [] ~@forms)

@@ -2,6 +2,13 @@
 (require 'ert)
 (require 'aguafria-eval)
 
+(ert-deftest aguafria-switch-indents-like-case-for-namespace-aliases ()
+  (with-temp-buffer
+    (clojure-mode)
+    (insert "(other/switch endian\n:little (f)\n:big (g))")
+    (indent-region (point-min) (point-max))
+    (should (equal "(other/switch endian\n  :little (f)\n  :big (g))" (buffer-string)))))
+
 (ert-deftest aguafria-eval-wire-is-data-not-executable-elisp ()
   (should (equal (alist-get 'value
                            (aguafria-eval--decode
@@ -31,6 +38,19 @@
       (should (string-suffix-p suffix wrapped))
       (should (equal source (json-parse-string encoded)))
       (should (= (cl-count ?\n source) (cl-count ?\n wrapped))))))
+
+(ert-deftest aguafria-eval-initializers-retain-type-context-and-display-source ()
+  (with-temp-buffer
+    (insert "{:x (next-value) ; ✓\n}")
+    (let* ((source (buffer-string))
+           (wrapped (aguafria-eval--explained-source
+                     (list (point-min) (point-max)) "Point")))
+      (should (string-prefix-p
+               (concat "^{:aguafria.explain/source " (json-encode-string source) "} ")
+               wrapped))
+      (should (string-suffix-p
+               (concat "(aguafria.zig/explain! (aguafria.keyword/as " source " Point))")
+               wrapped)))))
 
 (ert-deftest aguafria-eval-highlights-the-whole-lexical-form ()
   (save-window-excursion
@@ -112,6 +132,51 @@
         (funcall load-callback (nrepl-dict "value" "#'sample/main" "status" '("done")))
         (should planned)
         (should (= 1 (length handled)))))))
+
+(ert-deftest aguafria-eval-preview-uses-only-metadata-and-clears-on-edits ()
+  (with-temp-buffer
+    (clojure-mode)
+    (insert "(let [s \"✓ 😀\"]\n  (str s))\n42\n(must-not-run)\n")
+    (let* ((rows (list (aguafria-eval-test--row 1)
+                       (aguafria-eval-test--row 3)
+                       (cons '(status . "skipped") (aguafria-eval-test--row 4))))
+           (source (buffer-string)) (position (point)) callback
+           (aguafria-eval--run nil))
+      (cl-letf (((symbol-function 'cider-ensure-connected) #'ignore)
+                ((symbol-function 'cider-current-connection) (lambda () 'connection))
+                ((symbol-function 'cider-current-ns) (lambda () "sample"))
+                ((symbol-function 'aguafria-eval--check-connection) #'ignore)
+                ((symbol-function 'nrepl--mark-id-completed) #'ignore)
+                ((symbol-function 'cider-load-buffer) (lambda (&rest _) (ert-fail "Loaded source")))
+                ((symbol-function 'cider-interactive-eval) (lambda (&rest _) (ert-fail "Evaluated source")))
+                ((symbol-function 'nrepl-request:eval)
+                 (lambda (code cb &rest _)
+                   (should (string-match-p "plan-json" code))
+                   (setq callback cb) "preview")))
+        (aguafria-eval-highlight-buffer)
+        (should-not aguafria-eval--preview-overlays)
+        (funcall callback (nrepl-dict "id" "preview" "status" '("done")
+                                      "value" (json-encode (json-encode `((rows . ,rows))))))
+        (should-not aguafria-eval--run)
+        (should (= 2 (length aguafria-eval--preview-overlays)))
+        (should (= position (point)))
+        (should (equal source (buffer-string)))
+        (should (member "(let [s \"✓ 😀\"]\n  (str s))"
+                        (mapcar (lambda (o) (buffer-substring-no-properties (overlay-start o) (overlay-end o)))
+                                aguafria-eval--preview-overlays)))
+        (insert "\n")
+        (should-not aguafria-eval--preview-overlays)))))
+
+(ert-deftest aguafria-eval-preview-discards-stale-ranges ()
+  (with-temp-buffer
+    (insert "42")
+    (let* ((state (make-aguafria-eval--state :source (current-buffer)
+                                           :tick (buffer-chars-modified-tick) :preview t))
+           (aguafria-eval--run state))
+      (insert "0")
+      (aguafria-eval--show-preview state)
+      (should-not aguafria-eval--preview-overlays)
+      (should-not aguafria-eval--run))))
 
 (ert-deftest aguafria-eval-edits-stop-before-the-next-form ()
   (with-temp-buffer

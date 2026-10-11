@@ -127,6 +127,22 @@
       (is (= expected (artifact/print-data data)))
       (is (= data (edn/read-string (artifact/print-data data)))))))
 
+(deftest generated-diagnostic-locations-are-not-program-identity
+  (let [code "pub const answer = 42;\n"
+        source #(str "// Aguafria source: " % "\n    // Aguafria form: 13:4\n" code)]
+    (is (= code (artifact/generated-source-identity (source "a.clj:7:1"))
+           (artifact/generated-source-identity (source "/other/b.clj:99:8"))
+           (artifact/generated-source-identity code)))
+    (is (not= (artifact/generated-source-identity (source "a.clj:7:1"))
+              (artifact/generated-source-identity (str code "pub const changed = true;\n"))))
+    (doseq [text ["const s = \"// Aguafria source: literal.clj:7:1\";\n"
+                  "const s =\n    \\\\// Aguafria source: literal.clj:7:1\n;\n"
+                  "// User-authored comment\npub const n = 1;\n"
+                  "// Aguafria declaration: named/type\n"]]
+      (is (= text (artifact/generated-source-identity text))))
+    (let [located (str (source "a.clj:7:1") "pub fn site() @TypeOf(@src()) { return @src(); }\n")]
+      (is (= located (artifact/generated-source-identity located))))))
+
 (deftest unordered-data-has-canonical-identity
   (let [left (array-map :options (array-map :optimize "safe" :flags #{:a :b})
                         :source "pub fn f() void {}")
