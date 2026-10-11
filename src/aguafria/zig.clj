@@ -62,17 +62,25 @@
   `(host-value! (clojure.core/fn [] ~expression) '~&form))
 
 (defmacro explain!
-  "Evaluate forms normally and print native compilation/cache activity to stdout.
+  "Print the call-site file, line and forms, then native compiler/cache activity.
 
   (a/explain! (a/defn add :i32 [[x :i32]] (k/+ x 1)))
   (a/explain! (add 41))
 
   Returns the last form's result unchanged; exceptions still propagate.
+  Reports go to stdout (the normal REPL output), before the forms execute.
+  File and line are captured at macro expansion, including CIDER eval locations.
+  Tooling may provide exact text in :aguafria.explain/source call metadata;
+  otherwise forms are pretty-printed. BEGIN/END markers delimit each report.
   Reports actual compilation, disk-cache and already-loaded native reuse.
   Does not force compilation or wait for asynchronous work. Events from work
   that conveys dynamic bindings may arrive after the immediate summary."
   [& forms]
-  `(explanation/call-with-report (clojure.core/fn [] ~@forms)))
+  `(explanation/call-with-report
+    (clojure.core/fn [] ~@forms)
+    {:file ~*file*
+     :line ~(:line (meta &form))
+     :forms ~(explanation/form-texts &form forms)}))
 
 (clojure.core/defn emit-expr "Emit one Zig expression." [form]
   (emitter/emit-expr *ns* form))

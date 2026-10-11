@@ -1,0 +1,127 @@
+;;; aguafria-eval-test.el --- Editor runner tests -*- lexical-binding: t; -*-
+(require 'ert)
+(require 'aguafria-eval)
+
+(ert-deftest aguafria-eval-wire-is-data-not-executable-elisp ()
+  (should (equal (alist-get 'value
+                           (aguafria-eval--decode
+                            (json-encode (json-encode '((value . "✓ 😀 \"quoted\""))))))
+                 "✓ 😀 \"quoted\"")))
+
+(defun aguafria-eval-test--row (line)
+  (save-excursion
+    (goto-char (point-min))
+    (forward-line (1- line))
+    (back-to-indentation)
+    (let ((start (point)) (column (1+ (current-column))))
+      (forward-sexp)
+      `((line . ,line) (column . ,column)
+        (end-line . ,(line-number-at-pos)) (end-column . ,(1+ (current-column)))
+        (expression . ,(buffer-substring-no-properties start (point)))))))
+
+(ert-deftest aguafria-eval-carries-verbatim-source-without-shifting-lines ()
+  (with-temp-buffer
+    (insert "(let [s \"quoted \\\"text\\\" \\\\ 😀\"] ; comment\n\t(str s))")
+    (let* ((source (buffer-string))
+           (wrapped (aguafria-eval--explained-source (list (point-min) (point-max))))
+           (prefix "^{:aguafria.explain/source ")
+           (suffix (concat "} (aguafria.zig/explain! " source ")"))
+           (encoded (substring wrapped (length prefix) (- (length wrapped) (length suffix)))))
+      (should (string-prefix-p prefix wrapped))
+      (should (string-suffix-p suffix wrapped))
+      (should (equal source (json-parse-string encoded)))
+      (should (= (cl-count ?\n source) (cl-count ?\n wrapped))))))
+
+(ert-deftest aguafria-eval-highlights-the-whole-lexical-form ()
+  (save-window-excursion
+    (with-temp-buffer
+      (clojure-mode)
+      (insert "(ns sample)\n(defn main []\n  (let [x 1]\n    (+ x 2)))\n")
+      (let* ((state (make-aguafria-eval--state :source (current-buffer)))
+             (bounds (aguafria-eval--highlight state (aguafria-eval-test--row 3))))
+        (unwind-protect
+            (progn
+              (should (equal "(let [x 1]\n    (+ x 2))"
+                             (apply #'buffer-substring-no-properties bounds)))
+              (should (eq 'highlight (overlay-get (aguafria-eval--state-overlay state) 'face))))
+          (delete-overlay (aguafria-eval--state-overlay state)))))))
+
+(ert-deftest aguafria-eval-uses-ciders-api-and-forwards-responses-once ()
+  (save-window-excursion
+    (with-temp-buffer
+      (clojure-mode)
+      (insert "(ns sample)\n(defn main []\n  (let [x 1] (+ x 2))\n  (boom)\n  (never-run))")
+      (let* ((state (make-aguafria-eval--state
+                     :source (current-buffer) :tick (buffer-chars-modified-tick) :index 0
+                     :rows (mapcar #'aguafria-eval-test--row '(3 4 5))))
+             (aguafria-eval--run state) (aguafria-eval-last-results nil)
+             calls callback scheduled handled)
+        (cl-letf (((symbol-function 'aguafria-eval--check-connection) #'ignore)
+                  ((symbol-function 'cider-interactive-eval-handler)
+                   (lambda (&rest _) (lambda (response) (push response handled))))
+                  ((symbol-function 'cider-interactive-eval)
+                   (lambda (form cb bounds params)
+                     (let ((source (apply #'buffer-substring-no-properties bounds)))
+                       (should (string-prefix-p "^{:aguafria.explain/source " form))
+                       (should (string-suffix-p (concat "(aguafria.zig/explain! " source ")") form))
+                       (should (= (cl-count ?\n source) (cl-count ?\n form)))
+                       (push source calls))
+                     (should params)
+                     (setq callback cb)))
+                  ((symbol-function 'run-at-time)
+                   (lambda (_ _ f &rest args) (setq scheduled (cons f args)))))
+          (aguafria-eval--next state)
+          (should (equal calls '("(let [x 1] (+ x 2))")))
+          (funcall callback (nrepl-dict "out" "hello\n"))
+          (should (= 1 (length handled)))
+          (should (= 0 (aguafria-eval--state-index state)))
+          (let ((highlight (aguafria-eval--state-overlay state))
+                (response (nrepl-dict "value" "3" "status" '("done"))))
+            (funcall callback response)
+            (funcall callback response) ; A duplicate done cannot repeat a step.
+            (should (= 2 (length handled)))
+            (should (= 1 (length calls)))
+            (should (eq highlight (aguafria-eval--state-overlay state)))
+            (should (overlay-buffer highlight))
+            (should (eq 'highlight (overlay-get highlight 'face)))
+            (should (equal "hello\n" (alist-get 'out (car aguafria-eval-last-results))))
+            (apply (car scheduled) (cdr scheduled))
+            (should-not (overlay-buffer highlight)))
+          (should (equal '("(boom)" "(let [x 1] (+ x 2))") calls))
+          (funcall callback (nrepl-dict "ex" "Exception" "status" '("eval-error" "done")))
+          (should-not aguafria-eval--run)
+          (should (= 2 (length calls)))
+          (should (= 3 (length handled))))))))
+
+(ert-deftest aguafria-eval-loads-through-cider-before-metadata-planning ()
+  (with-temp-buffer
+    (insert "(ns sample)")
+    (let* ((state (make-aguafria-eval--state :buffers (list (current-buffer))))
+           (aguafria-eval--run state) load-callback loaded planned handled)
+      (cl-letf (((symbol-function 'aguafria-eval--check-connection) #'ignore)
+                ((symbol-function 'cider-load-file-handler)
+                 (lambda (&rest _) (lambda (response) (push response handled))))
+                ((symbol-function 'cider-load-buffer)
+                 (lambda (buffer callback &rest _)
+                   (setq loaded buffer load-callback callback)))
+                ((symbol-function 'aguafria-eval--plan)
+                 (lambda (_) (setq planned t))))
+        (aguafria-eval--next-buffer state)
+        (should (eq loaded (current-buffer)))
+        (should-not planned)
+        (funcall load-callback (nrepl-dict "value" "#'sample/main" "status" '("done")))
+        (should planned)
+        (should (= 1 (length handled)))))))
+
+(ert-deftest aguafria-eval-edits-stop-before-the-next-form ()
+  (with-temp-buffer
+    (insert "(ns sample)")
+    (let* ((state (make-aguafria-eval--state :source (current-buffer)
+                                           :tick (buffer-chars-modified-tick)))
+           (aguafria-eval--run state) sent)
+      (insert "\n")
+      (cl-letf (((symbol-function 'cider-interactive-eval)
+                 (lambda (&rest _) (setq sent t))))
+        (aguafria-eval--next state)
+        (should-not sent)
+        (should-not aguafria-eval--run)))))

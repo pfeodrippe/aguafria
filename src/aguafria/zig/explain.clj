@@ -1,6 +1,7 @@
 (ns aguafria.zig.explain
   "Opt-in reporting of actual compiler and native-cache events."
-  (:require [clojure.string :as str]))
+  (:require [clojure.pprint :as pprint]
+            [clojure.string :as str]))
 
 (def ^:dynamic *reporter* nil)
 
@@ -18,27 +19,49 @@
   [event]
   (when *reporter* (*reporter* event)))
 
+(defn form-texts
+  "Prefer exact editor source carried on the macro call; otherwise pretty-print.
+  Source metadata is display-only and is never read or evaluated."
+  [macro-form forms]
+  (if-let [source (:aguafria.explain/source (meta macro-form))]
+    [source]
+    (binding [*print-length* nil *print-level* nil *print-meta* false]
+      (mapv #(pprint/write % :dispatch pprint/code-dispatch :stream nil :right-margin 80)
+            forms))))
+
 (defn call-with-report
   "Evaluate once, preserving the result/exception and normal async behavior.
-  Reports use the caller's stdout, including events from conveyed bindings."
-  [f]
-  (let [writer *out*
-        counts (atom {})
-        report (fn [{:keys [event module function path duration-ms]}]
-                 (swap! counts update event (fnil inc 0))
-                 (write-report! writer
-                                (fn []
-                                  (println (str "[aguafria] " (name event) " " (or function module)
-                                                (when duration-ms (format " (%.1f ms)" (double duration-ms)))))
-                                  (when path (println (str "  " path))))))]
-    (binding [*reporter* report]
-      (try
-        (f)
-        (finally
-          (write-report! writer
-                         (fn []
-                           (println (str "[aguafria] "
-                                         (if (seq @counts)
-                                           (str/join ", " (for [[event n] (sort-by key @counts)]
-                                                            (str n " " (name event))))
-                                           "no compiler/cache events"))))))))))
+  Reports use the caller's stdout, including events from conveyed bindings.
+  Optional context contains the call-site :file, :line and printed :forms."
+  ([f] (call-with-report f nil))
+  ([f {:keys [file line forms]}]
+   (let [writer *out*
+         counts (atom {})
+         report (fn [{:keys [event module function path duration-ms]}]
+                  (swap! counts update event (fnil inc 0))
+                  (write-report! writer
+                                 (fn []
+                                   (println (str "[aguafria] " (name event) " " (or function module)
+                                                 (when duration-ms (format " (%.1f ms)" (double duration-ms)))))
+                                   (when path (println (str "  " path))))))]
+     (when forms
+       (write-report! writer
+                      (fn []
+                        (println)
+                        (println (str "[aguafria] >>> BEGIN explain " (or file "<unknown>") ":" (or line "?")))
+                        (doseq [form forms] (println form))
+                        (println))))
+     (binding [*reporter* report]
+       (try
+         (f)
+         (finally
+           (write-report! writer
+                          (fn []
+                            (println (str "[aguafria] "
+                                          (if (seq @counts)
+                                            (str/join ", " (for [[event n] (sort-by key @counts)]
+                                                             (str n " " (name event))))
+                                            "no compiler/cache events")))
+                            (when forms
+                              (println "[aguafria] <<< END explain")
+                              (println))))))))))

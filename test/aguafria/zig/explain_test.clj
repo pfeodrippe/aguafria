@@ -5,6 +5,51 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
 
+(deftest reports-source-before-evaluation-without-print-truncation
+  (let [expanded (binding [*file* "some/project/example.clj"
+                           *print-length* 1 *print-level* 1 *print-meta* true]
+                   (macroexpand-1
+                    (with-meta '(aguafria.zig/explain!
+                                 (println "body output")
+                                 (let [x 41] (inc x)))
+                      {:line 37 :column 5})))
+        writer (java.io.StringWriter.)]
+    ;; The origin is the macro call, not the later runtime *file* binding.
+    (binding [*out* writer *file* "different.clj"]
+      (is (= 42 (eval expanded))))
+    (let [output (str writer)]
+      (is (str/starts-with? output "\n[aguafria] >>> BEGIN explain some/project/example.clj:37\n"))
+      (is (str/includes? output "(println \"body output\")\n"))
+      (is (str/includes? output "(let [x 41] (inc x))\n"))
+      (is (< (str/index-of output "(let [x 41]")
+             (str/index-of output "\nbody output\n")))
+      (is (str/ends-with? output "[aguafria] <<< END explain\n\n"))
+      (is (not (str/includes? output "different.clj"))))))
+
+(deftest exact-source-preserves-comments-whitespace-and-reader-syntax
+  (let [source "(let [x 41] ; keep this comment: 😀\n\t#_ (throw (Exception. \"discarded\"))\n    (inc x))"
+        form (with-meta (list 'aguafria.zig/explain! (read-string source))
+               {:line 12 :aguafria.explain/source source})
+        output (with-out-str
+                 (binding [*file* "unsaved.clj"]
+                   (is (= 42 (eval form)))))]
+    (is (str/starts-with? output (str "\n[aguafria] >>> BEGIN explain unsaved.clj:12\n" source "\n\n")))
+    (is (str/ends-with? output "[aguafria] <<< END explain\n\n"))))
+
+(deftest fallback-pretty-prints-rather-than-flattening-code
+  (let [form '(let [a-very-long-binding-name (range 10)
+                    another-long-binding-name (map inc a-very-long-binding-name)]
+                (reduce + another-long-binding-name))
+        [text] (explanation/form-texts '(a/explain!) [form])]
+    (is (str/includes? text "\n"))
+    (is (= form (read-string text)))))
+
+(deftest direct-reporter-remains-compatible
+  (let [writer (java.io.StringWriter.)]
+    (binding [*out* writer]
+      (is (= 42 (explanation/call-with-report (constantly 42)))))
+    (is (= "[aguafria] no compiler/cache events\n" (str writer)))))
+
 (deftest evaluation-is-unchanged
   (let [calls (atom 0)
         result (Object.)
@@ -27,6 +72,16 @@
                       (try (a/explain! (throw failure))
                            (catch Throwable error error)))))
     (is (str/includes? (str writer) "no compiler/cache events"))))
+
+(deftest failing-form-is-also-identified
+  (let [writer (java.io.StringWriter.)]
+    (binding [*out* writer *file* "failing.clj"]
+      (is (thrown-with-msg? Exception #"original"
+                            (eval (with-meta '(aguafria.zig/explain! (throw (Exception. "original")))
+                                    {:line 19})))))
+    (is (str/starts-with? (str writer) "\n[aguafria] >>> BEGIN explain failing.clj:19\n"))
+    (is (str/includes? (str writer) "(throw (Exception. \"original\"))\n"))
+    (is (str/ends-with? (str writer) "[aguafria] <<< END explain\n\n"))))
 
 (deftest broken-report-output-does-not-change-evaluation
   (let [writer (proxy [java.io.Writer] []

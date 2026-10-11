@@ -150,6 +150,9 @@
   - [x] test_allowzero.clj
   - [x] sentinel_terminated_pointer.clj
   - [ ] test_pointer_casting.clj (again after v0.17.0 upgrade)
+    - [x] automatically test forms/subforms in emacs/cider
+    - [ ] why do we have try and also k/try ???
+    - [ ] refactor k/switch
   - [ ] test_basic_slices.clj
   - [ ] test_slices.clj
   - [ ] slicing_by_length.clj
