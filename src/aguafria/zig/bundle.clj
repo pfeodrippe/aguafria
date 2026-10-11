@@ -17,6 +17,7 @@
 (def ^:dynamic *preparing* nil)
 (def ^:dynamic *batch-validation?* false)
 (def ^:dynamic *validation-dependencies* nil)
+(def ^:dynamic *preparation-owner* nil)
 (def ^:private validation-batch-limit 256)
 (defonce ^:private locks (atom {}))
 (defonce ^:private images (atom {}))
@@ -321,7 +322,8 @@
       (catch clojure.lang.ExceptionInfo error
         (when *preparing*
           (swap! *preparing* assoc-in [:excluded (artifact-id artifact)]
-                 {:module (:module artifact) :reason (:reason (ex-data error))}))
+                 {:module (:module artifact) :reason (:reason (ex-data error))
+                  :owner *preparation-owner*}))
         nil))))
 
 (defn prepared-artifact
@@ -332,10 +334,49 @@
 
 (defn observe! [artifact]
   (when *preparing*
-    (swap! *preparing* assoc-in [:artifacts (artifact-id artifact)] artifact)
-    (when (and *validation-dependencies* (:validation-pending? artifact))
-      (swap! *validation-dependencies* conj (artifact-id artifact))))
+    (let [id (artifact-id artifact)]
+      (swap! *preparing*
+             (fn [state]
+               (-> state
+                   (assoc-in [:artifacts id] artifact)
+                   (update-in [:artifact-owners id] (fnil conj #{}) *preparation-owner*))))
+      (when (and *validation-dependencies* (:validation-pending? artifact))
+        (swap! *validation-dependencies* conj id))))
   artifact)
+
+(defn exclude-preparation-owners!
+  "Remove artifacts requested only by rejected namespaces. Shared artifacts stay
+  when a surviving namespace (or an explicit, unowned request) still needs them.
+  Ownership is preparation bookkeeping, never part of an ordinary artifact key."
+  [collected rejected]
+  (swap! collected
+         (fn [state]
+           (let [removed (for [[id _] (:artifacts state)
+                               :let [owners (get-in state [:artifact-owners id])]
+                               :when (and (seq owners) (every? rejected owners))]
+                           id)]
+             (reduce (fn [state id]
+                       (-> state
+                           (update :artifacts dissoc id)
+                           (update-in [:validation-results id]
+                                      #(or % {:status :excluded :reason :rejected-namespace}))))
+                     (update state :excluded
+                             #(into {} (remove (fn [[_ record]] (rejected (:owner record)))) %))
+                     removed))))
+  nil)
+
+(defn rejected-preparation-owners
+  "Compiler-rejected exact artifacts reject all namespaces that requested them.
+  An unowned failure is not a namespace exclusion and must abort preparation."
+  [collected]
+  (let [state @collected
+        failed (filter #(= :failed (:status (val %))) (:validation-results state))
+        owners (into #{} (mapcat #(get-in state [:artifact-owners (key %)] #{nil})) failed)]
+    (when (contains? owners nil)
+      (throw (ex-info "An explicit native preparation input failed validation"
+                      {:aguafria/phase :handler-validation
+                       :failures (into {} failed)})))
+    owners))
 
 (defn call-with-validation-scope
   "Collect exact queued dependencies of one preparation result. The result
@@ -491,8 +532,9 @@
                     (apply str (map #(str "    _ = @import(\"" (:entry %) "\");\n") entries))
                     "}\n")))
 
-(defn- validate-batch! [cache-dir artifacts run-command]
-  (let [id (artifact/key-for :bundle-validation (mapv artifact-id artifacts))
+(defn- validate-batch! [cache-dir artifacts run-command full-build?]
+  (let [id (artifact/key-for :bundle-validation
+                             [(boolean full-build?) (mapv artifact-id artifacts)])
         directory (.getAbsoluteFile (io/file cache-dir "validation" id))]
     (.mkdirs directory)
     (locking (lock-for (.getAbsolutePath directory))
@@ -502,20 +544,26 @@
                   file-lock (.lock channel)]
         (let [entries (materialize-entries! directory artifacts)
               source (io/file directory "validate.zig")
+              output (io/file directory (str "." (UUID/randomUUID) "-validation"
+                                             (System/mapLibraryName "")))
               command (graph-command artifacts entries (:link-args (first artifacts))
-                                     source "-fno-emit-bin")]
+                                     source (if full-build?
+                                              (str "-femit-bin=" output)
+                                              "-fno-emit-bin"))]
           (write-graph-root! source artifacts entries)
           (try
             (run-compiler! run-command command directory)
             true
             (catch clojure.lang.ExceptionInfo error
-              (if (number? (:exit (ex-data error))) false (throw error)))))))))
+              (if (= 1 (:exit (ex-data error))) false (throw error)))
+            (finally (Files/deleteIfExists (.toPath output)))))))))
 
 (defn validate-pending!
-  "Validate bounded batches without linking or publishing artifacts. A failed
-  batch is split iteratively; isolated failures use their original compiler
-  command. Native invocation and disk-index publication remain separate."
-  [cache-dir collected {:keys [run-command validate-artifact]}]
+  "Validate bounded batches without publishing artifacts. A failed batch is
+  split iteratively; isolated failures use their original compiler command.
+  :full-build? also checks code generation/linkage using temporary, never-loaded
+  images. :retain-pending? leaves successful candidates pending final publication."
+  [cache-dir collected {:keys [run-command validate-artifact full-build? retain-pending?]}]
   (let [started (System/nanoTime)
         artifacts (->> (:artifacts @collected) vals
                        (filter :validation-pending?) (keep candidate)
@@ -533,7 +581,7 @@
         (when (> @commands (* 2 (count artifacts)))
           (throw (ex-info "Validation batch isolation exceeded its bound" {})))
         (swap! commands inc)
-        (if (validate-batch! cache-dir (vec batch) run-command)
+        (if (validate-batch! cache-dir (vec batch) run-command full-build?)
           (do (swap! results into (map #(vector (artifact-id %) {:status :validated}) batch))
               (recur (pop pending)))
           (if (= 1 (count batch))
@@ -549,10 +597,12 @@
              (reduce-kv
               (fn [state id {:keys [status]}]
                 (if (= :validated status)
-                  (assoc-in state [:artifacts id :validation-pending?] false)
+                  (if retain-pending? state
+                      (assoc-in state [:artifacts id :validation-pending?] false))
                   (update state :artifacts dissoc id)))
               (update state :validation-results merge @results) @results)))
     (let [report {:candidates (count artifacts) :batch-limit validation-batch-limit
+                  :mode (if full-build? :compile-and-link :analysis)
                   :compiler-batches @commands :individual-rechecks @rechecks
                   :statuses (frequencies (map :status (vals @results)))
                   :duration-ms (/ (- (System/nanoTime) started) 1e6)}]

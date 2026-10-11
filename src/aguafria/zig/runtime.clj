@@ -14127,19 +14127,33 @@
                 (every? string? (first arguments))))))
 
 (defn validate-precompile-bundles!
-  "Validate queued exact adapter graphs without opening native code."
-  [collected]
-  (when-not *compile-only?*
-    (throw (ex-info "Batch validation requires compile-only preparation" {})))
-  (bundle/validate-pending!
-   (:cache-dir @config) collected
-   {:run-command run-command
-    :validate-artifact
-    (fn [artifact]
-      (let [command (assoc (:command artifact) 3 "-fno-emit-bin")
-            result (run-command command (.getParent (io/file (:source-path artifact))))]
-        (assoc result :command command
-               :status (if (zero? (:exit result)) :validated :failed))))}))
+  "Validate queued exact adapter graphs without opening native code. Full-build
+  admission checks use temporary images and retain ordinary compiler options."
+  ([collected] (validate-precompile-bundles! collected {}))
+  ([collected {:keys [full-build?] :as options}]
+   (when-not *compile-only?*
+     (throw (ex-info "Batch validation requires compile-only preparation" {})))
+   (bundle/validate-pending!
+    (:cache-dir @config) collected
+    (assoc options
+           :run-command run-command
+           :validate-artifact
+           (fn [artifact]
+             (let [directory (.getParentFile (io/file (:source-path artifact)))
+                   output (io/file directory (str "." (java.util.UUID/randomUUID)
+                                                  "-validation" (System/mapLibraryName "")))
+                   command (assoc (:command artifact) 3
+                                  (if full-build? (str "-femit-bin=" output) "-fno-emit-bin"))]
+               (try
+                 (let [result (run-command command (str directory))]
+                   (when-not (#{0 1} (:exit result))
+                     (throw (ex-info "Native validation compiler did not complete normally"
+                                     (assoc result :command command
+                                            :aguafria/phase :handler-validation))))
+                   (assoc result :command command :module (:module artifact)
+                          :source-path (:source-path artifact)
+                          :status (if (zero? (:exit result)) :validated :failed)))
+                 (finally (Files/deleteIfExists (.toPath output))))))))))
 
 (defn finish-precompile-bundles!
   "Link collected JVM adapters without opening any library. :validate-pending?

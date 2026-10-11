@@ -93,7 +93,8 @@
                                   (runtime/configuration))
                 image (try
                         (runtime/call-with-precompile-configuration
-                         configuration #(runtime/precompile-namespace-load! module))
+                         configuration #(binding [bundle/*preparation-owner* (symbol module)]
+                                          (runtime/precompile-namespace-load! module)))
                         (catch Exception error
                           (assoc (discovery/error-report error)
                                  :namespace (symbol module) :status :failed)))]
@@ -120,16 +121,28 @@
                                  :namespace namespace :status :load-failed))))
                     namespaces)
         _ (resolve-precompile-images! images)
-        prepare (requiring-resolve 'aguafria.zig.discovery/prepare!)]
+        prepare (fn [namespace]
+                  (let [analysis (discovery/analyze! namespace)
+                        exit (get-in analysis [:baseline :exit])]
+                    (when-not (#{0 1} exit)
+                      (throw (ex-info "Discovery compiler did not complete normally"
+                                      {:aguafria/phase :namespace-discovery
+                                       :namespace namespace :exit exit})))
+                    (if (= 1 exit)
+                      (assoc analysis :status :rejected :reason :compiler-rejected-namespace)
+                      (discovery/prepare-observations! analysis))))]
     (with-open [executor (Executors/newFixedThreadPool parallelism (.factory (Thread/ofVirtual)))]
       (let [jobs (mapv (fn [{:keys [namespace status configuration] :as loaded}]
                          (.submit executor
                                   ^Callable
                                   (bound-fn []
                                     (let [report (if status (dissoc loaded :configuration)
-                                                     (try (runtime/call-with-precompile-configuration
-                                                           configuration #(prepare namespace))
+                                                     (try (binding [bundle/*preparation-owner* namespace]
+                                                            (runtime/call-with-precompile-configuration
+                                                             configuration #(prepare namespace)))
                                                           (catch Exception error
+                                                            (when (= :namespace-discovery (:aguafria/phase (ex-data error)))
+                                                              (throw error))
                                                             (assoc (discovery/error-report error)
                                                                    :namespace namespace :status :analysis-failed))))
                                           checkpoint (io/file (str report-file ".d")
@@ -138,6 +151,62 @@
                                       (spit checkpoint (artifact/print-data report))
                                       report)))) loads)]
         (mapv #(.get ^java.util.concurrent.Future %) jobs)))))
+
+(defn- admit-namespaces!
+  "Admission is based on compiler results, never a namespace allow/deny list.
+  Failed source discovery is excluded before normal-context codegen validation.
+  A shared artifact retains every requester so exclusion cannot strand a survivor."
+  [report]
+  (let [collected bundle/*preparing*
+        initial-reasons
+        (merge
+         (into {} (keep #(when (= :failed (:status %))
+                           [(:namespace %) :ordinary-jvm-planning]))
+               (:namespace-images report))
+         (into {} (keep #(when-let [reason ({:rejected :source-discovery
+                                             :load-failed :namespace-load
+                                             :analysis-failed :discovery-planning
+                                             :failed :discovery-planning} (:status %))]
+                           [(:namespace %) reason]))
+               (:analysis report)))
+        initially-rejected (set (keys initial-reasons))
+        _ (bundle/exclude-preparation-owners! collected initially-rejected)
+        validation (binding [compiler-work/*phase* :namespace-admission]
+                     (runtime/validate-precompile-bundles!
+                      collected {:full-build? true :retain-pending? true}))
+        rejected (into initially-rejected (bundle/rejected-preparation-owners collected))
+        _ (bundle/exclude-preparation-owners! collected rejected)
+        owner (fn [record]
+                (or (:namespace record)
+                    (some-> (:function record) namespace symbol)))
+        rejected-record? #(contains? rejected (owner %))
+        marker (fn [record]
+                 (assoc (select-keys record [:namespace :function :args :type :basis :baseline])
+                        :status :rejected :reason :compiler-rejected-namespace))
+        fields [:analysis :namespace-images :functions :calls]
+        rejected-records (into {}
+                               (for [field fields]
+                                 [field (filterv rejected-record? (get report field))]))
+        state @collected]
+    {:report (reduce (fn [report field]
+                       (update report field
+                               #(mapv (fn [record]
+                                        (if (rejected-record? record) (marker record) record)) %)))
+                     report fields)
+     :rejected-records rejected-records
+     :admission
+     {:validation validation
+      :rejected-namespaces
+      (mapv (fn [namespace]
+              {:namespace namespace :status :rejected
+               :reason (get initial-reasons namespace :ordinary-jvm-compilation)
+               :artifact-errors
+               (into {}
+                     (for [[id result] (:validation-results state)
+                           :when (and (= :failed (:status result))
+                                      (contains? (get-in state [:artifact-owners id]) namespace))]
+                       [id result]))})
+            (sort-by str rejected))}}))
 
 (defn- prepare-scalar-profiles! [initial-configuration]
   (let [types (vec (sort-by artifact/print-data @runtime/*prepared-scalar-constructors*))
@@ -289,11 +358,15 @@
   Compatible generated JVM handlers, including cached ones, are compiled into
   one immutable shared-cache library. Incompatible configurations fail instead
   of silently splitting the bundle.
-  Adapter and native-wrapper validation, including external linkage, is deferred
-  to the bundle build. Initial namespace images retain their frozen sources and
-  compiler options in that same graph. Checkpoints distinguish pending validation from prepared
-  handlers. The bundle compiler validates and links them in one pass. A rejected
-  build aborts preparation with its diagnostics; it is not split and recompiled.
+  Analyzed namespaces with compiler errors are rejected automatically, without
+  a namespace deny list. Remaining exact ordinary graphs undergo bounded native
+  codegen/link admission; a rejected graph excludes its requesting namespaces.
+  Rejections and their original discovery reports are retained separately and
+  never counted as prepared. Shared artifacts stay when surviving requests need
+  them. This admission uses additional, fully counted compiler commands.
+  Initial namespace images retain their frozen sources and compiler options.
+  The final bundle build validates and links the admitted graph before publication.
+  An unexpected final-build failure still aborts; it cannot publish pending code.
   Application handlers are never loaded
   or invoked during preparation; the bounded native tokenizer analyzes source.
   Handlers with unsupported bundle configurations fail during planning instead
@@ -339,8 +412,9 @@
           (swap! configurations assoc namespace (load-namespace! namespace images)))
         (resolve-precompile-images! images)
         (let [prepare-in (fn [namespace prepare]
-                           (runtime/call-with-precompile-configuration
-                            (get @configurations namespace) prepare))
+                           (binding [bundle/*preparation-owner* namespace]
+                             (runtime/call-with-precompile-configuration
+                              (get @configurations namespace) prepare)))
               report {:functions (into [] (mapcat (fn [namespace]
                                                     (prepare-in namespace
                                                                 #(runtime/precompile-functions! namespace))))
@@ -366,6 +440,11 @@
                                           (assoc :namespace-images (frequencies (map :status (vals @images)))
                                                  :scalar-constructor-profiles (:statuses scalar-profiles)))
                             :duration-ms (/ (- (System/nanoTime) started) 1e6))
+              admission (when (seq (:analysis report))
+                          (try (admit-namespaces! report)
+                               (catch Exception error
+                                 (bundle-failure! report-file report started error))))
+              report (or (:report admission) report)
               compiled-bundles
               (try
                 (binding [compiler-work/*phase* :handler-bundle]
@@ -386,6 +465,9 @@
                          (assoc-in [:coverage :namespace-images]
                                    (frequencies (map :status (:namespace-images report))))
                          (assoc-in [:coverage :scalar-constructor-profiles] scalar-statuses))
+              report (cond-> report
+                       admission (assoc :namespace-admission (:admission admission)
+                                        :rejected-preparation (:rejected-records admission)))
               report (assoc report :bundles compiled-bundles
                             :compiler-work (compiler-work/report compiler-work/*collector*)
                             :source-key-cache (artifact/source-key-statistics artifact/*source-key-cache*)

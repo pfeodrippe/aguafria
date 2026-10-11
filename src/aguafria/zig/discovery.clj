@@ -2201,11 +2201,13 @@
       (when (and (seq? form) (= (count types) (count (rest form))))
         (vec (rest form))))))
 
-(defn prepare!
-  "Connect compiler observations to the ordinary JVM adapter generators. Reports
-  unsupported/unobserved operations instead of executing them for discovery."
-  [module]
-  (let [report (analyze! module)
+(defn prepare-observations!
+  "Prepare ordinary JVM adapters from this namespace's compiler analysis. This
+  split lets public precompilation reject invalid namespaces before generation."
+  [report]
+  (when-not (and (= :zig-compiler (:basis report)) (symbol? (:namespace report)))
+    (throw (ex-info "Expected compiler-owned namespace observations" {})))
+  (let [module (:namespace report)
         jvm-maps (refine-jvm-map-representations! report)
         jvm-refinement (refine-jvm-type-representations! report)
         jvm-values (refine-jvm-value-representations! report)
@@ -2430,3 +2432,9 @@
                        jvm-signatures (assoc :jvm-signatures jvm-signatures
                                              :jvm-result-reader-types jvm-readers)))))))
             (:operations report)))))
+
+(defn prepare!
+  "Connect compiler observations to the ordinary JVM adapter generators. Reports
+  unsupported/unobserved operations instead of executing them for discovery."
+  [module]
+  (prepare-observations! (analyze! module)))

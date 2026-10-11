@@ -79,12 +79,14 @@ clojure -M:verify          # fail for missing, stale or mismatching evidence
 clojure -M:dev:nrepl       # dedicated local development REPL
 ```
 
-The Learn `:precompile` alias ignores
-`learn.example.test-without-setEvalBranchQuota-builtin`: that lesson deliberately
-exceeds Zig's compile-time evaluation quota. It remains in the documentation and
-outcome verification. Override with `:ignore []` when explicitly investigating it.
-Generic `a/precompile!` also accepts `:ignore [namespace ...]`; ignored selections
-are reported separately, never counted as prepared operations.
+The Learn `:precompile` alias has no hardcoded namespace exclusions. Compiler
+errors discovered during preparation reject the affected namespaces automatically;
+working namespaces still produce a bundle. Rejected namespaces and their original
+reports are retained under `:namespace-admission` and `:rejected-preparation`.
+Source errors, namespace-loading failures, unsupported JVM planning, and normal-JVM
+compilation failures are distinguished rather than all being called invalid source.
+Generic `a/precompile!` also accepts explicit `:ignore [namespace ...]`; ignored
+selections are reported separately, never counted as prepared operations.
 
 Prepare every namespace in Learn's example directory explicitly:
 
@@ -95,14 +97,20 @@ clojure -X:precompile :source-dirs '["resources/learn/example"]' :parallelism 4
 Native artifacts are shared under `~/.aguafria/zig`; the coverage report remains
 project-local at `.aguafria/precompile/report.edn`. Preparation compiles and
 analyzes the examples without running their native function or test bodies.
-JVM adapters and native type/callable wrappers are validated and linked together
-in one bundle compilation. Reports distinguish pending validation from prepared
-handlers and include `:bundles :compiler-invocations` and `:bundles :validation`.
-A rejected bundle build preserves its diagnostics and aborts preparation. Source
-analysis uses a cached, bounded native helper written in Aguafria; it runs Zig's
-tokenizer, not example function bodies. Compiler type queries, namespace startup
-images and native test preparation still issue additional compiler commands;
-the whole preparation pipeline is not yet a single compilation.
+After source discovery, bounded compiler admission checks the exact ordinary JVM
+adapter and namespace-image graphs, including code generation and linkage. Failed
+graphs reject their requesting namespaces before the final bundle build. Shared
+artifacts are retained when a surviving namespace still needs them. Admission uses
+temporary native images without loading them or publishing cache indexes.
+
+The surviving artifacts are validated and linked into one final bundle. Reports
+distinguish pending validation from prepared handlers and include both
+`:namespace-admission :validation` and `:bundles :validation`. Unexpected final
+bundle failures still abort without publishing a partially validated bundle.
+Source analysis uses a cached, bounded native tokenizer, not example execution.
+Type queries, admission checks, support tools and final bundling all count in
+`:compiler-work`; the whole preparation is not a single compilation. Native test
+runners are not prepared, although their body operations participate in discovery.
 
 Then verify ordinary JVM evaluation against that exact bundle. Each command
 starts a fresh JVM:
