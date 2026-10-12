@@ -43,12 +43,14 @@
 
 (defn- validate-options! [options]
   (when-not (and (map? options)
-                 (every? #{:namespaces :calls :coercions :analyze :source-dirs :parallelism :report-file :ignore} (keys options))
+                 (every? #{:namespaces :calls :coercions :analyze :tests :source-dirs :parallelism :report-file :ignore :linkage-contexts} (keys options))
                  (or (nil? (:ignore options)) (sequential? (:ignore options)) (set? (:ignore options)))
                  (every? #(and (symbol? %) (nil? (namespace %))) (:ignore options))
-                 (every? sequential? (vals (select-keys options [:namespaces :calls :coercions :analyze :source-dirs])))
+                 (every? sequential? (vals (select-keys options [:namespaces :calls :coercions :analyze :tests :source-dirs :linkage-contexts])))
                  (every? #(and (symbol? %) (nil? (namespace %))) (:namespaces options))
                  (every? #(and (symbol? %) (nil? (namespace %))) (:analyze options))
+                 (every? qualified-symbol? (:tests options))
+                 (every? #(and (symbol? %) (nil? (namespace %))) (:linkage-contexts options))
                  (every? string? (:source-dirs options))
                  (or (nil? (:parallelism options))
                      (and (integer? (:parallelism options)) (<= 1 (:parallelism options) 16)))
@@ -59,7 +61,7 @@
                                (vector? (:args %))) (:calls options))
                  (or (seq (:namespaces options)) (seq (:calls options))
                      (seq (:coercions options)) (seq (:analyze options))
-                     (seq (:source-dirs options))))
+                     (seq (:source-dirs options)) (seq (:tests options))))
     (throw (ex-info "Expected :namespaces [namespace ...] and/or :calls [{:function namespace/function :args [type ...]}]"
                     {:options options}))))
 
@@ -316,10 +318,11 @@
   are reported as skipped, not executed to discover their signatures.
   Initial images for ordinary namespace loading are prepared as well and
   reported in :namespace-images, including failures and lazy imports.
-  Native test artifacts are not built here: calling an a/deftest uses the existing
-  native test compiler/runner. Test bodies still participate in :analyze so their
-  ordinary JVM handlers are prepared for evaluating those forms outside a native
-  test. This does not execute tests or change ordinary test registration/execution.
+  :tests supplies qualified native test names. Each is compiled, never executed,
+  with Zig's test frontend and an isolated selected-test table. Namespaced test
+  objects are linked into the final AOT image before their indexes are published.
+  Test bodies separately participate in :analyze for ordinary JVM body evaluation;
+  those observations do not substitute for a requested native test context.
 
   :calls supplies exact native argument types for builtin/operator/imported or
   generic call adapters. Use {:comptime value} for source-level comptime inputs.
@@ -357,7 +360,15 @@
 
   Compatible generated JVM handlers, including cached ones, are compiled into
   one immutable shared-cache library. Incompatible configurations fail instead
-  of silently splitting the bundle.
+  of silently splitting the bundle. Native process hosts use dedicated images
+  so each execution can own and retire its process state independently.
+  :linkage-contexts optionally names selected
+  namespaces whose authored external/dynamic exports require separate ABI
+  linkage contexts. These compile from source through library-mode IR and native
+  objects, then link into dedicated immutable AOT images with original symbols.
+  This explicit option can publish multiple images and incurs extra compiler
+  invocations; it is not a one-library/one-compilation result. It does not add
+  namespace selections or waive unsupported compiler/asset restrictions.
   Analyzed namespaces with compiler errors are rejected automatically, without
   a namespace deny list. Remaining exact ordinary graphs undergo bounded native
   codegen/link admission; a rejected graph excludes its requesting namespaces.
@@ -379,18 +390,20 @@
   Preparation retains each namespace's load-time compiler configuration,
   including transitive imports, so later link settings cannot change its keys.
   The normal cache invalidation rules apply; handles and state are not saved."
-  [{:keys [namespaces calls coercions analyze source-dirs parallelism report-file ignore]
+  [{:keys [namespaces calls coercions analyze tests source-dirs parallelism report-file ignore linkage-contexts]
     :or {parallelism 2 report-file ".aguafria/precompile/report.edn"}
     :as options}]
   (validate-options! options)
   (with-open [build-executor
               (Executors/newFixedThreadPool parallelism (.factory (Thread/ofVirtual)))]
     (binding [runtime/*compile-only?* true
+              discovery/*native-test-entries* (set (remove #(contains? (set ignore) (symbol (namespace %))) tests))
               compiler-work/*collector* (compiler-work/collector)
               runtime/*precompile-build-submitter* (build-submitter build-executor parallelism)
               runtime/*prepared-namespace-images* (atom {})
               runtime/*prepared-scalar-constructors* (atom #{})
               artifact/*source-key-cache* (artifact/source-key-cache)
+              bundle/*isolated-linkage-owners* (set (remove (set ignore) linkage-contexts))
               bundle/*batch-validation?* true
               bundle/*preparing* (atom {})]
       (let [started (System/nanoTime)
@@ -398,24 +411,37 @@
             excluded (set ignore)
             analysis-namespaces (vec (distinct (concat analyze (source-namespaces source-dirs))))
             call-namespace (comp symbol namespace :function)
-            selected (distinct (concat namespaces analysis-namespaces (map call-namespace calls)))
+            selected (distinct (concat namespaces analysis-namespaces (map call-namespace calls)
+                                       (map (comp symbol namespace) tests)))
             ignored (mapv (fn [namespace]
                             {:namespace namespace :status :ignored :reason :explicit-ignore})
                           (filter excluded selected))
             namespaces (remove excluded namespaces)
             calls (remove #(excluded (call-namespace %)) calls)
+            tests (vec (distinct (remove #(excluded (symbol (namespace %))) tests)))
             analysis-namespaces (filterv #(not (excluded %)) analysis-namespaces)
             images (atom {})
             configurations (atom {})]
         (doseq [namespace (distinct (concat namespaces
-                                            (map (comp symbol namespace :function) calls)))]
+                                            (map (comp symbol namespace :function) calls)
+                                            (map (comp symbol namespace) tests)))]
           (swap! configurations assoc namespace (load-namespace! namespace images)))
         (resolve-precompile-images! images)
         (let [prepare-in (fn [namespace prepare]
                            (binding [bundle/*preparation-owner* namespace]
                              (runtime/call-with-precompile-configuration
                               (get @configurations namespace) prepare)))
-              report {:functions (into [] (mapcat (fn [namespace]
+              native-tests (mapv (fn [test]
+                                   (runtime/call-with-precompile-configuration
+                                    (get @configurations (symbol (namespace test)))
+                                    #(runtime/precompile-test! test))) tests)
+              native-tests (mapv #(runtime/resolve-precompiled-test! % discovery/error-report) native-tests)
+              _ (when (some #(not (#{:pending-publication :prepared} (:status %))) native-tests)
+                  (throw (ex-info "Requested native test preparation failed"
+                                  {:aguafria/phase :native-test-preparation :tests native-tests})))
+              report {:linkage-contexts (vec (remove excluded linkage-contexts))
+                      :tests native-tests
+                      :functions (into [] (mapcat (fn [namespace]
                                                     (prepare-in namespace
                                                                 #(runtime/precompile-functions! namespace))))
                                        (distinct namespaces))
@@ -468,6 +494,18 @@
               report (cond-> report
                        admission (assoc :namespace-admission (:admission admission)
                                         :rejected-preparation (:rejected-records admission)))
+              report (update report :tests
+                             (fn [checks]
+                               (mapv (fn [check]
+                                       (if (= :pending-publication (:status check))
+                                         (if-let [entry (bundle/find-artifact
+                                                         (:cache-dir (runtime/configuration))
+                                                         (:bundle-artifact check))]
+                                           (-> check (dissoc :bundle-artifact)
+                                               (assoc :status :prepared :bundle-id (:id entry))
+                                               (assoc-in [:artifact :library-path] (:library entry)))
+                                           (throw (ex-info "Native test was not published" {:test (:test check)})))
+                                         (dissoc check :bundle-artifact))) checks)))
               report (assoc report :bundles compiled-bundles
                             :compiler-work (compiler-work/report compiler-work/*collector*)
                             :source-key-cache (artifact/source-key-statistics artifact/*source-key-cache*)

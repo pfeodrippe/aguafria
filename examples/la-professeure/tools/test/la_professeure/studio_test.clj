@@ -24,27 +24,27 @@
             [la-professeure.tools.recorder :as recorder]))
 
 (a/configure! {:module-zig-args
-                (assoc (:module-zig-args (a/configuration)) "la-professeure.studio-test"
-                       [(str "-I" (io/file (la-professeure.build/root) "build/vendor/miniaudio"))])})
+               (assoc (:module-zig-args (a/configuration)) "la-professeure.studio-test"
+                      [(str "-I" (io/file (la-professeure.build/root) "build/vendor/miniaudio"))])})
 
 ;; Explicit live-window QA helpers; do not open hardware windows in unit tests.
 (defn configure-ime-probe! []
   (let [{:keys [include library]}
         (la-professeure.build/studio-native-library!
-          (io/file (la-professeure.build/root) "tools/test") "studio_ime_probe")
+         (io/file (la-professeure.build/root) "tools/test") "studio_ime_probe")
         config (a/configuration)]
     (a/configure!
-      {:module-zig-args (update (:module-zig-args config) "la-professeure.studio-test"
+     {:module-zig-args (update (:module-zig-args config) "la-professeure.studio-test"
                                #(vec (distinct (conj (vec %) include))))
-       :zig-args (cond-> (vec (:zig-args config))
-                   (not (some #{library} (:zig-args config))) (conj library))})))
+      :zig-args (cond-> (vec (:zig-args config))
+                  (not (some #{library} (:zig-args config))) (conj library))})))
 
 (configure-ime-probe!)
 
 (a/defconst ime-probe-api
   (ak/import (a/clj! (ac/import! "la_professeure_studio_ime_probe"
-                                (io/file (la-professeure.build/root) "tools/test/studio_ime_probe.h")
-                                {:args ["-lc"]}))))
+                                 (io/file (la-professeure.build/root) "tools/test/studio_ime_probe.h")
+                                 {:args ["-lc"]}))))
 
 (a/defn ime-probe! :bool [[commit? :bool]]
   (when (ak/== studio/studio-window ak/null) (ak/return false))
@@ -69,10 +69,10 @@
         state studio/output-mute-state
         checked studio/output-mute-checked-at]
     (ak/defer
-      (do
-        (set! studio/output-mute-index index)
-        (set! studio/output-mute-state state)
-        (set! studio/output-mute-checked-at checked)))
+     (do
+       (set! studio/output-mute-index index)
+       (set! studio/output-mute-state state)
+       (set! studio/output-mute-checked-at checked)))
     (set! studio/output-mute-index studio/headphones)
     (set! studio/output-mute-state 1)
     (set! studio/output-mute-checked-at (glfw/glfwGetTime))
@@ -105,9 +105,9 @@
   (when (ak/== scene/window ak/null)
     (ak/return 0))
   (+ (ak/as (if (ak/== (glfw/glfwGetWindowAttrib scene/window glfw/GLFW_FOCUSED)
-                           glfw/GLFW_TRUE) 1 0) :u32)
+                       glfw/GLFW_TRUE) 1 0) :u32)
      (ak/as (if (ak/== (glfw/glfwGetInputMode scene/window glfw/GLFW_STICKY_KEYS)
-                           glfw/GLFW_TRUE) 2 0) :u32)))
+                       glfw/GLFW_TRUE) 2 0) :u32)))
 
 (defmacro set-studio-state! [bindings]
   ;; Exercise the production macro without exposing it as another public API.
@@ -131,19 +131,19 @@
         pending studio/pending
         busy studio/busy
         window ((a/field studio/gestures-api :glfwGetCocoaWindow)
-                 (ak/ptrCast studio/studio-window))]
+                (ak/ptrCast studio/studio-window))]
     (ak/defer
-      (do
-        ((a/field studio/gestures-api :lp_studio_ime_cancel) window)
-        (studio/name-restore! draft)
-        (set-studio-state! [studio/name-focus focus
-                            studio/name-history history
-                            studio/name-history-position position
-                            studio/name-history-end end
-                            studio/name-batch batch
-                            studio/name-batch-recorded recorded
-                            studio/pending pending
-                            studio/busy busy])))
+     (do
+       ((a/field studio/gestures-api :lp_studio_ime_cancel) window)
+       (studio/name-restore! draft)
+       (set-studio-state! [studio/name-focus focus
+                           studio/name-history history
+                           studio/name-history-position position
+                           studio/name-history-end end
+                           studio/name-batch batch
+                           studio/name-batch-recorded recorded
+                           studio/pending pending
+                           studio/busy busy])))
     (studio/name! "QA")
     (set! studio/name-focus true)
     (when (ak/! ((a/field studio/gestures-api :lp_studio_ime_focus) window 60.0 625.0 24.0))
@@ -160,7 +160,7 @@
       (ak/return 23))
     (when (or (ak/! ((a/field ime-probe-api :lp_studio_ime_probe_mark) window "かな é 中文"))
               (ak/! ((a/field ime-probe-api :lp_studio_ime_probe_presentation)
-                       window "かな é 中文" 60.0 625.0 "/tmp/professeure-ime-native-preedit.png")))
+                     window "かな é 中文" 60.0 625.0 "/tmp/professeure-ime-native-preedit.png")))
       (ak/return 25))
     (let [keys (ak/as [257 259 261 263 262 256] (a/type [:array 6 :i32]))]
       (dotimes [i 6]
@@ -191,11 +191,11 @@
         wet-frames recorder/recorded-frames
         ^:var samples (ak/as [0.25 -0.5 0.125 0.0] (a/type [:array 4 :f32]))]
     (ak/defer
-      (set-studio-state! [recorder/input-check-channels channels
-                          recorder/input-check-offset offset
-                          recorder/input-check-peak peak
-                          recorder/input-check-held held
-                          recorder/input-check-frames frames]))
+     (set-studio-state! [recorder/input-check-channels channels
+                         recorder/input-check-offset offset
+                         recorder/input-check-peak peak
+                         recorder/input-check-held held
+                         recorder/input-check-frames frames]))
     (set-studio-state! [recorder/input-check-channels 2
                         recorder/input-check-offset 0
                         recorder/input-check-peak 0
@@ -226,7 +226,7 @@
           (ak/! recorder/running))
     (ak/return false))
   (ak/== ((a/field recorder/api ma_device_stop)
-           (if preflight? (ak/& recorder/input-check-device) (ak/& recorder/device)))
+          (if preflight? (ak/& recorder/input-check-device) (ak/& recorder/device)))
          0))
 
 (a/defn interrupt-fx-source-device-qa! :bool
@@ -239,9 +239,9 @@
   (assert preflight? "Live recording forbids arbitrary extension commands; use the isolated capture test")
   (let [op (keyword "qa" (str "stop-device-" (java.util.UUID/randomUUID)))]
     (studio/register-command! op
-      {:description "Stop only Studio's owned device to test unexpected-stop recovery"
-       :validate empty?
-       :handler (fn [_] (interrupt-recorder-device-qa! preflight?))})
+                              {:description "Stop only Studio's owned device to test unexpected-stop recovery"
+                               :validate empty?
+                               :handler (fn [_] (interrupt-recorder-device-qa! preflight?))})
     (try
       (let [result (studio/command! {:op op})]
         (assert (= :done (:status result)))
@@ -256,7 +256,7 @@
   (let [device (if mix?
                  (ak/& mixer/device)
                  ((a/field recorder/api ma_engine_get_device)
-                   (ak/ptrCast (ak/& studio/playback-engine))))]
+                  (ak/ptrCast (ak/& studio/playback-engine))))]
     (ak/== ((a/field recorder/api ma_device_stop) device) 0)))
 
 (a/defn separate-window-contract? :bool []
@@ -297,7 +297,7 @@
 ;; Run only on core/on-render! and restore both window sizes afterwards.
 (a/defn- resize-window-native! :void [[studio? :bool] [width :u32] [height :u32]]
   (glfw/glfwSetWindowSize (if studio? studio/studio-window scene/window)
-                         (ak/intCast width) (ak/intCast height)))
+                          (ak/intCast width) (ak/intCast height)))
 
 (a/defn studio-renderer-snapshot gpu/RendererSnapshot []
   (gpu/swap-context! (ak/& studio/renderer))
@@ -375,7 +375,7 @@
           image (java.awt.image.BufferedImage.
                  width height java.awt.image.BufferedImage/TYPE_INT_RGB)
           target (.getData ^java.awt.image.DataBufferInt
-                           (.getDataBuffer (.getRaster image)))]
+                  (.getDataBuffer (.getRaster image)))]
       (dotimes [index (* width height)]
         (let [offset (* index 4)
               first-channel (bit-and 255 (aget ^bytes pixels offset))
@@ -424,12 +424,12 @@
         old-vertices scene/vertices old-count scene/vertex-count
         ^{:var [:array 6 mesh/GpuVertex]} vertices (mem/zeroes (a/type [:array 6 mesh/GpuVertex]))]
     (ak/defer (do (set! studio/window-width old-w) (set! studio/window-height old-h)
-                 (set! studio/editor-top old-top)
-                 (set! studio/routing-visible old-routing)
-                 (set! studio/timeline-start old-start) (set! studio/timeline-seconds old-span)
-                 (set! studio/mouse-x old-x) (set! studio/mouse-y old-y)
-                 (set! scene/canvas-width old-cw) (set! scene/canvas-height old-ch)
-                 (set! scene/vertices old-vertices) (set! scene/vertex-count old-count)))
+                  (set! studio/editor-top old-top)
+                  (set! studio/routing-visible old-routing)
+                  (set! studio/timeline-start old-start) (set! studio/timeline-seconds old-span)
+                  (set! studio/mouse-x old-x) (set! studio/mouse-y old-y)
+                  (set! scene/canvas-width old-cw) (set! scene/canvas-height old-ch)
+                  (set! scene/vertices old-vertices) (set! scene/vertex-count old-count)))
     (set! studio/routing-visible true)
     (set! studio/editor-top 444.0)
     (set! studio/window-width 1100.0) (set! studio/window-height 760.0)
@@ -470,11 +470,11 @@
         headphones studio/headphones monitoring studio/monitor-enabled
         selected studio/selected phase studio/capture-phase seek studio/seek-seconds]
     (ak/defer (do (set! studio/window-width old-w) (set! studio/routing-visible old-visible)
-                 (set! studio/route-menu old-menu) (set! studio/clicked old-click)
-                 (set! studio/route-click old-route-click) (set! studio/trim-drag old-drag)
-                 (set! studio/timeline-start old-start) (set! studio/timeline-seconds old-span)
-                 (set! studio/follow-playhead old-follow)
-                 (set! studio/mouse-x old-x) (set! studio/mouse-y old-y)))
+                  (set! studio/route-menu old-menu) (set! studio/clicked old-click)
+                  (set! studio/route-click old-route-click) (set! studio/trim-drag old-drag)
+                  (set! studio/timeline-start old-start) (set! studio/timeline-seconds old-span)
+                  (set! studio/follow-playhead old-follow)
+                  (set! studio/mouse-x old-x) (set! studio/mouse-y old-y)))
     (set! studio/window-width 1100.0) (set! studio/routing-visible true)
     (set! studio/mouse-x 1050.0) (set! studio/mouse-y 200.0)
     (when (studio/inside? 16.0 143.0 (studio/main-width) 299.0) (ak/return 1))
@@ -512,11 +512,11 @@
         old-trim studio/trim-drag old-focus studio/name-focus
         selected studio/selected headphones studio/headphones phase studio/capture-phase]
     (ak/defer (do (set! studio/workspace-mode old-mode) (set! studio/editor-top old-top) (set! studio/window-height old-height)
-                 (set! studio/window-width old-width) (set! studio/track-offset old-offset)
-                 (set! studio/divider-drag old-drag) (set! studio/divider-grab old-grab)
-                 (set! studio/clicked old-click) (set! studio/double-clicked old-double)
-                 (set! studio/mouse-down old-down) (set! studio/mouse-x old-x) (set! studio/mouse-y old-y)
-                 (set! studio/route-menu old-route) (set! studio/trim-drag old-trim) (set! studio/name-focus old-focus)))
+                  (set! studio/window-width old-width) (set! studio/track-offset old-offset)
+                  (set! studio/divider-drag old-drag) (set! studio/divider-grab old-grab)
+                  (set! studio/clicked old-click) (set! studio/double-clicked old-double)
+                  (set! studio/mouse-down old-down) (set! studio/mouse-x old-x) (set! studio/mouse-y old-y)
+                  (set! studio/route-menu old-route) (set! studio/trim-drag old-trim) (set! studio/name-focus old-focus)))
     (set! studio/workspace-mode 0)
     (set! studio/window-height 760.0) (set! studio/window-width 1100.0)
     (studio/set-editor-top! 444.0)
@@ -566,8 +566,8 @@
   Not a substitute for physical divider dragging or fresh visual inspection."
   []
   (let [render (fn [f] (let [r (deref (core/on-render! f) 10000 ::timeout)]
-                        (when (= r ::timeout) (throw (ex-info "Viewport QA render timeout" {})))
-                        (when (:error r) (throw (:error r))) (:value r)))
+                         (when (= r ::timeout) (throw (ex-info "Viewport QA render timeout" {})))
+                         (when (:error r) (throw (:error r))) (:value r)))
         snapshot #(render (fn [] {:top (a/value studio/editor-top) :rows (a/value (studio/visible-row-count))
                                   :offset (a/value studio/track-offset) :loaded-offset (a/value studio/track-snapshot)
                                   :loaded (a/value studio/track-snapshot-count) :uploads (a/value studio/clip-upload-revision)
@@ -608,8 +608,8 @@
   publishes. Requires idle take transport with Record disabled. Runs off-render."
   []
   (let [render (fn [f] (let [r (deref (core/on-render! f) 10000 ::timeout)]
-                        (when (= r ::timeout) (throw (ex-info "Resize QA render timeout" {})))
-                        (when (:error r) (throw (:error r))) (:value r)))
+                         (when (= r ::timeout) (throw (ex-info "Resize QA render timeout" {})))
+                         (when (:error r) (throw (:error r))) (:value r)))
         native-map (fn [value] (try (a/value value) (finally (a/close! value))))
         snapshot #(render (fn [] {:cursor (a/value (studio/cursor-seconds))
                                   :playing? (studio/playing-preview?)
@@ -626,9 +626,9 @@
         before (snapshot)
         project-before @studio/project]
     (when-not (render #(and (a/value studio/attached) (not (studio/busy?))
-                           (not (a/value studio/mix-mode))
-                           (zero? (a/value studio/record-enabled))
-                           (> (a/value studio/take-seconds) 3.0)))
+                            (not (a/value studio/mix-mode))
+                            (zero? (a/value studio/record-enabled))
+                            (> (a/value studio/take-seconds) 3.0)))
       (throw (ex-info "Resize QA requires an open idle studio, Record off and a take longer than three seconds" {})))
     (when (or (:playing? before) (not= 1 (get-in before [:bounds :normal])))
       (throw (ex-info "Resize QA will not interrupt playback or a maximized/minimized window" before)))
@@ -694,7 +694,7 @@
                               (throw (ex-info "Output-loss QA timed out" value))
                               :else (do (Thread/sleep 20) (recur)))))))]
     (assert (and (nil? @studio/session) (nil? @studio/armed)
-                  (render #(and (not (studio/busy?)) (not (a/value studio/voice-ready))))))
+                 (render #(and (not (studio/busy?)) (not (a/value studio/voice-ready))))))
     (try
       (render #(do
                  (studio/select-workspace! 1)
@@ -710,8 +710,8 @@
           (capture-window-qa! true "build/recording-qa/studio-output-stopped.png")
           (render #(studio/click-at! 75.0 65.0))
           (let [resumed (await-state #(and (:playing? %) (not (:interrupted? %))
-                                            (> (:cursor %) (+ (:cursor paused) 0.1))
-                                            (> (:signal %) (:signal paused))))]
+                                           (> (:cursor %) (+ (:cursor paused) 0.1))
+                                           (> (:signal %) (:signal paused))))]
             (assert (= (get-in before [:project :revision]) (:revision @studio/project)))
             {:playing playing :paused paused :resumed resumed
              :revision (:revision @studio/project)})))
@@ -750,9 +750,9 @@
                               :else (do (Thread/sleep 20) (recur)))))))]
     (assert (and path (nil? @studio/session) (nil? @studio/armed)
                  (render #(and (not (studio/busy?))
-                                (not (a/value studio/voice-ready))
-                                (not (a/value mixer/opened))
-                                (zero? (a/value mixer/clip-count))))))
+                               (not (a/value studio/voice-ready))
+                               (not (a/value mixer/opened))
+                               (zero? (a/value mixer/clip-count))))))
     (try
       (render #(do
                  (studio/select-workspace! 1)
@@ -783,19 +783,19 @@
 
 (defn- audition-qa-state []
   (audition-qa-render!
-    #(hash-map :selected (a/value studio/selected)
-               :mode (a/value studio/workspace-mode)
-               :playing? (studio/playing-preview?)
-               :paused? (a/value studio/preview-paused)
-               :busy? (studio/busy?)
-               :voice-ready? (a/value studio/voice-ready)
-               :duration (a/value studio/take-seconds)
-               :seek (a/value studio/seek-seconds)
+   #(hash-map :selected (a/value studio/selected)
+              :mode (a/value studio/workspace-mode)
+              :playing? (studio/playing-preview?)
+              :paused? (a/value studio/preview-paused)
+              :busy? (studio/busy?)
+              :voice-ready? (a/value studio/voice-ready)
+              :duration (a/value studio/take-seconds)
+              :seek (a/value studio/seek-seconds)
               :cursor (a/value (studio/cursor-seconds))
               :signal (a/value (studio/playback-signal-count))
-               :game-frames (a/value scene/rendered-frames)
-               :studio-frames (a/value studio/rendered-frames)
-               :record-enabled (a/value studio/record-enabled)
+              :game-frames (a/value scene/rendered-frames)
+              :studio-frames (a/value studio/rendered-frames)
+              :record-enabled (a/value studio/record-enabled)
               :capture-phase (a/value (studio/capture-phase-value)))))
 
 (defn- await-audition-state! [description predicate]
@@ -822,8 +822,8 @@
                       :takes-card
                       (let [id (audition-qa-render! #(#'studio/native-string (studio/node-id index)))
                             slot (first (keep-indexed (fn [slot card]
-                                                       (when (and (= id (:id card)) (:chosen? card)) slot))
-                                                     (:cards @studio/take-grid-cache)))]
+                                                        (when (and (= id (:id card)) (:chosen? card)) slot))
+                                                      (:cards @studio/take-grid-cache)))]
                         (assert (some? slot) "Selected take must have a matching grid card")
                         (click! (audition-qa-render! #(+ (a/value (studio/take-card-x (mod slot 3))) 20.0))
                                 (+ 186.0 (* 62.0 (quot slot 3)))))
@@ -844,28 +844,28 @@
            #(< (abs (- cue (:seek %))) 0.001))
     (when (= button-source :edit-row)
       (audition-qa-render!
-        #(do
-           (studio/set-workspace-mode! false)
-           (a/set-value! studio/page 0)
-           (a/set-value! studio/record-enabled 1)))
+       #(do
+          (studio/set-workspace-mode! false)
+          (a/set-value! studio/page 0)
+          (a/set-value! studio/record-enabled 1)))
       (await-audition-state!
-        "Edit-row waveforms did not load"
-        (fn [_]
-          (audition-qa-render!
-            #(and (= (a/value studio/track-snapshot) (a/value studio/track-offset))
-                  (pos? (a/value studio/track-snapshot-count)))))))
+       "Edit-row waveforms did not load"
+       (fn [_]
+         (audition-qa-render!
+          #(and (= (a/value studio/track-snapshot) (a/value studio/track-offset))
+                (pos? (a/value studio/track-snapshot-count)))))))
     (when (= button-source :takes-card)
       (audition-qa-render!
-        #(do
-           (studio/select-workspace! 2)
-           (a/set-value! studio/record-enabled 1)))
+       #(do
+          (studio/select-workspace! 2)
+          (a/set-value! studio/record-enabled 1)))
       (await-audition-state!
-        "Takes grid did not load"
-        (fn [_]
-          (and (= index (first (:key @studio/take-grid-cache)))
-               (some #(and (:chosen? %) (:available? %)) (:cards @studio/take-grid-cache))
-               (audition-qa-render!
-                 #(= (a/value studio/take-grid-offset) (a/value studio/track-offset)))))))
+       "Takes grid did not load"
+       (fn [_]
+         (and (= index (first (:key @studio/take-grid-cache)))
+              (some #(and (:chosen? %) (:available? %)) (:cards @studio/take-grid-cache))
+              (audition-qa-render!
+               #(= (a/value studio/take-grid-offset) (a/value studio/track-offset)))))))
     (step! :started audition! #(and (:playing? %) (> (:cursor %) cue)))
     (Thread/sleep 120)
     (step! :paused audition! #(and (:paused? %) (not (:playing? %))))
@@ -920,10 +920,10 @@
              "Audition QA must not interrupt an existing sound or capture")
      (try
        (audition-qa-render!
-         #(do
-            (studio/set-workspace-mode! true)
-            (a/set-value! studio/record-enabled 1)
-            (a/set-value! studio/track-offset index)))
+        #(do
+           (studio/set-workspace-mode! true)
+           (a/set-value! studio/record-enabled 1)
+           (a/set-value! studio/track-offset index)))
        (let [result (run-audition-sequence! index button-source)]
          (try
            (verify-audition-sequence! result project-before)
@@ -932,12 +932,12 @@
          result)
        (finally
          (audition-qa-render!
-           #(do
-              (studio/stop-voice!)
-              (when-not engine-ready?
-                (studio/close-playback!))
-              (doseq [[field value] (map vector fields values)]
-                (a/set-value! field value)))))))))
+          #(do
+             (studio/stop-voice!)
+             (when-not engine-ready?
+               (studio/close-playback!))
+             (doseq [[field value] (map vector fields values)]
+               (a/set-value! field value)))))))))
 
 (defn restore-qa-recording-pointers!
   "Opt-in QA cleanup: retain new labelled history/WAVs, but restore the pre-test
@@ -947,21 +947,21 @@
   (let [op (keyword "qa" (str "restore-pointers-" (java.util.UUID/randomUUID)))
         allowed (set qa-paths)]
     (studio/register-command! op
-      {:description "Restore pre-QA dry/wet references; retain labelled QA takes."
-       :validate empty?
-       :handler
-       (fn [_]
-         (#'studio/change-takes! "Restore pre-QA recording pointers"
-           (fn [takes]
-             (let [current (get takes id)]
-               (doseq [k [:dry :wet]]
-                 (when-not (or (= (get current k) (get before k)) (contains? allowed (get current k)))
-                   (throw (ex-info "QA cleanup will not replace a changed user reference" {:id id :field k}))))
-               (update takes id
-                 (fn [entry]
-                   (reduce (fn [e k] (if (contains? before k) (assoc e k (get before k)) (dissoc e k)))
-                           entry [:dry :wet]))))))
-         {:restored true})})
+                              {:description "Restore pre-QA dry/wet references; retain labelled QA takes."
+                               :validate empty?
+                               :handler
+                               (fn [_]
+                                 (#'studio/change-takes! "Restore pre-QA recording pointers"
+                                                         (fn [takes]
+                                                           (let [current (get takes id)]
+                                                             (doseq [k [:dry :wet]]
+                                                               (when-not (or (= (get current k) (get before k)) (contains? allowed (get current k)))
+                                                                 (throw (ex-info "QA cleanup will not replace a changed user reference" {:id id :field k}))))
+                                                             (update takes id
+                                                                     (fn [entry]
+                                                                       (reduce (fn [e k] (if (contains? before k) (assoc e k (get before k)) (dissoc e k)))
+                                                                               entry [:dry :wet]))))))
+                                 {:restored true})})
     (try
       (studio/command! {:op op :args {} :expected-revision (:revision @studio/project)})
       (finally (studio/unregister-command! op)))))
@@ -972,8 +972,8 @@
   the original panel visibility. Call from a REPL/client, never the render thread."
   []
   (let [render (fn [f] (let [r (deref (core/on-render! f) 10000 ::timeout)]
-                        (when (= r ::timeout) (throw (ex-info "QA render timeout" {})))
-                        (when (:error r) (throw (:error r))) (:value r)))
+                         (when (= r ::timeout) (throw (ex-info "QA render timeout" {})))
+                         (when (:error r) (throw (:error r))) (:value r)))
         snapshot #(render (fn [] {:visible (a/value studio/routing-visible)
                                   :width (a/value (studio/timeline-width)) :playing? (studio/playing-preview?)
                                   :cursor (a/value (studio/cursor-seconds)) :signal (a/value (studio/playback-signal-count))
@@ -989,8 +989,8 @@
                               :else (do (Thread/sleep 10) (recur)))))))
         before (snapshot)]
     (when-not (render #(and (a/value studio/attached) (not (studio/busy?))
-                           (not (a/value studio/mix-mode)) (not (a/value studio/preview-paused))
-                           (> (a/value studio/take-seconds) 1.0)))
+                            (not (a/value studio/mix-mode)) (not (a/value studio/preview-paused))
+                            (> (a/value studio/take-seconds) 1.0)))
       (throw (ex-info "QA requires an open idle studio with a take longer than one second" {})))
     (when (or (:playing? before) (not (zero? (:cursor before))))
       (throw (ex-info "QA will not interrupt existing playback or a positioned take" before)))
@@ -1010,7 +1010,7 @@
         (assert (> (- (:cursor end) (:cursor start)) 0.5) "Audio clock advances, not just UI frames")
         (assert (> (:signal end) (:signal start)) "Output callback receives non-silent PCM")
         (assert (every? #(= [(:headphones before) (:selected before)]
-                           [(:headphones %) (:selected %)]) samples))
+                            [(:headphones %) (:selected %)]) samples))
         {:start start :samples samples})
       (finally
         (command :transport/stop {})
@@ -1021,13 +1021,13 @@
   (let [^{:var :u64} cursor 0]
     (when scene/voice-ready
       (set! _ (audio/ma_sound_get_cursor_in_pcm_frames
-                (ak/& (a/index scene/voices scene/voice-slot)) (ak/& cursor))))
+               (ak/& (a/index scene/voices scene/voice-slot)) (ak/& cursor))))
     cursor))
 
 (a/defn game-voice-playing? :bool []
   (and scene/voice-ready
        (ak/!= (audio/ma_sound_is_playing
-                (ak/& (a/index scene/voices scene/voice-slot))) 0)))
+               (ak/& (a/index scene/voices scene/voice-slot))) 0)))
 
 (a/defn place-windows! :void []
   (glfw/glfwSetWindowPos scene/window 0 60)
@@ -1160,8 +1160,8 @@
   (let [boost (a/value studio/audition-boost) peak (a/value studio/audition-source-peak)]
     (try
       (doseq [[enabled source expected] [[false 0.0003 1.0] [true 0.0 1.0]
-                                        [true 0.00001 1000.0] [true 0.001 200.0]
-                                        [true 1.0 1.0]]]
+                                         [true 0.00001 1000.0] [true 0.001 200.0]
+                                         [true 1.0 1.0]]]
         (a/set-value! studio/audition-boost enabled)
         (a/set-value! studio/audition-source-peak source)
         (studio/update-audition-gain!)
@@ -1184,13 +1184,13 @@
 
 (deftest routing-signal-evidence-is-current-and-bounded
   (let [state #(studio/routing-signal-state
-                 :return
-                 (merge {:active? false
-                         :bypassed? false
-                         :phase 0
-                         :current-peak 0.0
-                         :held-peak 0.8}
-                        %))]
+                :return
+                (merge {:active? false
+                        :bypassed? false
+                        :phase 0
+                        :current-peak 0.0
+                        :held-peak 0.8}
+                       %))]
     (is (= :not-checked (:state (state {})))
         "A held peak from an old take cannot verify an idle device")
     (is (nil? (:peak-dbfs (state {}))))
@@ -1323,8 +1323,8 @@
         (doseq [phase [2 4]]
           (a/set-value! studio/capture-phase phase)
           (doseq [[mode fx? pass? label] [[1 false false "Dry"]
-                                         [2 true true "FX pass"]
-                                         [3 true false "Live FX"]]]
+                                          [2 true true "FX pass"]
+                                          [3 true false "Live FX"]]]
             (a/set-value! recorder/mode mode)
             (is (= fx? (studio/capture-fx?)))
             (is (= pass? (studio/effects-pass?)))
@@ -1336,8 +1336,8 @@
           (is (= (if (= configured 8) "Live FX" "Dry") (text)))))
       (is (= "Take send signal; peak -20 dBFS"
              (:label (studio/routing-signal-state
-                       :input {:active? true :source :take :phase 2
-                               :current-peak 0.1 :held-peak 0.1}))))
+                      :input {:active? true :source :take :phase 2
+                              :current-peak 0.1 :held-peak 0.1}))))
       (finally
         (doseq [[field value] (map vector fields before)]
           (a/set-value! field value))))))
@@ -1367,8 +1367,8 @@
       (is (zero? (a/value studio/alert-length)))
       (is (= "FX: waiting for signal"
              (String. (byte-array (map unchecked-byte
-                                  (take (a/value studio/return-meter-length)
-                                        (a/value studio/return-meter-text))))
+                                       (take (a/value studio/return-meter-length)
+                                             (a/value studio/return-meter-text))))
                       "UTF-8")))
       (finally
         (doseq [[field value] (map vector fields before)]
@@ -1428,7 +1428,7 @@
         uploaded studio/waveform-uploaded
         ^{:var [:array 1024 mesh/GpuVertex]} vertices ak/undefined]
     (ak/defer
-      (set-studio-state! [scene/vertices old-vertices scene/vertex-count old-count
+     (set-studio-state! [scene/vertices old-vertices scene/vertex-count old-count
                          scene/canvas-width old-width scene/canvas-height old-height
                          studio/workspace-mode mode studio/capture-phase phase
                          studio/take-seconds duration studio/seek-seconds seek
@@ -1436,13 +1436,13 @@
                          studio/waveform-owner owner studio/waveform-owner-length owner-length
                          studio/waveform-uploaded uploaded]))
     (set-studio-state! [scene/vertices (ak/ptrCast (ak/& vertices))
-                       scene/canvas-width 1100.0 scene/canvas-height 760.0
-                       studio/capture-phase 0 studio/take-seconds 6.0
-                       studio/seek-seconds 3.0 studio/voice-ready false studio/selected 1])
+                        scene/canvas-width 1100.0 scene/canvas-height 760.0
+                        studio/capture-phase 0 studio/take-seconds 6.0
+                        studio/seek-seconds 3.0 studio/voice-ready false studio/selected 1])
     (studio/waveform-owner! (studio/node-id 1))
     (dotimes [mode-index 2]
       (set-studio-state! [studio/workspace-mode (ak/intCast mode-index)
-                         scene/vertex-count 0])
+                          scene/vertex-count 0])
       (studio/waveform! 611.0)
       ;; Background + 128 bars + a cursor, plus two trim handles only in Edit.
       (when (ak/!= scene/vertex-count (ak/as (if (ak/== mode-index 0) 792 780) :u32))
@@ -1497,10 +1497,10 @@
   (let [pixels (java.nio.file.Files/readAllBytes (.toPath (io/file "resources/demo/atlas.rgba")))]
     (is (= (* 2048 1536 4) (alength pixels)))
     (is (every? zero?
-          (for [code (range 256) y (range 80) x (range 64)
-                :when (or (< x 2) (>= x 62) (< y 2) (>= y 78))]
-            (aget pixels (+ 3 (* 4 (+ (+ (* (mod code 32) 64) x)
-                                        (* 2048 (+ (* (quot code 32) 80) y)))))))))))
+                (for [code (range 256) y (range 80) x (range 64)
+                      :when (or (< x 2) (>= x 62) (< y 2) (>= y 78))]
+                  (aget pixels (+ 3 (* 4 (+ (+ (* (mod code 32) 64) x)
+                                            (* 2048 (+ (* (quot code 32) 80) y)))))))))))
 
 (deftest sans-atlas-metrics-and-gutters
   (let [pixels (java.nio.file.Files/readAllBytes (.toPath (io/file "resources/demo/atlas.rgba")))
@@ -1510,10 +1510,10 @@
     (is (every? #(and (Float/isFinite %) (<= 0.0 % 60.0))
                 (repeatedly 256 #(.getFloat buffer))))
     (is (every? zero?
-          (for [code (range 256) y (range 50) x (range 64)
-                :when (or (< x 2) (>= x 62) (< y 2) (>= y 48))]
-            (aget pixels (+ 3 (* 4 (+ (+ 1024 (* (mod code 16) 64) x)
-                                        (* 2048 (+ 736 (* (quot code 16) 50) y)))))))))))
+                (for [code (range 256) y (range 50) x (range 64)
+                      :when (or (< x 2) (>= x 62) (< y 2) (>= y 48))]
+                  (aget pixels (+ 3 (* 4 (+ (+ 1024 (* (mod code 16) 64) x)
+                                            (* 2048 (+ 736 (* (quot code 16) 50) y)))))))))))
 
 (defn verify-live-windows!
   "Run explicitly with studio open. Verifies independent ownership and simultaneous progress."
@@ -1523,7 +1523,7 @@
                                        :game (a/value scene/rendered-frames)
                                        :studio (a/value studio/rendered-frames)
                                        :time (a/value scene/elapsed)}))]
-                 (when-let [error (:error result)] (throw error)) (:value result))
+                  (when-let [error (:error result)] (throw error)) (:value result))
         before (sample) _ (Thread/sleep 350) after (sample)]
     (assert (:independent? after) "Windows must own distinct Vulkan resources")
     (assert (< (:game before) (:game after)) "Game must keep updating")
@@ -1534,9 +1534,9 @@
 (deftest publication-audio-validation
   (require-isolated-recorder!)
   (let [directory (java.nio.file.Files/createTempDirectory "la-professeure-validation-"
-                     (make-array java.nio.file.attribute.FileAttribute 0))]
+                                                           (make-array java.nio.file.attribute.FileAttribute 0))]
     (doseq [[label sample accepted?] [["quiet" 0.05 true] ["silent" 0.0 false]
-                                    ["clipped" 1.1 false] ["nan" Float/NaN false]]]
+                                      ["clipped" 1.1 false] ["nan" Float/NaN false]]]
       (let [file (.resolve directory (str label ".wav"))
             buffer (doto (java.nio.ByteBuffer/allocate 76) (.order java.nio.ByteOrder/LITTLE_ENDIAN))]
         (.put buffer (.getBytes "RIFF" "US-ASCII")) (.putInt buffer 68)
@@ -1581,7 +1581,7 @@
   (is (recorder/live-routing-test!))
   (is (false? (recorder/start-live! 999 999 999 48000)))
   (let [directory (java.nio.file.Files/createTempDirectory "la-professeure-live-"
-                    (make-array java.nio.file.attribute.FileAttribute 0))]
+                                                           (make-array java.nio.file.attribute.FileAttribute 0))]
     (doseq [[kind processed? frames] [["dry" false 4] ["wet" true 6]]]
       (let [file (io/file (str directory) (str kind ".wav"))]
         (is (.createNewFile file))
@@ -1594,11 +1594,11 @@
         ^{:var [:array 2 :f32]} output ak/undefined]
     (set! (a/index input 0) 0.9) (set! (a/index input 1) 0.9)
     (set! (a/index input 2) 0.5) (set! (a/index input 3) -4.0)
-    (ak/atomicStore :u32 (ak/& recorder/monitor-gain) 100 :.release)
+    (ak/atomicStore :u32 (ak/& recorder/monitor-gain) 100 :release)
     (recorder/process-monitor! (ak/& output) (ak/& input) 1)
     (when (or (ak/!= (a/index output 0) 0.25) (ak/!= (a/index output 1) -0.5)) (ak/return false))
     (recorder/process-monitor! (ak/& output) ak/null 1)
-    (ak/atomicStore :u32 (ak/& recorder/monitor-gain) 15 :.release)
+    (ak/atomicStore :u32 (ak/& recorder/monitor-gain) 15 :release)
     (and (ak/== (a/index output 0) 0.0) (ak/== (a/index output 1) 0.0))))
 
 (deftest monitoring-and-native-checkpoints
@@ -1607,7 +1607,7 @@
   (is (false? (recorder/start-monitor! 999 999)))
   (is (recorder/live-routing-test!))
   (let [file (java.nio.file.Files/createTempFile "professeure-checkpoint-" ".pcm"
-               (make-array java.nio.file.attribute.FileAttribute 0))]
+                                                 (make-array java.nio.file.attribute.FileAttribute 0))]
     (is (= 2 (a/value (recorder/journal! (str file) false 0))))
     (is (= 16 (.length (.toFile file))))
     (is (= 2 (a/value (recorder/journal! (str file) false 2))))
@@ -1658,12 +1658,12 @@
         offset studio/track-offset track-scroll studio/track-scroll window-h studio/window-height
         count scene/passage-entity-count]
     (ak/defer (do (set! studio/workspace-mode mode) (set! studio/record-enabled enabled)
-      (set! studio/workspace-record-prior prior) (set! studio/trim-drag trim)
-      (set! studio/divider-drag divider) (set! studio/name-focus focus) (set! studio/name-drag drag)
-      (set! studio/route-menu menu) (set! studio/clicked click) (set! studio/mouse-x x)
-      (set! studio/mouse-y y) (set! studio/record-scroll scroll) (set! studio/record-text-height height)
-      (set! studio/track-offset offset) (set! studio/track-scroll track-scroll)
-      (set! studio/window-height window-h) (set! scene/passage-entity-count count)))
+                  (set! studio/workspace-record-prior prior) (set! studio/trim-drag trim)
+                  (set! studio/divider-drag divider) (set! studio/name-focus focus) (set! studio/name-drag drag)
+                  (set! studio/route-menu menu) (set! studio/clicked click) (set! studio/mouse-x x)
+                  (set! studio/mouse-y y) (set! studio/record-scroll scroll) (set! studio/record-text-height height)
+                  (set! studio/track-offset offset) (set! studio/track-scroll track-scroll)
+                  (set! studio/window-height window-h) (set! scene/passage-entity-count count)))
     (set! studio/workspace-mode 0) (set! studio/record-enabled 0)
     (set! studio/trim-drag 1) (set! studio/divider-drag true)
     (set! studio/name-focus true) (set! studio/name-drag true)
@@ -1749,9 +1749,9 @@
         (is (= (pos? deadline) (studio/counting-in?)))
         (doseq [enabled? [false true]]
           (is (= label (#'studio/native-string
-                         (studio/transport-state-label 1 true false false enabled?))))
+                        (studio/transport-state-label 1 true false false enabled?))))
           (is (= guidance (#'studio/native-string
-                            (studio/record-workspace-guidance 1 true false false))))))
+                           (studio/record-workspace-guidance 1 true false false))))))
       (finally
         (a/set-value! studio/countdown-until before)))))
 
@@ -1791,12 +1791,12 @@
         (a/set-value! studio/record-track before)))))
 
 (a/defstruct GridInputSnapshot {:layout :extern}
-  [[focus :bool] [drag :bool] [click :bool]])
+             [[focus :bool] [drag :bool] [click :bool]])
 
 (a/defn grid-input-snapshot GridInputSnapshot []
   (GridInputSnapshot {:focus studio/name-focus
-                     :drag studio/name-drag
-                     :click studio/clicked}))
+                      :drag studio/name-drag
+                      :click studio/clicked}))
 
 (a/defn restore-grid-input! :void [[input GridInputSnapshot]]
   (set! studio/name-focus (a/field input focus))
@@ -1860,10 +1860,10 @@
         old-width scene/canvas-width
         old-height scene/canvas-height]
     (ak/defer
-      (set-studio-state! [scene/vertices old-vertices
-                          scene/vertex-count old-count
-                          scene/canvas-width old-width
-                          scene/canvas-height old-height]))
+     (set-studio-state! [scene/vertices old-vertices
+                         scene/vertex-count old-count
+                         scene/canvas-width old-width
+                         scene/canvas-height old-height]))
     (set-studio-state! [scene/vertices (ak/& scratch)
                         scene/vertex-count 0
                         scene/canvas-width 1000.0
@@ -1913,8 +1913,8 @@
   (let [^{:var :u32} counter 0
         ^{:var :u32} observed 0]
     (set-studio-state! [counter (+ counter 1)
-                       observed (+ counter 4)
-                       counter (+ counter observed)])
+                        observed (+ counter 4)
+                        counter (+ counter observed)])
     (+ (* counter 10) observed)))
 
 (deftest grouped-state-preserves-native-evaluation-order
@@ -1926,19 +1926,19 @@
         old-click studio/clicked
         old-text studio/record-request-text
         old-length studio/record-request-length
-        old-busy (ak/atomicLoad :u8 (ak/& studio/busy) :.acquire)
-        old-pending (ak/atomicLoad :u32 (ak/& studio/pending) :.acquire)
+        old-busy (ak/atomicLoad :u8 (ak/& studio/busy) :acquire)
+        old-pending (ak/atomicLoad :u32 (ak/& studio/pending) :acquire)
         ^{:var :u32} first-index 4294967295
         ^{:var :u32} second-index 4294967295]
     (ak/defer
-      (do
-        (set-studio-state! [studio/selected old-selected
+     (do
+       (set-studio-state! [studio/selected old-selected
                            studio/record-track old-arm
                            studio/clicked old-click
                            studio/record-request-text old-text
                            studio/record-request-length old-length])
-        (ak/atomicStore :u8 (ak/& studio/busy) old-busy :.release)
-        (ak/atomicStore :u32 (ak/& studio/pending) old-pending :.release)))
+       (ak/atomicStore :u8 (ak/& studio/busy) old-busy :release)
+       (ak/atomicStore :u32 (ak/& studio/pending) old-pending :release)))
     (dotimes [i scene/passage-entity-count]
       (when (> (a/field (studio/node-id (ak/intCast i)) len) 0)
         (if (ak/== first-index 4294967295)
@@ -1947,10 +1947,10 @@
             (set! second-index (ak/intCast i))))))
     (when (ak/== second-index 4294967295)
       (ak/return 1))
-    (ak/atomicStore :u8 (ak/& studio/busy) 0 :.release)
-    (ak/atomicStore :u32 (ak/& studio/pending) 0 :.release)
+    (ak/atomicStore :u8 (ak/& studio/busy) 0 :release)
+    (ak/atomicStore :u32 (ak/& studio/pending) 0 :release)
     (set-studio-state! [studio/record-track first-index
-                       studio/selected second-index])
+                        studio/selected second-index])
     (studio/request-selected-recording!)
     (when (ak/!= (studio/take-action!) 38)
       (ak/return 2))
@@ -1959,7 +1959,7 @@
       (ak/return 3))
     (when (ak/!= studio/record-track first-index)
       (ak/return 4))
-    (ak/atomicStore :u8 (ak/& studio/busy) 0 :.release)
+    (ak/atomicStore :u8 (ak/& studio/busy) 0 :release)
     (set! studio/selected scene/passage-entity-count)
     (studio/request-selected-recording!)
     (when (ak/!= (studio/take-action!) 0)
@@ -2010,9 +2010,9 @@
                        ^java.util.List
                        ["swift" "tools/test/window_video.swift"
                         (str window-id) (str pid) "10" path])
-                     (.directory (la-professeure.build/root))
-                     (.redirectErrorStream true)
-                     (.start))]
+                      (.directory (la-professeure.build/root))
+                      (.redirectErrorStream true)
+                      (.start))]
       (try
         (with-open [output (io/reader (.getInputStream process))]
           ;; The child has its own hard deadline, including stalled OS awaits.
@@ -2052,10 +2052,10 @@
 (defn- os-name-input-qa! [& arguments]
   (assert (#'audition-qa-render! studio/name-focused?) "Refuse input outside the name field")
   (let [result (apply shell/sh
-                (concat ["swift" "tools/test/studio_input.swift"
-                         "--target-pid" (str (.pid (java.lang.ProcessHandle/current)))]
-                        arguments
-                        [:dir (str (la-professeure.build/root))]))]
+                      (concat ["swift" "tools/test/studio_input.swift"
+                               "--target-pid" (str (.pid (java.lang.ProcessHandle/current)))]
+                              arguments
+                              [:dir (str (la-professeure.build/root))]))]
     (when-not (zero? (:exit result))
       (throw (ex-info "Name-field OS input refused" result)))))
 
@@ -2066,57 +2066,57 @@
   ([] (live-name-draft-os-qa! {}))
   ([{:keys [draft after-paste!]
      :or {draft "QA – fenêtre éphémère"}}]
-  (let [render #'audition-qa-render!
-        before (studio/query)
-        state #(render (fn [] {:index (a/value studio/selected)
-                               :focused? (studio/name-focused?)
-                               :name (#'studio/native-string (studio/entered-name))}))
-        original (state)
-        mode (render #(a/value studio/workspace-mode))
-        offset (render #(a/value studio/track-offset))
-        await-state (fn [predicate]
-                      (let [deadline (+ (System/nanoTime) 3000000000)]
-                        (loop []
-                          (let [current (state)]
-                            (cond
-                              (predicate current) current
-                              (> (System/nanoTime) deadline)
-                              (throw (ex-info "Name-field state did not settle" current))
-                              :else (do (Thread/sleep 20) (recur)))))))]
-    (assert (and (not (:focused? original))
-                 (> (:index original) 0)
-                 (nil? (:recording before))
-                 (nil? (:countdown before))
-                 (not (get-in before [:transport :playing?]))
-                 (render studio/take-editable?)))
-    (try
-      (render #(do (studio/select-workspace! 0)
-                   (a/set-value! studio/track-offset 0)))
+   (let [render #'audition-qa-render!
+         before (studio/query)
+         state #(render (fn [] {:index (a/value studio/selected)
+                                :focused? (studio/name-focused?)
+                                :name (#'studio/native-string (studio/entered-name))}))
+         original (state)
+         mode (render #(a/value studio/workspace-mode))
+         offset (render #(a/value studio/track-offset))
+         await-state (fn [predicate]
+                       (let [deadline (+ (System/nanoTime) 3000000000)]
+                         (loop []
+                           (let [current (state)]
+                             (cond
+                               (predicate current) current
+                               (> (System/nanoTime) deadline)
+                               (throw (ex-info "Name-field state did not settle" current))
+                               :else (do (Thread/sleep 20) (recur)))))))]
+     (assert (and (not (:focused? original))
+                  (> (:index original) 0)
+                  (nil? (:recording before))
+                  (nil? (:countdown before))
+                  (not (get-in before [:transport :playing?]))
+                  (render studio/take-editable?)))
+     (try
+       (render #(do (studio/select-workspace! 0)
+                    (a/set-value! studio/track-offset 0)))
        (os-studio-click-qa! 70.0 (render #(a/value (studio/bottom-y 635.0))))
-      (os-name-input-qa! "key" "0" "1048576")
-      (assert (render #(and (= 0 (a/value studio/name-anchor))
-                            (= (a/value studio/name-caret) (a/value studio/name-length)))))
-      (os-name-input-qa! "paste" draft)
-      (await-state #(= draft (:name %)))
-      (when after-paste!
-        (after-paste!))
-      (os-studio-click-qa! 90.0 180.0)
-      (let [empty-state (await-state #(and (= 0 (:index %))
-                                           (not (:focused? %))
-                                           (= "" (:name %))))]
-        ;; Scroll the original row to the same first-row target, not an offscreen click.
-        (render #(a/set-value! studio/track-offset (:index original)))
-        (os-studio-click-qa! 90.0 180.0)
-        (let [restored (await-state #(= original %))
-              after (studio/query)]
-          (assert (= (:takes before) (:takes after)))
-          (assert (= (:project before) (:project after)))
-          {:draft draft :empty empty-state :restored restored :stored-data-unchanged? true}))
-      (finally
-        (studio/command! {:op :selection/passage :args {:id (:selection before)}})
-        (render #(do (#'studio/reset-take-name! (:name original))
-                     (studio/select-workspace! mode)
-                     (a/set-value! studio/track-offset offset))))))))
+       (os-name-input-qa! "key" "0" "1048576")
+       (assert (render #(and (= 0 (a/value studio/name-anchor))
+                             (= (a/value studio/name-caret) (a/value studio/name-length)))))
+       (os-name-input-qa! "paste" draft)
+       (await-state #(= draft (:name %)))
+       (when after-paste!
+         (after-paste!))
+       (os-studio-click-qa! 90.0 180.0)
+       (let [empty-state (await-state #(and (= 0 (:index %))
+                                            (not (:focused? %))
+                                            (= "" (:name %))))]
+         ;; Scroll the original row to the same first-row target, not an offscreen click.
+         (render #(a/set-value! studio/track-offset (:index original)))
+         (os-studio-click-qa! 90.0 180.0)
+         (let [restored (await-state #(= original %))
+               after (studio/query)]
+           (assert (= (:takes before) (:takes after)))
+           (assert (= (:project before) (:project after)))
+           {:draft draft :empty empty-state :restored restored :stored-data-unchanged? true}))
+       (finally
+         (studio/command! {:op :selection/passage :args {:id (:selection before)}})
+         (render #(do (#'studio/reset-take-name! (:name original))
+                      (studio/select-workspace! mode)
+                      (a/set-value! studio/track-offset offset))))))))
 
 (defn live-direct-record-countin-qa!
   "Off-render, opt-in native button QA. A 60-second count-in is cancelled before
@@ -2139,10 +2139,10 @@
                           (throw (ex-info "Direct Record QA timed out" {}))
                           :else (do (Thread/sleep 10) (recur))))))
         ids (render #(mapv (fn [index] (#'studio/native-string (studio/node-id index)))
-                            [first-index second-index]))]
+                           [first-index second-index]))]
     (assert (and (nil? @studio/session)
-                  (nil? @studio/armed)
-                  (render #(and (not (studio/busy?)) (not (a/value studio/voice-ready)))))
+                 (nil? @studio/armed)
+                 (render #(and (not (studio/busy?)) (not (a/value studio/voice-ready)))))
             "Direct Record QA requires stopped/unloaded playback and no capture")
     (assert (and (not= first-index second-index) (every? seq ids)))
     (try
@@ -2152,30 +2152,30 @@
                  (a/set-value! studio/record-enabled 0)
                  (a/set-value! studio/record-track second-index)))
       (mapv
-        (fn [index id x y]
-          (render #(do
-                     (a/set-value! studio/track-offset index)
-                     (studio/click-at! 100.0 180.0)))
-          (wait-for! #(= index (render (fn [] (a/value studio/selected)))))
-          (render #(studio/click-at! x y))
-          (wait-for! #(= id (:id @studio/armed)))
-          (let [target (render #(hash-map :selected (a/value studio/selected)
-                                          :target (a/value studio/record-track)
+       (fn [index id x y]
+         (render #(do
+                    (a/set-value! studio/track-offset index)
+                    (studio/click-at! 100.0 180.0)))
+         (wait-for! #(= index (render (fn [] (a/value studio/selected)))))
+         (render #(studio/click-at! x y))
+         (wait-for! #(= id (:id @studio/armed)))
+         (let [target (render #(hash-map :selected (a/value studio/selected)
+                                         :target (a/value studio/record-track)
                                          :phase (a/value (studio/capture-phase-value))
-                                          :rec-enabled (a/value studio/record-enabled)))]
-            (assert (= index (:target target)))
-            (assert (= 1 (:phase target)))
-            (assert (nil? @studio/session) "Count-in must not open a recording")
-            (render #(studio/click-at! 192.0 65.0))
-            (wait-for! #(and (nil? @studio/armed)
-                             (render (fn [] (not (studio/busy?))))))
-            (assert (nil? @studio/session))
-            (assert (= project-before @studio/project) "No take or project mutation")
-            (assoc target :id id :cancelled true)))
-        [first-index second-index first-index]
-        [(first ids) (second ids) (first ids)]
-        [340.0 350.0 340.0]
-        [164.0 65.0 164.0])
+                                         :rec-enabled (a/value studio/record-enabled)))]
+           (assert (= index (:target target)))
+           (assert (= 1 (:phase target)))
+           (assert (nil? @studio/session) "Count-in must not open a recording")
+           (render #(studio/click-at! 192.0 65.0))
+           (wait-for! #(and (nil? @studio/armed)
+                            (render (fn [] (not (studio/busy?))))))
+           (assert (nil? @studio/session))
+           (assert (= project-before @studio/project) "No take or project mutation")
+           (assoc target :id id :cancelled true)))
+       [first-index second-index first-index]
+       [(first ids) (second ids) (first ids)]
+       [340.0 350.0 340.0]
+       [164.0 65.0 164.0])
       (finally
         (when @studio/armed
           (studio/command! {:op :transport/stop}))
@@ -2188,38 +2188,38 @@
     (let [op (keyword "qa" (str "retain-direct-record-" (java.util.UUID/randomUUID)))
           allowed (set (map :path captured))
           labels (into {} (map (fn [{:keys [path name]}]
-                                [path (or name "QA direct Record - 220/330 Hz test")])
-                              captured))]
+                                 [path (or name "QA direct Record - 220/330 Hz test")])
+                               captured))]
       (studio/register-command! op
-        {:description "Label QA recordings and restore previous passage take references"
-         :validate empty?
-         :handler
-         (fn [_]
-           (#'studio/change-takes! "QA: retain tests, restore selections"
-             (fn [takes]
-               (reduce
-                 (fn [takes id]
-                   (update takes id
-                     (fn [entry]
-                       (doseq [key [:dry :wet :selected]]
-                         (when-not (or (= (get entry key) (get-in before [id key]))
-                                        (contains? allowed (get entry key)))
-                           (throw (ex-info "User changed a take reference during QA; restore refused"
-                                           {:id id :field key}))))
-                       (reduce
-                         (fn [entry key]
-                           (if (contains? (get before id) key)
-                             (assoc entry key (get-in before [id key]))
-                             (dissoc entry key)))
-                         (update entry :history
-                           #(mapv (fn [take]
-                                    (if (contains? allowed (:path take))
-                                      (assoc take :name (get labels (:path take)))
-                                      take)) %))
-                         [:dry :wet :selected]))))
-                 takes (distinct (map :id captured)))))
-           {:revision (:revision @studio/project)
-            :retained (count captured)})})
+                                {:description "Label QA recordings and restore previous passage take references"
+                                 :validate empty?
+                                 :handler
+                                 (fn [_]
+                                   (#'studio/change-takes! "QA: retain tests, restore selections"
+                                                           (fn [takes]
+                                                             (reduce
+                                                              (fn [takes id]
+                                                                (update takes id
+                                                                        (fn [entry]
+                                                                          (doseq [key [:dry :wet :selected]]
+                                                                            (when-not (or (= (get entry key) (get-in before [id key]))
+                                                                                          (contains? allowed (get entry key)))
+                                                                              (throw (ex-info "User changed a take reference during QA; restore refused"
+                                                                                              {:id id :field key}))))
+                                                                          (reduce
+                                                                           (fn [entry key]
+                                                                             (if (contains? (get before id) key)
+                                                                               (assoc entry key (get-in before [id key]))
+                                                                               (dissoc entry key)))
+                                                                           (update entry :history
+                                                                                   #(mapv (fn [take]
+                                                                                            (if (contains? allowed (:path take))
+                                                                                              (assoc take :name (get labels (:path take)))
+                                                                                              take)) %))
+                                                                           [:dry :wet :selected]))))
+                                                              takes (distinct (map :id captured)))))
+                                   {:revision (:revision @studio/project)
+                                    :retained (count captured)})})
       (try
         (let [result (studio/command! {:op op :expected-revision (:revision @studio/project)})]
           (when-not (= :done (:status result))
@@ -2244,170 +2244,170 @@
   Optional :publish! invokes an OS-input driver instead of the publish API."
   ([id path] (live-voice-publication-qa! id path nil))
   ([id path {:keys [publish!]}]
-  (let [render #'audition-qa-render!
-        before (studio/query)
-        take-before (get-in before [:takes id])
-        entry (some #(when (= path (:path %)) %) (:history take-before))
-        destination (io/file "resources/voices" (str id ".wav"))
-        digest (fn [file]
-                 (let [bytes (java.nio.file.Files/readAllBytes (.toPath (io/file file)))]
-                   (.formatHex (java.util.HexFormat/of)
-                     (.digest (java.security.MessageDigest/getInstance "SHA-256") bytes))))
-        command (fn [request]
-                  (let [result (studio/command! request)]
-                    (when-not (= :done (:status result))
-                      (throw (ex-info "Publication QA command did not complete" result)))
-                    result))
-        snapshot #(render (fn [] {:revision (a/value scene/voice-revision)
-                                  :hash (a/value scene/voice-hash)}))
-        await-change (fn [previous]
-                       (let [deadline (+ (System/nanoTime) 3000000000)]
-                         (loop []
-                           (let [current (snapshot)]
-                             (cond
-                               (and (> (:revision current) (:revision previous))
-                                    (not= (:hash current) (:hash previous))) current
-                               (> (System/nanoTime) deadline)
-                               (throw (ex-info "Game voice watcher did not reload" current))
-                               :else (do (Thread/sleep 20) (recur)))))))]
-    (assert (re-matches #"voice-[a-zA-Z0-9_-]+" id))
-    (assert (#{:dry :wet} (:kind entry)) "Only an existing recorded take may be published")
-    (assert (.startsWith (or (:name entry) "") "QA ") "Refuse non-QA takes")
-    (assert (.isFile destination) "This test requires an original voice to restore")
-    (assert (and (nil? (:recording before))
-                 (nil? (:countdown before))
-                 (nil? (:input-check before))
-                 (not (get-in before [:transport :playing?]))
-                 (render publication-game-idle?)))
-    (let [original-hash (digest destination)
-          candidate-hash (digest path)
-          original-time (java.nio.file.Files/getLastModifiedTime (.toPath destination)
-                          (make-array java.nio.file.LinkOption 0))
-          backup (io/file "build/recording-qa" (str "voice-backup-" (java.util.UUID/randomUUID) ".wav"))
-          op (keyword "qa" (str "restore-publication-" (java.util.UUID/randomUUID)))
-          original-native (render #(hash-map :hash (a/value scene/voice-hash)
-                                             :node (a/value scene/voice-node)
-                                             :path (a/value scene/voice-path)
-                                             :check-time (a/value scene/voice-check-time)))
-          old-mute (atom nil)
-          baseline (atom nil)]
-      (assert (not= original-hash candidate-hash))
-      (io/make-parents backup)
-      (java.nio.file.Files/copy (.toPath destination) (.toPath backup)
-        (make-array java.nio.file.CopyOption 0))
-      (assert (= original-hash (digest backup)))
-      (studio/register-command! op
-        {:description "Restore the pre-QA selected/published take references"
-         :validate empty?
-         :handler
-         (fn [_]
-           (#'studio/change-takes! "QA: restore publication"
-             (fn [takes]
-               (reduce
-                 (fn [takes key]
-                   (let [current (get-in takes [id key])]
-                     (when-not (or (= current path) (= current (get take-before key)))
-                       (throw (ex-info "Take changed during QA; restore refused" {:field key})))
-                     (if (contains? take-before key)
-                       (assoc-in takes [id key] (get take-before key))
-                       (update takes id dissoc key))))
-                 takes [:selected :published]))
-             true)
-           :restored)})
-      (try
-        (reset! old-mute (render #(publication-game-mute! true)))
-        (let [index (render #(#'studio/passage-index id))]
-          (assert (render #(scene/load-node-voice! index)))
-          (reset! baseline (snapshot)))
-        (command {:op :take/select :args {:id id :path path}})
-        (if publish!
-          (publish!)
-          (command {:op :take/publish}))
-        (let [published (await-change @baseline)]
-          (assert (= candidate-hash (digest destination)))
-          (#'studio/atomic-write! destination #(io/copy backup %))
-          (let [restored (await-change published)]
-            {:before @baseline
-             :published published
-             :restored restored
-             :original-sha256 original-hash
-             :candidate-sha256 candidate-hash
-             :backup (.getCanonicalPath backup)}))
-        (finally
-          (try
-            (when-not (contains? #{original-hash candidate-hash} (digest destination))
-              (throw (ex-info "Published WAV changed outside QA; restore refused"
-                              {:backup (.getCanonicalPath backup)})))
-            (#'studio/atomic-write! destination #(io/copy backup %))
-            (java.nio.file.Files/setLastModifiedTime (.toPath destination) original-time)
-            (assert (= original-hash (digest destination)))
-            (command {:op op})
-            (command {:op :selection/passage :args {:id (:selection before)}})
-            (finally
-              (render #(do
-                         (scene/stop-voice!)
-                         (a/set-value! scene/voice-node (:node original-native))
-                         (a/set-value! scene/voice-hash (:hash original-native))
-                         (a/set-value! scene/voice-path (:path original-native))
-                         (a/set-value! scene/voice-check-time (:check-time original-native))
-                         (when (some? @old-mute)
-                           (publication-game-mute! @old-mute))))
-              (studio/unregister-command! op)))))))))
+   (let [render #'audition-qa-render!
+         before (studio/query)
+         take-before (get-in before [:takes id])
+         entry (some #(when (= path (:path %)) %) (:history take-before))
+         destination (io/file "resources/voices" (str id ".wav"))
+         digest (fn [file]
+                  (let [bytes (java.nio.file.Files/readAllBytes (.toPath (io/file file)))]
+                    (.formatHex (java.util.HexFormat/of)
+                                (.digest (java.security.MessageDigest/getInstance "SHA-256") bytes))))
+         command (fn [request]
+                   (let [result (studio/command! request)]
+                     (when-not (= :done (:status result))
+                       (throw (ex-info "Publication QA command did not complete" result)))
+                     result))
+         snapshot #(render (fn [] {:revision (a/value scene/voice-revision)
+                                   :hash (a/value scene/voice-hash)}))
+         await-change (fn [previous]
+                        (let [deadline (+ (System/nanoTime) 3000000000)]
+                          (loop []
+                            (let [current (snapshot)]
+                              (cond
+                                (and (> (:revision current) (:revision previous))
+                                     (not= (:hash current) (:hash previous))) current
+                                (> (System/nanoTime) deadline)
+                                (throw (ex-info "Game voice watcher did not reload" current))
+                                :else (do (Thread/sleep 20) (recur)))))))]
+     (assert (re-matches #"voice-[a-zA-Z0-9_-]+" id))
+     (assert (#{:dry :wet} (:kind entry)) "Only an existing recorded take may be published")
+     (assert (.startsWith (or (:name entry) "") "QA ") "Refuse non-QA takes")
+     (assert (.isFile destination) "This test requires an original voice to restore")
+     (assert (and (nil? (:recording before))
+                  (nil? (:countdown before))
+                  (nil? (:input-check before))
+                  (not (get-in before [:transport :playing?]))
+                  (render publication-game-idle?)))
+     (let [original-hash (digest destination)
+           candidate-hash (digest path)
+           original-time (java.nio.file.Files/getLastModifiedTime (.toPath destination)
+                                                                  (make-array java.nio.file.LinkOption 0))
+           backup (io/file "build/recording-qa" (str "voice-backup-" (java.util.UUID/randomUUID) ".wav"))
+           op (keyword "qa" (str "restore-publication-" (java.util.UUID/randomUUID)))
+           original-native (render #(hash-map :hash (a/value scene/voice-hash)
+                                              :node (a/value scene/voice-node)
+                                              :path (a/value scene/voice-path)
+                                              :check-time (a/value scene/voice-check-time)))
+           old-mute (atom nil)
+           baseline (atom nil)]
+       (assert (not= original-hash candidate-hash))
+       (io/make-parents backup)
+       (java.nio.file.Files/copy (.toPath destination) (.toPath backup)
+                                 (make-array java.nio.file.CopyOption 0))
+       (assert (= original-hash (digest backup)))
+       (studio/register-command! op
+                                 {:description "Restore the pre-QA selected/published take references"
+                                  :validate empty?
+                                  :handler
+                                  (fn [_]
+                                    (#'studio/change-takes! "QA: restore publication"
+                                                            (fn [takes]
+                                                              (reduce
+                                                               (fn [takes key]
+                                                                 (let [current (get-in takes [id key])]
+                                                                   (when-not (or (= current path) (= current (get take-before key)))
+                                                                     (throw (ex-info "Take changed during QA; restore refused" {:field key})))
+                                                                   (if (contains? take-before key)
+                                                                     (assoc-in takes [id key] (get take-before key))
+                                                                     (update takes id dissoc key))))
+                                                               takes [:selected :published]))
+                                                            true)
+                                    :restored)})
+       (try
+         (reset! old-mute (render #(publication-game-mute! true)))
+         (let [index (render #(#'studio/passage-index id))]
+           (assert (render #(scene/load-node-voice! index)))
+           (reset! baseline (snapshot)))
+         (command {:op :take/select :args {:id id :path path}})
+         (if publish!
+           (publish!)
+           (command {:op :take/publish}))
+         (let [published (await-change @baseline)]
+           (assert (= candidate-hash (digest destination)))
+           (#'studio/atomic-write! destination #(io/copy backup %))
+           (let [restored (await-change published)]
+             {:before @baseline
+              :published published
+              :restored restored
+              :original-sha256 original-hash
+              :candidate-sha256 candidate-hash
+              :backup (.getCanonicalPath backup)}))
+         (finally
+           (try
+             (when-not (contains? #{original-hash candidate-hash} (digest destination))
+               (throw (ex-info "Published WAV changed outside QA; restore refused"
+                               {:backup (.getCanonicalPath backup)})))
+             (#'studio/atomic-write! destination #(io/copy backup %))
+             (java.nio.file.Files/setLastModifiedTime (.toPath destination) original-time)
+             (assert (= original-hash (digest destination)))
+             (command {:op op})
+             (command {:op :selection/passage :args {:id (:selection before)}})
+             (finally
+               (render #(do
+                          (scene/stop-voice!)
+                          (a/set-value! scene/voice-node (:node original-native))
+                          (a/set-value! scene/voice-hash (:hash original-native))
+                          (a/set-value! scene/voice-path (:path original-native))
+                          (a/set-value! scene/voice-check-time (:check-time original-native))
+                          (when (some? @old-mute)
+                            (publication-game-mute! @old-mute))))
+               (studio/unregister-command! op)))))))))
 
 (defn live-input-check-qa!
   "Opt-in virtual-input preflight. No microphone, take, publication or OS-input claim."
   ([] (live-input-check-qa! false))
   ([fx?]
-  (let [render #'audition-qa-render!
-        fields [studio/microphone studio/record-mode studio/record-track studio/workspace-mode
-                studio/workspace-record-prior studio/record-enabled studio/countdown-seconds]
-        before (render #(mapv a/value fields))
-        query-before (studio/query)
-        source (.indexOf (get-in query-before [:devices :inputs]) "BlackHole 16ch")
-        output (.indexOf (get-in query-before [:devices :outputs]) "BlackHole 16ch")
-        wait-for! (fn [predicate]
-                    (let [deadline (+ (System/nanoTime) 12000000000)]
-                      (loop []
-                        (cond
-                          (predicate) true
-                          (> (System/nanoTime) deadline)
-                          (throw (ex-info "Input-check QA timed out" {}))
-                          :else (do (Thread/sleep 20) (recur))))))]
-    (assert (and (>= source 0) (>= output 0)
+   (let [render #'audition-qa-render!
+         fields [studio/microphone studio/record-mode studio/record-track studio/workspace-mode
+                 studio/workspace-record-prior studio/record-enabled studio/countdown-seconds]
+         before (render #(mapv a/value fields))
+         query-before (studio/query)
+         source (.indexOf (get-in query-before [:devices :inputs]) "BlackHole 16ch")
+         output (.indexOf (get-in query-before [:devices :outputs]) "BlackHole 16ch")
+         wait-for! (fn [predicate]
+                     (let [deadline (+ (System/nanoTime) 12000000000)]
+                       (loop []
+                         (cond
+                           (predicate) true
+                           (> (System/nanoTime) deadline)
+                           (throw (ex-info "Input-check QA timed out" {}))
+                           :else (do (Thread/sleep 20) (recur))))))]
+     (assert (and (>= source 0) (>= output 0)
                   (nil? @studio/session) (nil? @studio/armed) (nil? @studio/input-check)))
-    (try
-      (render #(do
-                 (studio/select-workspace! 1)
-                 (a/set-value! studio/microphone source)
-                 (a/set-value! studio/record-mode (if fx? 8 1))
-                 (assert (start-test-tone! output (if fx? 4 0)))
-                 (studio/click-at! 560.0 120.0)))
-      (wait-for! #(some? @studio/input-check))
-      (wait-for! #(= :signal-present (get-in (studio/query) [:routing-signal :input :state])))
-      (let [signal (:routing-signal (studio/query))
-            start (System/nanoTime)]
-        (wait-for! #(nil? @studio/input-check))
-        (assert (not (recorder/input-check-active?)))
-        (assert (= (:project query-before) (:project (studio/query))))
-        (assert (= (:takes query-before) (:takes (studio/query))))
-        ;; A second check hands ownership to Record, without needing another arm.
-        (render #(studio/click-at! 560.0 120.0))
-        (wait-for! #(some? @studio/input-check))
-        (render #(a/set-value! studio/countdown-seconds 3))
-        (studio/command! {:op :record/start :args {:id (:selection query-before)}})
-        (assert (and (nil? @studio/input-check) (some? @studio/armed)
+     (try
+       (render #(do
+                  (studio/select-workspace! 1)
+                  (a/set-value! studio/microphone source)
+                  (a/set-value! studio/record-mode (if fx? 8 1))
+                  (assert (start-test-tone! output (if fx? 4 0)))
+                  (studio/click-at! 560.0 120.0)))
+       (wait-for! #(some? @studio/input-check))
+       (wait-for! #(= :signal-present (get-in (studio/query) [:routing-signal :input :state])))
+       (let [signal (:routing-signal (studio/query))
+             start (System/nanoTime)]
+         (wait-for! #(nil? @studio/input-check))
+         (assert (not (recorder/input-check-active?)))
+         (assert (= (:project query-before) (:project (studio/query))))
+         (assert (= (:takes query-before) (:takes (studio/query))))
+         ;; A second check hands ownership to Record, without needing another arm.
+         (render #(studio/click-at! 560.0 120.0))
+         (wait-for! #(some? @studio/input-check))
+         (render #(a/set-value! studio/countdown-seconds 3))
+         (studio/command! {:op :record/start :args {:id (:selection query-before)}})
+         (assert (and (nil? @studio/input-check) (some? @studio/armed)
                       (not (recorder/input-check-active?))))
-        (studio/command! {:op :transport/stop})
-        {:signal signal
-         :auto-stop-wait-seconds (/ (- (System/nanoTime) start) 1e9)
-         :record-handoff? true
-         :takes-unchanged? (= (:takes query-before) (:takes (studio/query)))})
-      (finally
-        (studio/command! {:op :transport/stop})
-        (render #(do
-                   (stop-test-tone!)
-                   (doseq [[field value] (map vector fields before)]
-                     (a/set-value! field value)))))))))
+         (studio/command! {:op :transport/stop})
+         {:signal signal
+          :auto-stop-wait-seconds (/ (- (System/nanoTime) start) 1e9)
+          :record-handoff? true
+          :takes-unchanged? (= (:takes query-before) (:takes (studio/query)))})
+       (finally
+         (studio/command! {:op :transport/stop})
+         (render #(do
+                    (stop-test-tone!)
+                    (doseq [[field value] (map vector fields before)]
+                      (a/set-value! field value)))))))))
 
 (defn- await-capture-frames! [fx? minimum]
   (let [deadline (+ (System/nanoTime) 5000000000)]
@@ -2434,67 +2434,67 @@
   :dry stops capture; :fx-return/:fx-source stop one side of a live FX pair."
   ([] (isolated-interrupted-capture-qa! :dry))
   ([kind]
-  (assert (contains? #{:dry :fx-return :fx-source} kind))
-  (assert (nil? @studio/worker) "Never redefine callbacks in a live Studio JVM")
-  (assert (recorder/initialize!))
-  (let [fx? (not= kind :dry)
-        names (fn [capture? count]
-                (mapv #(#'studio/native-string (recorder/device-name capture? %)) (range count)))
-        source (.indexOf (names true (a/value recorder/capture-count)) "BlackHole 16ch")
-        output (.indexOf (names false (a/value recorder/playback-count)) "BlackHole 16ch")
-        directory (io/file "build/recording-qa" (str "interrupted-" (java.util.UUID/randomUUID)))
-        path (io/file directory (if fx? "wet.wav" "dry.wav"))
-        dry-path (when fx? (.getCanonicalPath (io/file directory "dry.wav")))
-        fingerprint (studio/dialogue-fingerprint 86 "Interruption QA, not authored dialogue.")
-        takes (atom {})
-        session (atom (cond-> {:id "voice-qa" :path (.getCanonicalPath path)
-                              :processed? fx? :dialogue-hash fingerprint}
-                       fx? (assoc :dry-path dry-path :live? true)))
-        warnings (atom [])
-        events (atom [])
-        start! #(if fx?
-                  (recorder/start-live! source source output 48000)
-                  (recorder/start! source output 1 0))]
-    (assert (and (>= source 0) (>= output 0)) "BlackHole must already be installed")
-    (io/make-parents path)
-    (try
-      (assert (start-test-tone! output (if fx? 4 0)))
-      (assert (start!))
-      (await-capture-frames! fx? 48000)
+   (assert (contains? #{:dry :fx-return :fx-source} kind))
+   (assert (nil? @studio/worker) "Never redefine callbacks in a live Studio JVM")
+   (assert (recorder/initialize!))
+   (let [fx? (not= kind :dry)
+         names (fn [capture? count]
+                 (mapv #(#'studio/native-string (recorder/device-name capture? %)) (range count)))
+         source (.indexOf (names true (a/value recorder/capture-count)) "BlackHole 16ch")
+         output (.indexOf (names false (a/value recorder/playback-count)) "BlackHole 16ch")
+         directory (io/file "build/recording-qa" (str "interrupted-" (java.util.UUID/randomUUID)))
+         path (io/file directory (if fx? "wet.wav" "dry.wav"))
+         dry-path (when fx? (.getCanonicalPath (io/file directory "dry.wav")))
+         fingerprint (studio/dialogue-fingerprint 86 "Interruption QA, not authored dialogue.")
+         takes (atom {})
+         session (atom (cond-> {:id "voice-qa" :path (.getCanonicalPath path)
+                                :processed? fx? :dialogue-hash fingerprint}
+                         fx? (assoc :dry-path dry-path :live? true)))
+         warnings (atom [])
+         events (atom [])
+         start! #(if fx?
+                   (recorder/start-live! source source output 48000)
+                   (recorder/start! source output 1 0))]
+     (assert (and (>= source 0) (>= output 0)) "BlackHole must already be installed")
+     (io/make-parents path)
+     (try
+       (assert (start-test-tone! output (if fx? 4 0)))
+       (assert (start!))
+       (await-capture-frames! fx? 48000)
        (assert (zero? (a/value (recorder/stopped-device-mask))))
-      (assert (if (= kind :fx-source)
-                (interrupt-fx-source-device-qa!)
-                (interrupt-recorder-device-qa! false)))
+       (assert (if (= kind :fx-source)
+                 (interrupt-fx-source-device-qa!)
+                 (interrupt-recorder-device-qa! false)))
        (assert (= (if (= kind :fx-source) 2 1) (a/value (recorder/stopped-device-mask))))
-      (with-redefs-fn
-        {#'studio/session session
-         #'studio/takes takes
-         #'studio/armed (atom nil)
-         #'studio/checkpoint! (fn [_] nil)
-         #'studio/render! (fn [_] nil)
-         #'studio/warning! #(swap! warnings conj %)
-         #'studio/emit-event! #(swap! events conj %)
-         #'studio/change-takes! (fn [_ change] (swap! takes change))}
-        (fn []
-          (#'studio/check-audio-devices!)
-          (let [before [@takes @events @warnings]]
-            (#'studio/check-audio-devices!)
-            (assert (= before [@takes @events @warnings]) "No duplicate save/event on the next poll"))))
-      (assert (nil? @session))
+       (with-redefs-fn
+         {#'studio/session session
+          #'studio/takes takes
+          #'studio/armed (atom nil)
+          #'studio/checkpoint! (fn [_] nil)
+          #'studio/render! (fn [_] nil)
+          #'studio/warning! #(swap! warnings conj %)
+          #'studio/emit-event! #(swap! events conj %)
+          #'studio/change-takes! (fn [_ change] (swap! takes change))}
+         (fn []
+           (#'studio/check-audio-devices!)
+           (let [before [@takes @events @warnings]]
+             (#'studio/check-audio-devices!)
+             (assert (= before [@takes @events @warnings]) "No duplicate save/event on the next poll"))))
+       (assert (nil? @session))
        (assert (zero? (a/value (recorder/stopped-device-mask))))
-      (let [history (get-in @takes ["voice-qa" :history])
-            retained (mapv #(interrupted-take-evidence fingerprint %) history)]
-        (assert (= (if fx? #{:dry :wet} #{:dry}) (set (map :kind retained))))
-        ;; Reopening the same owned endpoints must work without restarting the
-        ;; application or enumerating new device indices. Do not save this probe.
-        (assert (start!))
-        (await-capture-frames! fx? 4800)
-        {:interruption kind :retained retained :reopened? true
-         :warning (last @warnings) :events (mapv :type @events)})
-      (finally
-        (recorder/stop!)
-        (stop-test-tone!)
-        (recorder/shutdown!))))))
+       (let [history (get-in @takes ["voice-qa" :history])
+             retained (mapv #(interrupted-take-evidence fingerprint %) history)]
+         (assert (= (if fx? #{:dry :wet} #{:dry}) (set (map :kind retained))))
+         ;; Reopening the same owned endpoints must work without restarting the
+         ;; application or enumerating new device indices. Do not save this probe.
+         (assert (start!))
+         (await-capture-frames! fx? 4800)
+         {:interruption kind :retained retained :reopened? true
+          :warning (last @warnings) :events (mapv :type @events)})
+       (finally
+         (recorder/stop!)
+         (stop-test-tone!)
+         (recorder/shutdown!))))))
 
 (defn live-direct-record-capture-qa!
   "Opt-in, off-render native UI + real BlackHole capture/save/audition test.
@@ -2507,52 +2507,52 @@
   ([indices fx? during-capture!]
    (live-direct-record-capture-qa! indices fx? during-capture! nil))
   ([indices fx? during-capture! {:keys [click!]}]
-  (let [render #'audition-qa-render!
-        click! (or click! (fn [x y] (render #(studio/click-at! x y))))
-        fields [studio/selected studio/record-track studio/workspace-mode
-                studio/workspace-record-prior studio/record-enabled studio/record-mode
-                studio/countdown-seconds studio/microphone studio/track-offset
-                studio/record-scroll studio/focus-scroll studio/seek-seconds
-                studio/preview-node studio/preview-paused studio/compensate
-                studio/return-input studio/effects-output studio/tail-seconds studio/monitor-enabled]
-        before (render #(mapv a/value fields))
-        takes-before @studio/takes
-        playback-ready? (render #(a/value studio/playback-ready))
-        captured (atom [])
-        signal-checks (atom {})
-        devices (:devices (studio/query))
-        source (.indexOf (:inputs devices) "BlackHole 16ch")
-        output (.indexOf (:outputs devices) "BlackHole 16ch")
-        wait-for! (fn [label predicate]
-                    (let [deadline (+ (System/nanoTime) 8000000000)]
-                      (loop []
-                        (cond
-                          (predicate) true
-                          (> (System/nanoTime) deadline)
-                          (throw (ex-info (str "Direct capture QA: " label) {}))
-                          :else (do (Thread/sleep 10) (recur))))))]
-    (assert (and (seq indices) (>= source 0) (>= output 0)))
-    (assert (and (nil? @studio/session) (nil? @studio/armed)
+   (let [render #'audition-qa-render!
+         click! (or click! (fn [x y] (render #(studio/click-at! x y))))
+         fields [studio/selected studio/record-track studio/workspace-mode
+                 studio/workspace-record-prior studio/record-enabled studio/record-mode
+                 studio/countdown-seconds studio/microphone studio/track-offset
+                 studio/record-scroll studio/focus-scroll studio/seek-seconds
+                 studio/preview-node studio/preview-paused studio/compensate
+                 studio/return-input studio/effects-output studio/tail-seconds studio/monitor-enabled]
+         before (render #(mapv a/value fields))
+         takes-before @studio/takes
+         playback-ready? (render #(a/value studio/playback-ready))
+         captured (atom [])
+         signal-checks (atom {})
+         devices (:devices (studio/query))
+         source (.indexOf (:inputs devices) "BlackHole 16ch")
+         output (.indexOf (:outputs devices) "BlackHole 16ch")
+         wait-for! (fn [label predicate]
+                     (let [deadline (+ (System/nanoTime) 8000000000)]
+                       (loop []
+                         (cond
+                           (predicate) true
+                           (> (System/nanoTime) deadline)
+                           (throw (ex-info (str "Direct capture QA: " label) {}))
+                           :else (do (Thread/sleep 10) (recur))))))]
+     (assert (and (seq indices) (>= source 0) (>= output 0)))
+     (assert (and (nil? @studio/session) (nil? @studio/armed)
                   (render #(and (not (studio/busy?))
-                                 (not (a/value studio/voice-ready))
-                                 (not (a/value test-tone-running)))))
-            "QA requires stopped/unloaded playback and no active capture")
-    (try
-      (render #(do
-                 (studio/select-workspace! 1)
-                 (a/set-value! studio/record-enabled 0)
-                 (a/set-value! studio/record-mode (if fx? 8 1))
-                 (a/set-value! studio/countdown-seconds 0)
-                 (a/set-value! studio/microphone source)
-                 (when fx?
-                   ;; Periodic fixtures cannot establish latency; retain raw pairs.
-                   (a/set-value! studio/compensate 0)
-                   (a/set-value! studio/return-input source)
-                   (a/set-value! studio/effects-output output)
-                   (a/set-value! studio/tail-seconds 1)
-                   (a/set-value! studio/monitor-enabled 0))
-                 (assert (start-test-tone! output (if fx? 4 0)) "Cannot start virtual QA source")))
-      (mapv
+                                (not (a/value studio/voice-ready))
+                                (not (a/value test-tone-running)))))
+             "QA requires stopped/unloaded playback and no active capture")
+     (try
+       (render #(do
+                  (studio/select-workspace! 1)
+                  (a/set-value! studio/record-enabled 0)
+                  (a/set-value! studio/record-mode (if fx? 8 1))
+                  (a/set-value! studio/countdown-seconds 0)
+                  (a/set-value! studio/microphone source)
+                  (when fx?
+                    ;; Periodic fixtures cannot establish latency; retain raw pairs.
+                    (a/set-value! studio/compensate 0)
+                    (a/set-value! studio/return-input source)
+                    (a/set-value! studio/effects-output output)
+                    (a/set-value! studio/tail-seconds 1)
+                    (a/set-value! studio/monitor-enabled 0))
+                  (assert (start-test-tone! output (if fx? 4 0)) "Cannot start virtual QA source")))
+       (mapv
         (fn [index]
           (let [id (render #(#'studio/native-string (studio/node-id index)))]
             (assert (seq id) "QA target must be a voiced passage")
@@ -2576,8 +2576,8 @@
                 (swap! signal-checks assoc id signal))
               (click! 192.0 65.0)
               (wait-for! "save" #(and (nil? @studio/session)
-                                       (= path (get-in @studio/takes [id :selected]))
-                                       (render (fn [] (not (studio/busy?))))))
+                                      (= path (get-in @studio/takes [id :selected]))
+                                      (render (fn [] (not (studio/busy?))))))
               (let [wave (files/waveform path)
                     duration (/ (:frames wave) 48000.0)
                     peak (apply max (:bins wave))]
@@ -2590,8 +2590,8 @@
                 (wait-for! "saved-take display"
                            #(and (= [id path] @studio/display-cache)
                                  (render
-                                   (fn []
-                                     (and (studio/selected-waveform?)
+                                  (fn []
+                                    (and (studio/selected-waveform?)
                                          (< (abs (- (a/value (studio/selected-take-seconds)) duration)) 0.0001))))))
                 (click! 325.0 (render #(a/value (studio/bottom-y 699.0))))
                 ;; play-voice-file! resets this counter for each new take. A
@@ -2614,25 +2614,25 @@
                      :script-status (studio/recording-freshness (studio/dialogue-fingerprint speaker text) entry)
                      :routing-signal (get @signal-checks id)}))))))
         indices)
-      (finally
-        (render #(stop-test-tone!))
-        (when (or @studio/session @studio/armed)
-          (studio/command! {:op :transport/stop})
-          (wait-for! "cleanup capture" #(and (nil? @studio/session) (nil? @studio/armed))))
-        (retain-direct-record-qa-takes! @captured takes-before)
-        (render #(do
-                   (studio/stop-voice!)
-                   (when-not playback-ready? (studio/close-playback!))
-                   (doseq [[field value] (map vector fields before)]
-                     (a/set-value! field value))))
-        (let [id (render #(#'studio/native-string (studio/selected-id)))
-              path (get-in @studio/takes [id :selected])
-              expected (if path
-                         (files/waveform path)
-                         {:frames 0 :bins (vec (repeat 128 0.0))})]
-          (wait-for! "restore the selected waveform, not live PCM"
-                     #(and (= [id path] @studio/display-cache)
-                           (render
+       (finally
+         (render #(stop-test-tone!))
+         (when (or @studio/session @studio/armed)
+           (studio/command! {:op :transport/stop})
+           (wait-for! "cleanup capture" #(and (nil? @studio/session) (nil? @studio/armed))))
+         (retain-direct-record-qa-takes! @captured takes-before)
+         (render #(do
+                    (studio/stop-voice!)
+                    (when-not playback-ready? (studio/close-playback!))
+                    (doseq [[field value] (map vector fields before)]
+                      (a/set-value! field value))))
+         (let [id (render #(#'studio/native-string (studio/selected-id)))
+               path (get-in @studio/takes [id :selected])
+               expected (if path
+                          (files/waveform path)
+                          {:frames 0 :bins (vec (repeat 128 0.0))})]
+           (wait-for! "restore the selected waveform, not live PCM"
+                      #(and (= [id path] @studio/display-cache)
+                            (render
                              (fn []
                                (and (< (abs (- (a/value studio/take-seconds)
                                                (/ (:frames expected) 48000.0))) 0.0001)
@@ -2661,9 +2661,9 @@
     (assert (and (nil? @studio/session)
                  (nil? @studio/armed)
                  (render #(and (not (studio/busy?))
-                                (not (a/value studio/voice-ready))
-                                (not (recorder/input-check-active?))
-                                (zero? (a/value studio/route-menu)))))
+                               (not (a/value studio/voice-ready))
+                               (not (recorder/input-check-active?))
+                               (zero? (a/value studio/route-menu)))))
             "QA requires idle Studio with no audition, input check or device menu")
     (try
       (render #(do
@@ -2679,9 +2679,9 @@
             stopped-phase
             (loop []
               (let [phase (render #(let [phase (a/value (studio/capture-phase-value))]
-                                    (when (= phase 1)
-                                      (studio/click-at! 192.0 65.0))
-                                    phase))]
+                                     (when (= phase 1)
+                                       (studio/click-at! 192.0 65.0))
+                                     phase))]
                 (swap! observed-phases conj phase)
                 (cond
                   (= phase 1) phase
@@ -2693,16 +2693,16 @@
                                   {:observed @observed-phases}))
                   :else (do (Thread/sleep 5) (recur)))))
             state (await-audition-state!
-                    "preparation cancelled"
-                    #(and (not (:busy? %))
-                          (zero? (:capture-phase %))
-                          (nil? @studio/armed)
-                          (nil? @studio/session)))
+                   "preparation cancelled"
+                   #(and (not (:busy? %))
+                         (zero? (:capture-phase %))
+                         (nil? @studio/armed)
+                         (nil? @studio/session)))
             status (render #(String.
-                              (byte-array
-                                (take (a/value studio/status-length)
-                                      (a/value studio/status-text)))
-                              java.nio.charset.StandardCharsets/UTF_8))]
+                             (byte-array
+                              (take (a/value studio/status-length)
+                                    (a/value studio/status-text)))
+                             java.nio.charset.StandardCharsets/UTF_8))]
         (assert (= project-before @studio/project) "Cancellation changed project state")
         (assert (= takes-before @studio/takes) "Cancellation created or changed a take")
         (assert (= "Recording cancelled before capture started." status) status)
@@ -2724,18 +2724,18 @@
                                          (nil? @studio/session)
                                          (nil? @studio/armed))))
           (let [saved (when (and (= (inc (:revision project-before))
-                                   (:revision @studio/project))
-                                (= takes-before (:takes (peek (:undo @studio/project))))
-                                (= "Add take" (:label (peek (:undo @studio/project)))))
+                                    (:revision @studio/project))
+                                 (= takes-before (:takes (peek (:undo @studio/project))))
+                                 (= "Add take" (:label (peek (:undo @studio/project)))))
                         (let [id (render #(#'studio/native-string (studio/node-id index)))
                               old-paths (set (map :path (get-in takes-before [id :history])))]
                           (for [take (get-in @studio/takes [id :history])
                                 :when (not (old-paths (:path take)))]
                             {:id id :path (:path take)})))]
             (retain-direct-record-qa-takes!
-              (mapv #(assoc % :name "QA: unexpected take during preparation cancellation")
-                    (distinct (concat unexpected saved)))
-              takes-before))
+             (mapv #(assoc % :name "QA: unexpected take during preparation cancellation")
+                   (distinct (concat unexpected saved)))
+             takes-before))
           (render #(doseq [[field value] (map vector fields before)]
                      (a/set-value! field value))))))))
 
@@ -2754,30 +2754,30 @@
                                       :frames (a/value (recorder/frames-recorded)))))
         captures
         (live-direct-record-capture-qa!
-          [index] false
-          (fn [{:keys [id]}]
-            (let [script (:script @studio/session)]
-              (assert (and (seq other) (not= id other)))
-              (assert (= id (:id script)))
-              ;; Public selection correctly refuses changes during recording.
-              ;; Inject the position change that a reordered story can cause.
-              (render #(a/set-value! studio/selected other-index))
-              (let [state (snapshot)]
-                (assert (= other (:selected state)))
-                (assert (= id (:display-id state)))
-                (assert (= (:text script) (:script state)))
-                (swap! evidence conj state))
-              (studio/command! {:op :view/mode :args {:mode :edit}})
-              (let [state (snapshot)]
-                (assert (= other (:display-id state)))
-                (swap! evidence conj state))
-              (studio/command! {:op :view/mode :args {:mode :record}})
-              (let [state (snapshot)]
-                (assert (= id (:display-id state)))
-                (assert (= (:text script) (:script state)))
-                (assert (= script (:script @studio/session)))
-                (swap! evidence conj state))
-              (render #(a/set-value! studio/selected index)))))]
+         [index] false
+         (fn [{:keys [id]}]
+           (let [script (:script @studio/session)]
+             (assert (and (seq other) (not= id other)))
+             (assert (= id (:id script)))
+             ;; Public selection correctly refuses changes during recording.
+             ;; Inject the position change that a reordered story can cause.
+             (render #(a/set-value! studio/selected other-index))
+             (let [state (snapshot)]
+               (assert (= other (:selected state)))
+               (assert (= id (:display-id state)))
+               (assert (= (:text script) (:script state)))
+               (swap! evidence conj state))
+             (studio/command! {:op :view/mode :args {:mode :edit}})
+             (let [state (snapshot)]
+               (assert (= other (:display-id state)))
+               (swap! evidence conj state))
+             (studio/command! {:op :view/mode :args {:mode :record}})
+             (let [state (snapshot)]
+               (assert (= id (:display-id state)))
+               (assert (= (:text script) (:script state)))
+               (assert (= script (:script @studio/session)))
+               (swap! evidence conj state))
+             (render #(a/set-value! studio/selected index)))))]
     (assert (apply <= (map :frames @evidence)) "Capture frames advance across views")
     {:captures captures :selection-stages @evidence}))
 
@@ -2809,12 +2809,12 @@
     (ak/memcpy (ak/& clips) (a/slice studio/clip-viewport 0 32))
     (ak/memcpy (ak/& cards) (ak/& studio/take-cards))
     (ak/defer
-      (do
-        (ak/memcpy (a/slice (a/field data nodes) 0 32) (ak/& nodes))
-        (ak/memcpy (a/slice studio/clip-viewport 0 32) (ak/& clips))
-        (ak/memcpy (ak/& studio/take-cards) (ak/& cards))
-        (set! (a/field data count) old-count)
-        (set-studio-state! [studio/take-grid-offset old-grid-offset
+     (do
+       (ak/memcpy (a/slice (a/field data nodes) 0 32) (ak/& nodes))
+       (ak/memcpy (a/slice studio/clip-viewport 0 32) (ak/& clips))
+       (ak/memcpy (ak/& studio/take-cards) (ak/& cards))
+       (set! (a/field data count) old-count)
+       (set-studio-state! [studio/take-grid-offset old-grid-offset
                            studio/take-grid-rows old-grid-rows
                            scene/passage-entity-count old-passages
                            scene/vertices old-vertices
@@ -2841,20 +2841,20 @@
       (dotimes [bin 32]
         (studio/upload-take-card-bin! (ak/intCast slot) (ak/intCast bin) 0.5)))
     (set-studio-state! [studio/take-grid-offset 0
-                       studio/take-grid-rows 16
-                       scene/passage-entity-count 32
-                       scene/vertices output
-                       scene/vertex-count 0
-                       scene/canvas-width studio/window-width
-                       scene/canvas-height studio/window-height
-                       studio/clicked false
-                       studio/event-pressed false
-                       studio/event-double false
-                       studio/test-click false
-                       studio/name-focus false
-                       studio/name-drag false
-                       studio/mouse-down false
-                       studio/double-clicked false])
+                        studio/take-grid-rows 16
+                        scene/passage-entity-count 32
+                        scene/vertices output
+                        scene/vertex-count 0
+                        scene/canvas-width studio/window-width
+                        scene/canvas-height studio/window-height
+                        studio/clicked false
+                        studio/event-pressed false
+                        studio/event-double false
+                        studio/test-click false
+                        studio/name-focus false
+                        studio/name-drag false
+                        studio/mouse-down false
+                        studio/double-clicked false])
     (studio/draw!)
     scene/vertex-count))
 
@@ -2875,29 +2875,29 @@
       (with-open [arena (java.lang.foreign.Arena/ofConfined)]
         (let [buffer (.allocate arena (* 64 (a/value gpu/frame-capacity)) 16)]
           (mapv
-            (fn [[width height mode page menu]]
-              (doseq [[field value]
-                      [[studio/window-width width] [studio/window-height height]
-                       [studio/editor-top (- height 300.0)] [studio/workspace-mode mode]
-                       [studio/page page] [studio/selected 0] [studio/record-track 0]
-                       [studio/timeline-start 0.0] [studio/timeline-seconds 60.0]
-                       [studio/track-offset 0] [studio/track-snapshot 0]
-                       [studio/track-snapshot-count 32] [studio/route-menu menu]
-                       [studio/routing-visible true] [studio/mix-mode false]
-                       [studio/trim-drag 0] [studio/divider-drag false]
-                       [studio/focus-scroll 0.0] [studio/record-scroll 0.0]
-                       [studio/scroll 0.0] [studio/follow-playhead false]]]
-                (a/set-value! field value))
-              {:size [width height] :mode mode :page page :menu menu
+           (fn [[width height mode page menu]]
+             (doseq [[field value]
+                     [[studio/window-width width] [studio/window-height height]
+                      [studio/editor-top (- height 300.0)] [studio/workspace-mode mode]
+                      [studio/page page] [studio/selected 0] [studio/record-track 0]
+                      [studio/timeline-start 0.0] [studio/timeline-seconds 60.0]
+                      [studio/track-offset 0] [studio/track-snapshot 0]
+                      [studio/track-snapshot-count 32] [studio/route-menu menu]
+                      [studio/routing-visible true] [studio/mix-mode false]
+                      [studio/trim-drag 0] [studio/divider-drag false]
+                      [studio/focus-scroll 0.0] [studio/record-scroll 0.0]
+                      [studio/scroll 0.0] [studio/follow-playhead false]]]
+               (a/set-value! field value))
+             {:size [width height] :mode mode :page page :menu menu
               :vertices (a/value (dense-frame-vertices buffer))})
-            [[1100.0 760.0 0 0 0]
-             [1427.0 881.0 0 0 0]
-             [2560.0 2160.0 0 0 1]
-             [2560.0 2160.0 0 1 1]
-             [1100.0 760.0 1 0 0]
-             [2560.0 2160.0 1 0 1]
-             [1100.0 760.0 2 0 0]
-             [2560.0 2160.0 2 0 1]])))
+           [[1100.0 760.0 0 0 0]
+            [1427.0 881.0 0 0 0]
+            [2560.0 2160.0 0 0 1]
+            [2560.0 2160.0 0 1 1]
+            [1100.0 760.0 1 0 0]
+            [2560.0 2160.0 1 0 1]
+            [1100.0 760.0 2 0 0]
+            [2560.0 2160.0 2 0 1]])))
       (finally
         (doseq [[field value] (map vector fields before)]
           (a/set-value! field value))))))
@@ -2912,8 +2912,8 @@
   (let [ready studio/voice-ready mix studio/mix-mode node studio/preview-node
         selected studio/selected seek studio/seek-seconds]
     (ak/defer (do (set! studio/voice-ready ready) (set! studio/mix-mode mix)
-      (set! studio/preview-node node) (set! studio/selected selected)
-      (set! studio/seek-seconds seek)))
+                  (set! studio/preview-node node) (set! studio/selected selected)
+                  (set! studio/seek-seconds seek)))
     (set! studio/mix-mode false) (set! studio/voice-ready false)
     (set! studio/selected 5) (set! studio/preview-node 4294967295)
     (set! studio/seek-seconds 3.0)
@@ -2952,7 +2952,7 @@
         preview studio/preview-node
         sample (a/index studio/wave 0)]
     (ak/defer
-      (set-studio-state! [studio/waveform-owner owner
+     (set-studio-state! [studio/waveform-owner owner
                          studio/waveform-owner-length owner-length
                          studio/waveform-uploaded uploaded
                          studio/selected selected
@@ -2994,7 +2994,7 @@
         seconds studio/take-seconds
         busy studio/busy]
     (ak/defer
-      (set-studio-state! [studio/comparison-owner owner
+     (set-studio-state! [studio/comparison-owner owner
                          studio/comparison-owner-length owner-length
                          studio/comparison-code code
                          studio/waveform-owner wave-owner
@@ -3004,8 +3004,8 @@
                          studio/take-seconds seconds
                          studio/busy busy]))
     (set-studio-state! [studio/selected 1
-                       studio/take-seconds 12.0
-                       studio/busy 0])
+                        studio/take-seconds 12.0
+                        studio/busy 0])
     (studio/waveform-owner! (studio/node-id 1))
     (studio/comparison-view! (studio/node-id 1) studio/comparison-unmarked)
     (when (studio/comparison-enabled?) (ak/return 1))
@@ -3047,8 +3047,8 @@
         first-node (a/index (a/field data nodes) 1)
         second-node (a/index (a/field data nodes) 3)]
     (ak/defer
-      (do
-        (set-studio-state! [studio/capture-id-text id
+     (do
+       (set-studio-state! [studio/capture-id-text id
                            studio/capture-id-length id-length
                            studio/capture-script-text text
                            studio/capture-script-length text-length
@@ -3056,13 +3056,13 @@
                            studio/capture-phase phase
                            studio/workspace-mode mode
                            scene/passage-entity-count count])
-        (set! (a/index (a/field data nodes) 1) first-node)
-        (set! (a/index (a/field data nodes) 3) second-node)))
+       (set! (a/index (a/field data nodes) 1) first-node)
+       (set! (a/index (a/field data nodes) 3) second-node)))
     (when (ak/! (studio/capture-script! (studio/node-id 1) "Captured words"))
       (ak/return 1))
     (set-studio-state! [studio/workspace-mode 1
-                       studio/capture-phase 2
-                       studio/selected 3])
+                        studio/capture-phase 2
+                        studio/selected 3])
     (when (or (ak/! (studio/capture-passage? 1))
               (studio/capture-passage? 3)
               (ak/! (mem/eql (a/type :u8) (studio/record-script) "Captured words"))
@@ -3130,7 +3130,7 @@
         previous studio/frame-previous-start
         build studio/frame-build-ms]
     (ak/defer
-      (set-studio-state! [studio/frame-timings saved
+     (set-studio-state! [studio/frame-timings saved
                          studio/frame-timing-count count
                          studio/frame-timing-index index
                          studio/frame-previous-start previous
@@ -3164,13 +3164,13 @@
         route studio/route-menu
         pending studio/pending]
     (ak/defer
-      (set-studio-state! [studio/routing-tools-visible tools
+     (set-studio-state! [studio/routing-tools-visible tools
                          studio/clicked clicked
                          studio/busy busy
                          recorder/input-check-running checking]))
     (set-studio-state! [studio/busy 0
-                       recorder/input-check-running 0
-                       studio/clicked true])
+                        recorder/input-check-running 0
+                        studio/clicked true])
     (studio/show-routing-tools! true)
     (when (or (ak/! studio/routing-tools-visible) studio/clicked
               (ak/! (studio/routing-controls-available?)))
@@ -3180,7 +3180,7 @@
     (studio/show-routing-tools! false)
     (when studio/routing-tools-visible (ak/return 3))
     (set-studio-state! [studio/busy 0
-                       recorder/input-check-running 1])
+                        recorder/input-check-running 1])
     (when (studio/routing-controls-available?) (ak/return 4))
     (when (or (ak/!= pending studio/pending) (ak/!= route studio/route-menu))
       (ak/return 5)))
@@ -3202,9 +3202,9 @@
         enabled studio/monitor-enabled
         audition studio/audition-gain]
     (ak/defer
-      (do
-        (studio/set-monitor-level! gain)
-        (set-studio-state! [studio/mouse-x x
+     (do
+       (studio/set-monitor-level! gain)
+       (set-studio-state! [studio/mouse-x x
                            studio/mouse-y y
                            studio/clicked clicked
                            studio/mouse-down down
@@ -3216,31 +3216,31 @@
               (ak/!= (studio/monitor-level-at (studio/right-x 1200.0)) 50))
       (ak/return 1))
     (set-studio-state! [studio/routing-visible true
-                       studio/route-menu 0
-                       studio/mouse-x (studio/right-x 945.2)
-                       studio/mouse-y 508.0
-                       studio/clicked true
-                       studio/mouse-down true])
+                        studio/route-menu 0
+                        studio/mouse-x (studio/right-x 945.2)
+                        studio/mouse-y 508.0
+                        studio/clicked true
+                        studio/mouse-down true])
     (studio/update-monitor-level!)
     (when (or (ak/!= (studio/monitor-level) 10) studio/clicked
               (ak/! studio/monitor-level-drag))
       (ak/return 2))
     (set-studio-state! [studio/mouse-x (studio/right-x 800.0)
-                       studio/mouse-y 550.0])
+                        studio/mouse-y 550.0])
     (studio/update-monitor-level!)
     (when (ak/!= (studio/monitor-level) 0) (ak/return 3))
     (set! studio/mouse-down false)
     (studio/update-monitor-level!)
     (when studio/monitor-level-drag (ak/return 4))
     (set-studio-state! [studio/monitor-level-drag true
-                       studio/route-menu 4
-                       studio/mouse-x (studio/right-x 1200.0)])
+                        studio/route-menu 4
+                        studio/mouse-x (studio/right-x 1200.0)])
     (studio/update-monitor-level!)
     (when (or studio/monitor-level-drag (ak/!= (studio/monitor-level) 0))
       (ak/return 5))
     (set-studio-state! [studio/route-menu 0
-                       studio/routing-visible false
-                       studio/monitor-level-drag true])
+                        studio/routing-visible false
+                        studio/monitor-level-drag true])
     (studio/update-monitor-level!)
     (when (or studio/monitor-level-drag (ak/!= (studio/monitor-level) 0)
               (ak/!= enabled studio/monitor-enabled)
@@ -3258,7 +3258,7 @@
         ^{:var [:array 32 :f32]} input (mem/zeroes (a/type [:array 32 :f32]))
         ^{:var [:array 4 :f32]} output (mem/zeroes (a/type [:array 4 :f32]))]
     (ak/defer (do (set! recorder/return-peak-ppm peak) (set! recorder/return-held-ppm held)
-                 (set! recorder/monitor-gain gain)))
+                  (set! recorder/monitor-gain gain)))
     (set! recorder/monitor-gain 15)
     (set! (a/index input 0) 0.9) ; Send channels must never feed the return meter.
     (set! (a/index input 2) 0.25) (set! (a/index input 19) -0.5)
@@ -3296,8 +3296,8 @@
 
 (deftest timeline-ruler-uses-readable-bounded-time-steps
   (doseq [[span width expected] [[30.0 642.0 5.0] [18.2 642.0 2.0]
-                                [60.0 642.0 10.0] [2.0 642.0 0.2]
-                                [60.0 100000.0 5.0] [2.0 0.0 1.0]]]
+                                 [60.0 642.0 10.0] [2.0 642.0 0.2]
+                                 [60.0 100000.0 5.0] [2.0 0.0 1.0]]]
     (is (< (abs (- expected (a/value (studio/timeline-tick-step span width)))) 0.00001)))
   (doseq [span [2.0 4.0 8.0 18.2 30.0 60.0]
           width [200.0 642.0 1200.0 5000.0]]
@@ -3313,8 +3313,8 @@
         original-ownership (mapv a/value ownership)]
     (try
       (doseq [[field value] [[studio/workspace-mode 0] [studio/page 0]
-                            [studio/route-menu 0] [studio/timeline-start 10.0]
-                            [studio/timeline-seconds 30.0] [studio/follow-playhead true]]]
+                             [studio/route-menu 0] [studio/timeline-start 10.0]
+                             [studio/timeline-seconds 30.0] [studio/follow-playhead true]]]
         (a/set-value! field value))
       (let [x (a/value (studio/timeline-center))
             anchor (a/value (studio/time-at x))]
@@ -3361,9 +3361,9 @@
 (a/defn submit-pinch-qa! :bool [[studio? :bool] [amount :f64] [x :f64] [y :f64]]
   ;; Inject into the exact queue used by AppKit, not directly into zoom-at!.
   ((a/field studio/gestures-api :lp_studio_gestures_submit)
-    ((a/field studio/gestures-api :glfwGetCocoaWindow)
-      (ak/ptrCast (if studio? studio/studio-window scene/window)))
-    amount x y))
+   ((a/field studio/gestures-api :glfwGetCocoaWindow)
+    (ak/ptrCast (if studio? studio/studio-window scene/window)))
+   amount x y))
 
 (deftest daw-pointer-navigation
   (let [fields [studio/window-width studio/window-height studio/routing-visible studio/editor-top
@@ -3480,9 +3480,9 @@
     (try
       (a/value (navigation-focus-qa! 0))
       (doseq [[field value] [[studio/attached true]
-                            [studio/route-menu 0] [studio/busy 0]
-                            [studio/capture-phase 0] [studio/pending 0]
-                            [studio/page 0] [scene/passage-entity-count 20]]]
+                             [studio/route-menu 0] [studio/busy 0]
+                             [studio/capture-phase 0] [studio/pending 0]
+                             [studio/page 0] [scene/passage-entity-count 20]]]
         (a/set-value! field value))
       (doseq [mode [0 1 2]]
         (a/set-value! studio/workspace-mode mode)
@@ -3513,7 +3513,7 @@
       (is (= 0 (a/value studio/selected)) "Text input retains its keys")
       (a/value (navigation-focus-qa! 0))
       (doseq [[field value] [[studio/busy 1] [studio/pending 38]
-                            [studio/capture-phase 2] [scene/passage-entity-count 0]]]
+                             [studio/capture-phase 2] [scene/passage-entity-count 0]]]
         (let [old (a/value field)]
           (a/set-value! field value)
           (key! 264 1 0)
@@ -3538,16 +3538,16 @@
         visible studio/attached
         old-busy studio/busy]
     (ak/defer
-      (do
-        (studio/name-restore! draft)
-        (set-studio-state! [studio/name-history history
-                            studio/name-history-position position
-                            studio/name-history-end end
-                            studio/name-batch batch
-                            studio/name-batch-recorded recorded
-                            studio/name-focus focus
-                            studio/attached visible
-                            studio/busy old-busy])))
+     (do
+       (studio/name-restore! draft)
+       (set-studio-state! [studio/name-history history
+                           studio/name-history-position position
+                           studio/name-history-end end
+                           studio/name-batch batch
+                           studio/name-batch-recorded recorded
+                           studio/name-focus focus
+                           studio/attached visible
+                           studio/busy old-busy])))
     (set! studio/attached true) (set! studio/name-focus true) (set! studio/busy 0)
     (studio/name! "café")
     (studio/key-event! ak/null 263 0 1 0)
@@ -3586,12 +3586,12 @@
         end studio/name-history-end
         elapsed studio/name-drag-elapsed]
     (ak/defer
-      (do
-        (studio/name-restore! draft)
-        (set-studio-state! [studio/name-history history
-                            studio/name-history-position position
-                            studio/name-history-end end
-                            studio/name-drag-elapsed elapsed])))
+     (do
+       (studio/name-restore! draft)
+       (set-studio-state! [studio/name-history history
+                           studio/name-history-position position
+                           studio/name-history-end end
+                           studio/name-drag-elapsed elapsed])))
     (studio/name! "Été dialogue — prise longue pour vérifier le défilement horizontal et sa sélection complète")
     (set-studio-state! [studio/name-view 0
                         studio/name-caret 0
@@ -3689,14 +3689,14 @@
         attached studio/attached
         busy studio/busy]
     (ak/defer
-      (do
-        (studio/name-restore! draft)
-        (set-studio-state! [studio/name-history history
-                            studio/name-history-position position
-                            studio/name-history-end end
-                            studio/name-focus focus
-                            studio/attached attached
-                            studio/busy busy])))
+     (do
+       (studio/name-restore! draft)
+       (set-studio-state! [studio/name-history history
+                           studio/name-history-position position
+                           studio/name-history-end end
+                           studio/name-focus focus
+                           studio/attached attached
+                           studio/busy busy])))
     (set-studio-state! [studio/name-focus true
                         studio/attached true
                         studio/busy 0])

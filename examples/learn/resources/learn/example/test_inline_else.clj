@@ -28,9 +28,9 @@
         info (-> (k/typeInfo Tag) type-info/-enum)]
     (a/inline-for [field-name (enum-info/-field_names info)
                    field-value (enum-info/-field_values info)]
-      ;; With `inline for` the function gets generated as
-      ;; a series of `if` statements relying on the optimizer
-      ;; to convert it to a switch.
+                  ;; With `inline for` the function gets generated as
+                  ;; a series of `if` statements relying on the optimizer
+                  ;; to convert it to a switch.
                   (when (k/== field-value (k/backingInt any))
                     (k/return (:len (k/field any field-name))))))
   ;; When using `inline for` the compiler doesn't know that every
@@ -43,8 +43,8 @@
     ;; With `inline else` the function is explicitly generated
     ;; as the desired switch and the compiler can check that
     ;; every possible case is handled.
-            (a/inline-case-else [slice]
-                                (:len slice))))
+
+    (k/inline (a/with-block :_ [slice] (:len slice)))))
 
 (a/deftest inline-for-and-inline-else-similarity
   (let [any (AnySlice {:c "hello"})]

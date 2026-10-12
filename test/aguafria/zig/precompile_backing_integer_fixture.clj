@@ -16,6 +16,6 @@
   (let [number (k/u8 8)
         code (k/as (k/fromBackingInt (k/intCast number)) Code)]
     (k/= :_ (k/intFromEnum code))
-    (k/= :_ (k/== code :.eight))
-    (k/= :_ (k/!= code :.zero)))
+    (k/= :_ (k/== code :eight))
+    (k/= :_ (k/!= code :zero)))
   (k/unreachable))

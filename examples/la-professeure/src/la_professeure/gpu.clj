@@ -21,7 +21,7 @@
   "Application callback that fills one mapped triangle frame."
   (a/type
    [:*const
-    [:fn {:callconv :.c}
+    [:fn {:callconv :c}
      [{:name :output :type [:c-pointer mesh/GpuVertex]}
       {:name :frame-width :type :i32}
       {:name :frame-height :type :i32}]
@@ -46,8 +46,8 @@
 (a/defconst atlas-bytes :usize (k/* 2048 1536 4))
 
 (a/defstruct RootData {:layout :extern}
-  [[:light_x :f32] [:light_y :f32]
-   [:lighting :f32] [:reserved :f32]])
+             [[:light_x :f32] [:light_y :f32]
+              [:lighting :f32] [:reserved :f32]])
 
 (a/defvar light-x :f32 0.4)
 
@@ -378,23 +378,23 @@
   []
   (let [attachments
         (a/array [(vk/VkAttachmentDescription
-                    {:format swapchain-format
-                     :samples vk/VK_SAMPLE_COUNT_1_BIT
-                     :loadOp vk/VK_ATTACHMENT_LOAD_OP_CLEAR
-                     :storeOp vk/VK_ATTACHMENT_STORE_OP_STORE
-                     :stencilLoadOp vk/VK_ATTACHMENT_LOAD_OP_DONT_CARE
-                     :stencilStoreOp vk/VK_ATTACHMENT_STORE_OP_DONT_CARE
-                     :initialLayout vk/VK_IMAGE_LAYOUT_UNDEFINED
-                     :finalLayout vk/VK_IMAGE_LAYOUT_PRESENT_SRC_KHR})
-                   (vk/VkAttachmentDescription
-                    {:format vk/VK_FORMAT_D32_SFLOAT
-                     :samples vk/VK_SAMPLE_COUNT_1_BIT
-                     :loadOp vk/VK_ATTACHMENT_LOAD_OP_CLEAR
-                     :storeOp vk/VK_ATTACHMENT_STORE_OP_DONT_CARE
-                     :stencilLoadOp vk/VK_ATTACHMENT_LOAD_OP_DONT_CARE
-                     :stencilStoreOp vk/VK_ATTACHMENT_STORE_OP_DONT_CARE
-                     :initialLayout vk/VK_IMAGE_LAYOUT_UNDEFINED
-                     :finalLayout vk/VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL})] vk/VkAttachmentDescription)
+                   {:format swapchain-format
+                    :samples vk/VK_SAMPLE_COUNT_1_BIT
+                    :loadOp vk/VK_ATTACHMENT_LOAD_OP_CLEAR
+                    :storeOp vk/VK_ATTACHMENT_STORE_OP_STORE
+                    :stencilLoadOp vk/VK_ATTACHMENT_LOAD_OP_DONT_CARE
+                    :stencilStoreOp vk/VK_ATTACHMENT_STORE_OP_DONT_CARE
+                    :initialLayout vk/VK_IMAGE_LAYOUT_UNDEFINED
+                    :finalLayout vk/VK_IMAGE_LAYOUT_PRESENT_SRC_KHR})
+                  (vk/VkAttachmentDescription
+                   {:format vk/VK_FORMAT_D32_SFLOAT
+                    :samples vk/VK_SAMPLE_COUNT_1_BIT
+                    :loadOp vk/VK_ATTACHMENT_LOAD_OP_CLEAR
+                    :storeOp vk/VK_ATTACHMENT_STORE_OP_DONT_CARE
+                    :stencilLoadOp vk/VK_ATTACHMENT_LOAD_OP_DONT_CARE
+                    :stencilStoreOp vk/VK_ATTACHMENT_STORE_OP_DONT_CARE
+                    :initialLayout vk/VK_IMAGE_LAYOUT_UNDEFINED
+                    :finalLayout vk/VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL})] vk/VkAttachmentDescription)
         color-reference
         (vk/VkAttachmentReference
          {:attachment 0
@@ -640,10 +640,10 @@
                           :pSetLayouts (k/& storage-layout)})
           vertex-bytes (k/* frame-capacity (k/sizeOf mesh/GpuVertex))
           regions (a/array [(vk/VkDescriptorBufferInfo
-                              {:buffer mesh-vertex-buffer :offset 0 :range vertex-bytes})
-                             (vk/VkDescriptorBufferInfo
-                              {:buffer mesh-vertex-buffer :offset vertex-bytes :range atlas-bytes})]
-                            vk/VkDescriptorBufferInfo)]
+                             {:buffer mesh-vertex-buffer :offset 0 :range vertex-bytes})
+                            (vk/VkDescriptorBufferInfo
+                             {:buffer mesh-vertex-buffer :offset vertex-bytes :range atlas-bytes})]
+                           vk/VkDescriptorBufferInfo)]
       (check (vk/vkAllocateDescriptorSets device (k/& allocate-info) (k/& storage-set)))
       (dotimes [index 2]
         (let [write (vk/VkWriteDescriptorSet
@@ -684,15 +684,15 @@
   (let [shader-module (load-shader-module "resources/shaders/game.spv")
         stages
         (a/array [(vk/VkPipelineShaderStageCreateInfo
-                    {:sType vk/VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO
-                     :stage vk/VK_SHADER_STAGE_VERTEX_BIT
-                     :module shader-module
-                     :pName "vertex"})
-                   (vk/VkPipelineShaderStageCreateInfo
-                    {:sType vk/VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO
-                     :stage vk/VK_SHADER_STAGE_FRAGMENT_BIT
-                     :module shader-module
-                     :pName "fragment"})] vk/VkPipelineShaderStageCreateInfo)
+                   {:sType vk/VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO
+                    :stage vk/VK_SHADER_STAGE_VERTEX_BIT
+                    :module shader-module
+                    :pName "vertex"})
+                  (vk/VkPipelineShaderStageCreateInfo
+                   {:sType vk/VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO
+                    :stage vk/VK_SHADER_STAGE_FRAGMENT_BIT
+                    :module shader-module
+                    :pName "fragment"})] vk/VkPipelineShaderStageCreateInfo)
         vertex-input
         (vk/VkPipelineVertexInputStateCreateInfo
          {:sType vk/VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO})
@@ -895,9 +895,9 @@
     (vk/VkClearColorValue
      {:float32
       (a/array [(:r color)
-                 (:g color)
-                 (:b color)
-                 (:a color)] :f32)})}))
+                (:g color)
+                (:b color)
+                (:a color)] :f32)})}))
 
 (a/defn- record-readback! :void
   "Copy the actual color attachment, then restore its presentation layout."
@@ -1069,7 +1069,7 @@
         (k/= synchronization-slot (k/mod (k/+ synchronization-slot 1) 2)))))
   true)
 
-(a/defn- reuse-frame-vertices :u32 {:callconv :.c}
+(a/defn- reuse-frame-vertices :u32 {:callconv :c}
   [[output [:c-pointer mesh/GpuVertex]]
    [width :i32]
    [height :i32]]

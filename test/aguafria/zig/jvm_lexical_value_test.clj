@@ -24,8 +24,8 @@
                       (:x immutable)
                       (:c value)
                       (k/switch value
-                                (case [(:c Item)] [(a/pointer-capture item)]
-                                      (:x @item)))))
+                        (:c Item)
+                        (a/with-block :_ [(k/* item)] (:x @item)))))
         immutable (source context (second (nth qualified 2)))
         mutable (source context (second (nth qualified 3)))
         pointer (first (filter #(and (seq? %) (= 'deref (first %)))
@@ -58,7 +58,7 @@
       (let [plain (:type plan)
             qualified (jvm/constructor-type plain)
             inputs (fn [type] {:expression-arguments [{:x 'input_0}]
-                              :parameters [{:name 'input_0 :type type}]})
+                               :parameters [{:name 'input_0 :type type}]})
             prepare #'jvm/prepare-construction!]
         (is (:aguafria/zig-reference (meta qualified)))
         (is (= (prepare plain (inputs plain))
@@ -83,15 +83,15 @@
                      analysis# (first (:analysis report#))
                      refinement# (:jvm-value-representation-refinement analysis#)]
                  (prn {:operations (filterv #(contains? (:sources refinement#) (:id %))
-                                             (:operations analysis#))
+                                            (:operations analysis#))
                        :refinement refinement#
                        :construction-inputs (:jvm-construction-input-refinement analysis#)
                        :bundles (:bundles report#)})))
              (let [events# (atom [])
                    forms# (with-open [reader# (java.io.PushbackReader.
-                                              (clojure.java.io/reader
-                                               (clojure.java.io/resource
-                                                "aguafria/zig/discovery_lexical_value_fixture.clj")))]
+                                               (clojure.java.io/reader
+                                                (clojure.java.io/resource
+                                                 "aguafria/zig/discovery_lexical_value_fixture.clj")))]
                             (binding [*read-eval* false]
                               (into [] (take-while some?)
                                     (repeatedly #(read {:eof nil} reader#)))))
@@ -139,7 +139,7 @@
         events (:events consumer)
         packs (filter #(= :bundle-loaded (:event %)) events)
         misses (filter #(and (contains? #{:compiled :disk-cache-hit} (:event %))
-                              (nil? (:bundle-id %))) events)
+                             (nil? (:bundle-id %))) events)
         construction (:construction-inputs producer)]
     (is (= 11 (count operations)))
     (is (every? #(= :prepared (:status %)) (mapcat :handlers operations)) (pr-str operations))
@@ -158,6 +158,6 @@
     (is (every? #(= (get-in producer [:bundles :packs 0 :id]) (:bundle-id %))
                 (filter #(= :bundle-cache-hit (:event %)) events)))
     (is (str/includes? (:path (first packs))
-                      (str "/bundles/" (get-in producer [:bundles :packs 0 :id]) "/")))
+                       (str "/bundles/" (get-in producer [:bundles :packs 0 :id]) "/")))
     (is (empty? misses) (pr-str misses))
     (is (empty? (filter #(= :compiled (:event %)) events)) (pr-str events))))

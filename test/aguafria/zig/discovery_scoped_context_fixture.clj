@@ -14,7 +14,7 @@
   [[input :i32]]
   (k/const choice Choice
            (a/with-block :result
-             (k/break :result (:.first input))))
+             (k/break :result ((a/enum-literal ".first") input))))
   (:value choice))
 
 (a/defn read-value :i32
@@ -24,7 +24,7 @@
 (a/defn typed-cast :i32
   [[input :i32]]
   (let [choice (k/as (a/with-block :result
-                       (k/break :result (:.second input)))
+                       (k/break :result ((a/enum-literal ".second") input)))
                      Choice)]
     (:value choice)))
 
@@ -33,7 +33,7 @@
   (k/const choice Choice
            (a/with-block :result
              (try (testing/expectEqual input input))
-             (k/break :result (:.first input))))
+             (k/break :result ((a/enum-literal ".first") input))))
   choice)
 
 (a/defenum Status [:first :second])
@@ -43,8 +43,8 @@
   (k/const selected Status
            (a/with-block :pick
              (when (k/> input 10)
-               (k/break :pick :.second))
-             (k/break :pick :.first)))
+               (k/break :pick :second))
+             (k/break :pick :first)))
   (k/intFromEnum selected))
 
 (a/deftest input-construction

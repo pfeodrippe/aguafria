@@ -31,14 +31,14 @@
                              "la-professeure.tools.studio"
                              #(cond-> (vec %)
                                 (not (some #{include} %)) (conj include)))
-     ;; Repeated flags such as -framework are meaningful argument pairs.
+    ;; Repeated flags such as -framework are meaningful argument pairs.
     :zig-args (cond-> (vec (:zig-args configuration))
                 (not (some #{library} (:zig-args configuration))) (conj library))}))
 
 (a/defconst text-api
   (k/import (a/clj! (ac/import! "la_professeure_utf8proc"
-                                 (io/file (build/root) "build/vendor/utf8proc/utf8proc.h")
-                                 {:args ["-lc"]}))))
+                                (io/file (build/root) "build/vendor/utf8proc/utf8proc.h")
+                                {:args ["-lc"]}))))
 
 (a/defconst grapheme-break? (:utf8proc_grapheme_break_stateful text-api))
 
@@ -53,8 +53,8 @@
 
 (a/defconst gestures-api
   (k/import (a/clj! (ac/import! "la_professeure_gestures"
-                                 (io/file (build/root) "tools/native/studio_gestures.h")
-                                 {:args ["-lc"]}))))
+                                (io/file (build/root) "tools/native/studio_gestures.h")
+                                {:args ["-lc"]}))))
 
 (defn- state-assignment-forms [setter bindings]
   (when-not (and (vector? bindings)
@@ -130,12 +130,12 @@
     (audio/ma_sound_set_volume (k/& (a/get voices voice-slot)) (k/* 0.8 audition-gain))))
 
 (a/defn playback-peak-value :u32 []
-  (k/atomicLoad :u32 (k/& playback-peak) :.acquire))
+  (k/atomicLoad :u32 (k/& playback-peak) :acquire))
 
 (a/defn playback-signal-count :u64 []
-  (k/atomicLoad :u64 (k/& playback-signal-frames) :.acquire))
+  (k/atomicLoad :u64 (k/& playback-signal-frames) :acquire))
 
-(a/defn playback-process! :void {:callconv :.c}
+(a/defn playback-process! :void {:callconv :c}
   [[user [:optional [:* :anyopaque]]] [output [:c-pointer :f32]] [frames :u64]]
   (k/= :_ user)
   (let [peak (k/var (k/f32 0.0))]
@@ -143,11 +143,11 @@
       (dotimes [i (k/* frames 2)]
         (k/= peak (k/max peak (k/abs (a/get output i))))))
     (let [level (k/as (k/intFromFloat (k/* 1000000.0 (k/min 1.0 peak))) :u32)]
-      (k/atomicStore :u32 (k/& playback-level) level :.release)
-      (when (k/> level (k/atomicLoad :u32 (k/& playback-peak) :.acquire))
-        (k/atomicStore :u32 (k/& playback-peak) level :.release))
+      (k/atomicStore :u32 (k/& playback-level) level :release)
+      (when (k/> level (k/atomicLoad :u32 (k/& playback-peak) :acquire))
+        (k/atomicStore :u32 (k/& playback-peak) level :release))
       (when (k/> level 0)
-        (k/= :_ (k/atomicRmw :u64 (k/& playback-signal-frames) :.Add frames :.monotonic))))))
+        (k/= :_ (k/atomicRmw :u64 (k/& playback-signal-frames) :Add frames :monotonic))))))
 
 (a/defvar frame-cursor :f32 0.0)
 
@@ -241,7 +241,7 @@
 (a/defvar busy :u8 0)
 
 (a/defn busy? :bool []
-  (k/!= (k/atomicLoad :u8 (k/& busy) :.acquire) 0))
+  (k/!= (k/atomicLoad :u8 (k/& busy) :acquire) 0))
 
 (a/defn route-open! :void [[menu :u32]]
   (when (or (busy?)
@@ -385,8 +385,8 @@
     (update-audition-gain!)
     (audio/ma_sound_set_looping candidate 0)
     (audio/ma_sound_set_volume candidate (k/* 0.8 audition-gain))
-    (k/atomicStore :u32 (k/& playback-peak) 0 :.release)
-    (k/atomicStore :u64 (k/& playback-signal-frames) 0 :.release)
+    (k/atomicStore :u32 (k/& playback-peak) 0 :release)
+    (k/atomicStore :u64 (k/& playback-signal-frames) 0 :release)
     (when (k/!= (audio/ma_sound_start candidate) audio/MA_SUCCESS)
       (audio/ma_sound_uninit candidate)
       (k/= :_ (audio/ma_decoder_uninit decoder))
@@ -587,7 +587,7 @@
 (a/defvar name-pointer-time :f64 0.0)
 
 (a/defstruct NameDraft {:layout :extern}
-              [[text [:array 128 :u8]] [length :usize] [caret :usize] [anchor :usize] [view :usize]])
+             [[text [:array 128 :u8]] [length :usize] [caret :usize] [anchor :usize] [view :usize]])
 
 (a/defvar name-history [:array 33 NameDraft] (mem/zeroes [:array 33 NameDraft]))
 
@@ -716,7 +716,7 @@
 (a/defvar track-snapshot :u32 4294967295)
 
 (a/defstruct ClipViewportRow {:layout :extern}
-              [[seconds :f32] [start :f32] [count :u32] [wave [:array 128 :f32]]])
+             [[seconds :f32] [start :f32] [count :u32] [wave [:array 128 :f32]]])
 
 (a/defvar clip-viewport [:array 32 ClipViewportRow]
   (mem/zeroes [:array 32 ClipViewportRow]))
@@ -1079,7 +1079,7 @@
             (when (k/! mix-mode)
               (k/= preview-paused true)))
           (k/= playback-interrupted true)
-          (k/atomicStore :u32 (k/& playback-level) 0 :.release)
+          (k/atomicStore :u32 (k/& playback-level) 0 :release)
           (k/= result (k/| result 1)))))
     (when (mixer/handle-stopped-output!)
       (when mix-mode
@@ -1196,7 +1196,7 @@
   ;; Selection is silent and never changes the loaded sound's transport owner.
   (when (or (busy?)
             (k/> capture-phase 0)
-            (k/!= (k/atomicLoad :u32 (k/& pending) :.acquire) 0)
+            (k/!= (k/atomicLoad :u32 (k/& pending) :acquire) 0)
             name-focus
             (k/> route-menu 0)
             (k/== scene/passage-entity-count 0)
@@ -1238,7 +1238,7 @@
         (k/= :_ (pinch-at! (:magnification event)
                            (:x event) (:y event)))))))
 
-(a/defn scrolled! :void {:callconv :.c}
+(a/defn scrolled! :void {:callconv :c}
   [[window [:optional [:* glfw/GLFWwindow]]] [dx :f64] [dy :f64]]
   (when (k/== window k/null)
     (k/return))
@@ -1254,7 +1254,7 @@
     (when (k/!= previous-scroll k/null)
       ((a/unwrap previous-scroll) window dx dy))))
 
-(a/defn mouse-event! :void {:callconv :.c}
+(a/defn mouse-event! :void {:callconv :c}
   [[window [:optional [:* glfw/GLFWwindow]]] [button :c_int] [action :c_int] [mods :c_int]]
   (when (and attached (k/== button glfw/GLFW_MOUSE_BUTTON_LEFT))
     (k/= mouse-down (k/== action glfw/GLFW_PRESS))
@@ -1290,7 +1290,7 @@
     (name-delete!)
     (name-settle-caret!)))
 
-(a/defn typed! :void {:callconv :.c}
+(a/defn typed! :void {:callconv :c}
   [[window [:optional [:* glfw/GLFWwindow]]] [cp :u32]]
   (when (and (k/! attached) (k/!= previous-char k/null))
     ((a/unwrap previous-char) window cp))
@@ -1377,11 +1377,11 @@
             (k/= i (k/+ i n))))))))
 
 (a/defn request! :void [[action :u32]]
-  (when (k/== (k/atomicLoad :u8 (k/& busy) :.acquire) 0)
-    (k/atomicStore :u8 (k/& busy) 1 :.release)
-    (k/atomicStore :u32 (k/& pending) action :.release)))
+  (when (k/== (k/atomicLoad :u8 (k/& busy) :acquire) 0)
+    (k/atomicStore :u8 (k/& busy) 1 :release)
+    (k/atomicStore :u32 (k/& pending) action :release)))
 
-(a/defn key-event! :void {:callconv :.c}
+(a/defn key-event! :void {:callconv :c}
   [[window [:optional [:* glfw/GLFWwindow]]] [key :c_int] [scancode :c_int] [action :c_int] [mods :c_int]]
   ;; Enter confirms composition, not Rename; Escape cancels it, not text focus.
   ;; GLFW still delivers the eventual committed characters through typed!.
@@ -1487,14 +1487,14 @@
                         27))
             (k/== key glfw/GLFW_KEY_SPACE)
             (if (busy?)
-              (k/atomicStore :u32 (k/& pending) 2 :.release)
+              (k/atomicStore :u32 (k/& pending) 2 :release)
               (request! (transport-action)))
             (k/== key glfw/GLFW_KEY_F1)
             (glfw/glfwFocusWindow scene/window)
             (k/== key glfw/GLFW_KEY_F2)
             (select-workspace! (k/mod (k/+ workspace-mode 1) 3))
             (k/== key glfw/GLFW_KEY_ESCAPE)
-            (k/atomicStore :u32 (k/& pending) 2 :.release)
+            (k/atomicStore :u32 (k/& pending) 2 :release)
             (k/== key glfw/GLFW_KEY_HOME)
             (when (k/! (busy?))
               (position! 0.0))
@@ -1512,7 +1512,7 @@
   (:speaker (a/get (:nodes (a/get scene/stories scene/active-story)) index)))
 
 (a/defstruct PassageFreshness {:layout :extern}
-              [[id [:array 64 :u8]] [id-length :u32] [revision :u32] [status :u32]])
+             [[id [:array 64 :u8]] [id-length :u32] [revision :u32] [status :u32]])
 
 (a/defvar passage-freshness [:array 1024 PassageFreshness]
   (mem/zeroes [:array 1024 PassageFreshness]))
@@ -1966,7 +1966,7 @@
                       (k/+ x (k/* radius (k/cos b))) (k/+ y (k/* radius (k/sin b))) rgb))))
 
 (a/defn icon-button! :bool [[kind :u32] [label [:slice-const :u8]] [x :f32] [y :f32]
-                             [w :f32] [enabled :bool] [active :bool]]
+                            [w :f32] [enabled :bool] [active :bool]]
   (let [hover (inside? x y w 30.0)
         color (k/u32 (cond
                        active
@@ -2127,10 +2127,10 @@
           true)))))
 
 (a/defn take-action! :u32 []
-  (k/atomicRmw :u32 (k/& pending) :.Xchg 0 :.acq_rel))
+  (k/atomicRmw :u32 (k/& pending) :Xchg 0 :acq_rel))
 
 (a/defn stop-requested? :bool []
-  (k/== (k/atomicLoad :u32 (k/& pending) :.acquire) 2))
+  (k/== (k/atomicLoad :u32 (k/& pending) :acquire) 2))
 
 (a/defn recordable-selection? :bool []
   (and (k/< selected scene/passage-entity-count)
@@ -3076,7 +3076,7 @@
                         16.0 51.0 130.0 enabled? active?)
       (request! (transport-action))))
   (when (icon-button! 2 "STOP" 154.0 51.0 86.0 true false)
-    (k/atomicStore :u32 (k/& pending) 2 :.release))
+    (k/atomicStore :u32 (k/& pending) 2 :release))
   (when (icon-button! 3 "Back to start (Home)" 248.0 51.0 42.0 (k/! (busy?)) false)
     (position! 0.0))
   (let [focused? (k/!= workspace-mode 0)]
@@ -3099,10 +3099,10 @@
   (draw-recording-options!))
 
 (a/defn monitor-level :u32 []
-  (k/min 50 (k/atomicLoad :u32 (k/& recorder/monitor-gain) :.acquire)))
+  (k/min 50 (k/atomicLoad :u32 (k/& recorder/monitor-gain) :acquire)))
 
 (a/defn set-monitor-level! :void [[percent :u32]]
-  (k/atomicStore :u32 (k/& recorder/monitor-gain) (k/min 50 percent) :.release))
+  (k/atomicStore :u32 (k/& recorder/monitor-gain) (k/min 50 percent) :release))
 
 (a/defn monitor-level-at :u32 [[pointer-x :f64]]
   (let [fraction (k// (k/- pointer-x (right-x 914.0)) 156.0)
@@ -3213,7 +3213,7 @@
       (hint! "The selected output is muted in macOS Sound settings. Studio does not change system mute."))
     (label! (recorder/device-name false headphones) (right-x 908.0) 419.0 166.0 0x586777)
     (scene/rect! (right-x 908.0) 440.0 168.0 5.0 0xdce3ed 0.0)
-    (scene/rect! (right-x 908.0) 440.0 (k/* 168.0 (k/min 1.0 (k/* 0.00001 (k/as (k/floatFromInt (k/atomicLoad :u32 (k/& playback-level) :.acquire)) :f32)))) 5.0 0x356cd5 0.0)
+    (scene/rect! (right-x 908.0) 440.0 (k/* 168.0 (k/min 1.0 (k/* 0.00001 (k/as (k/floatFromInt (k/atomicLoad :u32 (k/& playback-level) :acquire)) :f32)))) 5.0 0x356cd5 0.0)
     (when (enabled-button! (if (k/== monitor-enabled 0)
                              "Monitoring: off"
                              "Monitoring: on") (right-x 906.0) 450.0 170.0
@@ -3311,9 +3311,9 @@
   (draw-device-menu!))
 
 (a/defstruct FrameTiming {:layout :extern}
-              [[interval-ms :f32]
-               [build-ms :f32]
-               [render-ms :f32]])
+             [[interval-ms :f32]
+              [build-ms :f32]
+              [render-ms :f32]])
 
 (a/defvar frame-timings [:array 240 FrameTiming] (mem/zeroes [:array 240 FrameTiming]))
 
@@ -3342,7 +3342,7 @@
                  frame-timing-count (k/min 240 (k/+ frame-timing-count 1))]))
   (k/= frame-previous-start started))
 
-(a/defn build-frame :u32 {:callconv :.c}
+(a/defn build-frame :u32 {:callconv :c}
   [[output [:c-pointer mesh/GpuVertex]] [width :i32] [height :i32]]
   (update-layout!)
   (k/= framebuffer-scale (k// (k/as (k/floatFromInt width) :f32) window-width))
@@ -3367,12 +3367,12 @@
 
 ;; Native game callback: called only by the render loop. REPL callers use the
 ;; host focus-window! below so AppKit is never entered from an nREPL thread.
-(a/defn focus-window-native! :void {:callconv :.c} []
+(a/defn focus-window-native! :void {:callconv :c} []
   (when (k/!= studio-window k/null)
     (glfw/glfwShowWindow studio-window)
     (glfw/glfwFocusWindow studio-window)))
 
-(a/defn tick-window! :void {:callconv :.c} []
+(a/defn tick-window! :void {:callconv :c} []
   (when (or (k/! attached) (k/== studio-window k/null))
     (k/= frame-previous-start 0.0)
     (k/return))
@@ -3383,7 +3383,7 @@
   (poll-gestures!)
 
   (when (k/!= (glfw/glfwWindowShouldClose studio-window) 0)
-    (k/atomicStore :u32 (k/& pending) 2 :.release)
+    (k/atomicStore :u32 (k/& pending) 2 :release)
     (glfw/glfwSetWindowShouldClose studio-window 0)
     (glfw/glfwHideWindow studio-window))
   ;; Keep game audio out of a take even when switching to Bitwig during capture.
@@ -3413,7 +3413,7 @@
       (record-frame-timing! started (glfw/glfwGetTime))))
   (sync-name-input!))
 
-(a/defn reload-assets! :void {:callconv :.c} []
+(a/defn reload-assets! :void {:callconv :c} []
   (when attached
     (gpu/swap-context! (k/& renderer))
     (k/defer (gpu/swap-context! (k/& renderer)))
@@ -3422,8 +3422,8 @@
 
 ;; GLFW geometry is in screen points, never Retina framebuffer pixels.
 (a/defstruct WindowBounds {:layout :extern}
-              [[x :i32] [y :i32] [width :i32] [height :i32]
-               [left :i32] [top :i32] [right :i32] [bottom :i32] [normal :i32]])
+             [[x :i32] [y :i32] [width :i32] [height :i32]
+              [left :i32] [top :i32] [right :i32] [bottom :i32] [normal :i32]])
 
 (a/defn window-bounds WindowBounds []
   (let [bounds (k/var (k/as (mem/zeroes WindowBounds) WindowBounds))]
@@ -3476,7 +3476,7 @@
   (and (k/!= studio-window k/null)
        (k/!= (glfw/glfwGetWindowAttrib studio-window glfw/GLFW_RESIZABLE) 0)))
 
-(a/defn detach! :void {:callconv :.c} []
+(a/defn detach! :void {:callconv :c} []
   (cancel-name-composition!)
   ((:lp_studio_gestures_detach gestures-api))
   (close-playback!)
@@ -4188,8 +4188,8 @@
                      (take-provenance id (get-in @takes [id :dry]))
                      (select-keys script [:dialogue-hash]))
         capture (render! #(a/value (if processed?
-                                      return-input
-                                      microphone)))
+                                     return-input
+                                     microphone)))
         playback (render! #(a/value effects-output))
         path (io/file "build/recording" id (str (java.util.UUID/randomUUID) (if processed?
                                                                               "-wet.wav"
@@ -4515,9 +4515,9 @@
                                          ;; A is not the selected B waveform. Global transport
                                          ;; still controls A, but B must not borrow A's cursor.
                                          (a/set-value! preview-node
-                                                        (if (= target path)
-                                                          (a/value selected)
-                                                          4294967295))
+                                                       (if (= target path)
+                                                         (a/value selected)
+                                                         4294967295))
                                          (a/set-value! preview-paused false) (a/set-value! seek-seconds 0.0) true))
                      (throw (ex-info "Playback failed." {})))
                    (swap! comparison assoc :playing-a? next-a?)
@@ -4538,8 +4538,8 @@
 (defn- device-names [capture?]
   (mapv #(native-string (recorder/device-name capture? %))
         (range (a/value (if capture?
-                           recorder/capture-count
-                           recorder/playback-count)))))
+                          recorder/capture-count
+                          recorder/playback-count)))))
 
 (defn- routing! [operation]
   (case operation
@@ -4604,8 +4604,8 @@
          kind [:dry :wet :preferred]
          :let [passage (get take-state id)
                selected-entry (some #(when (= (:selected passage) (:path %)) %) (:history passage))
-                ;; Show the selected version in its own column, even if it is
-                ;; an older/trimmed take. Otherwise the editor has no matching card.
+               ;; Show the selected version in its own column, even if it is
+               ;; an older/trimmed take. Otherwise the editor has no matching card.
                path (if (= kind (:kind selected-entry))
                       (:path selected-entry)
                       (get passage kind))
@@ -4925,7 +4925,7 @@
   []
   (summarize-frame-timings
    (mapv (fn [sample]
-            ;; Arrays of native structs cross this boundary as raw ABI bytes.
+           ;; Arrays of native structs cross this boundary as raw ABI bytes.
            (let [buffer (doto (ByteBuffer/wrap (byte-array (map unchecked-byte sample)))
                           (.order (ByteOrder/nativeOrder)))]
              {:interval-ms (.getFloat buffer 0)
@@ -5192,7 +5192,7 @@
    #(let [index (passage-index id)]
       (when (or (empty? id) (nil? index))
         (throw (ex-info "Unknown voiced passage" {:code :not-found})))
-       ;; Disarming another passage must not disarm the current recording target.
+      ;; Disarming another passage must not disarm the current recording target.
       (when (or enabled? (= index (a/value record-track)))
         (a/set-value! record-track (if enabled? index 4294967295))))))
 
@@ -5203,7 +5203,7 @@
    (fn []
      (let [input-count (a/value recorder/capture-count)
            output-count (a/value recorder/playback-count)]
-        ;; Validate the complete route before closing an engine or changing fields.
+       ;; Validate the complete route before closing an engine or changing fields.
        (when-not (and (< source input-count)
                       (< return input-count)
                       (< send output-count)
@@ -5538,9 +5538,9 @@
         (render! #(do
                     (a/set-value! busy (if @session 1 0))
                     (a/set-value! capture-phase (cond
-                                                   (:device-interruption @session) 4
-                                                   @session 2
-                                                   :else 0))))
+                                                  (:device-interruption @session) 4
+                                                  @session 2
+                                                  :else 0))))
         (warning! (:message summary))
         (catch InterruptedException interrupted (throw interrupted))
         (catch Throwable cleanup-error

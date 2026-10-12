@@ -12,7 +12,7 @@
 (a/defn foo_optimized :f64
   {:attrs #{k/export}}
   [[x :f64]]
-  (k/setFloatMode :.optimized)
+  (k/setFloatMode :optimized)
   (k/- (k/+ x big) big))
 
 (comment

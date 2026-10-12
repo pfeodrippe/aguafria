@@ -18,13 +18,13 @@
     (is (= {:ok nil} (a/value (testing/expectEqual tag payload))))
     (is (= {:ok nil}
            (a/value (testing/expectEqual (:ready-now fixture/Tag)
-                                         (k/as :.ready_now fixture/Payload))))))
+                                         (k/as :ready_now fixture/Payload))))))
   (is (= {:ok nil}
          (a/value (testing/expectEqual (:ready-now fixture/Tag)
                                        (k/as (:ready fixture/Constants) fixture/Payload)))))
   (is (= {:ok nil}
          (a/value (testing/expectEqual (:ready-now fixture/Tag)
-                                       (k/as (k/as :.ready_now fixture/Tag) fixture/Payload)))))
+                                       (k/as (k/as :ready_now fixture/Tag) fixture/Payload)))))
   (with-open [payload (fixture/Payload {:ratio 0.25})]
     (is (= {:ratio 0.25} (a/value payload)))))
 

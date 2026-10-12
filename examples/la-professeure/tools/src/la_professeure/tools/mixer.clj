@@ -43,12 +43,12 @@
 (a/defstruct Loop {:layout :extern} [[from :u64] [to :u64] [enabled :bool]])
 
 (a/defn loop-state Loop []
-  (let [region (k/atomicLoad :u64 (k/& loop-region) :.acquire)]
+  (let [region (k/atomicLoad :u64 (k/& loop-region) :acquire)]
     (k/as {:from (k/mod region 4294967296) :to (k// region 4294967296) :enabled (k/!= region 0)} Loop)))
 
 (a/defn set-loop! :bool [[from :u64] [to :u64] [enabled :bool]]
   (when (and enabled (or (k/>= from to) (k/> to duration) (k/> to 4294967295))) (k/return false))
-  (k/atomicStore :u64 (k/& loop-region) (if enabled (k/+ (k/* to 4294967296) from) 0) :.release)
+  (k/atomicStore :u64 (k/& loop-region) (if enabled (k/+ (k/* to 4294967296) from) 0) :release)
   true)
 
 (a/defvar peak :u32 0)
@@ -59,7 +59,7 @@
 
 (a/defn close! :void []
   (when opened ((:ma_device_uninit recorder/api) (k/& device)) (k/= opened false))
-  (k/atomicStore :u8 (k/& playing) 0 :.release))
+  (k/atomicStore :u8 (k/& playing) 0 :release))
 
 (a/defn handle-stopped-output! :bool []
   (when (and opened
@@ -67,17 +67,17 @@
                    (:ma_device_state_stopped recorder/api)))
     ;; Closing the device leaves clip PCM, loop selection and cursor intact.
     (close!)
-    (k/atomicStore :u32 (k/& peak) 0 :.release)
+    (k/atomicStore :u32 (k/& peak) 0 :release)
     (k/return true))
   false)
 
 (a/defn reset! :void []
   (close!) (k/= used 0) (k/= clip-count 0) (k/= duration 0)
-  (k/atomicStore :u64 (k/& cursor) 0 :.release)
-  (k/atomicStore :u64 (k/& seek-request) 18446744073709551615 :.release)
-  (k/atomicStore :u64 (k/& loop-region) 0 :.release)
-  (k/atomicStore :u32 (k/& peak) 0 :.release)
-  (k/atomicStore :u8 (k/& clipped) 0 :.release))
+  (k/atomicStore :u64 (k/& cursor) 0 :release)
+  (k/atomicStore :u64 (k/& seek-request) 18446744073709551615 :release)
+  (k/atomicStore :u64 (k/& loop-region) 0 :release)
+  (k/atomicStore :u32 (k/& peak) 0 :release)
+  (k/atomicStore :u8 (k/& clipped) 0 :release))
 
 (a/defn configure-clip! :bool
   [[index :usize] [start :u64] [gain :f32] [pan :f32] [fade :u64] [mute :bool] [solo :bool]]
@@ -119,10 +119,10 @@
 (a/defn process! :void
   "The sole audio path, also called by offline tests. No allocation, locks or I/O." [[output [:c-pointer :f32]] [frames :u32]]
   (when (k/== output k/null) (k/return))
-  (let [active (k/!= (k/atomicLoad :u8 (k/& playing) :.acquire) 0)
+  (let [active (k/!= (k/atomicLoad :u8 (k/& playing) :acquire) 0)
         loop (loop-state)
-        requested (k/atomicRmw :u64 (k/& seek-request) :.Xchg 18446744073709551615 :.acq_rel)
-        frame-position (k/var (k/u64 (k/atomicLoad :u64 (k/& cursor) :.acquire)))
+        requested (k/atomicRmw :u64 (k/& seek-request) :Xchg 18446744073709551615 :acq_rel)
+        frame-position (k/var (k/u64 (k/atomicLoad :u64 (k/& cursor) :acquire)))
         any-solo (k/var (k/bool false)) block-peak (k/var (k/f32 0.0))]
     (when (k/!= requested 18446744073709551615) (k/= frame-position (k/min requested duration)))
     (dotimes [j clip-count] (when (:solo (a/get clips j)) (k/= any-solo true)))
@@ -148,13 +148,13 @@
           (when (and (:enabled loop) (k/== frame-position (:to loop)))
             (k/= frame-position (:from loop))))
         (k/= block-peak (k/max block-peak (k/max (k/abs left) (k/abs right))))
-        (when (k/> block-peak 1.0) (k/atomicStore :u8 (k/& clipped) 1 :.release))
+        (when (k/> block-peak 1.0) (k/atomicStore :u8 (k/& clipped) 1 :release))
         (k/= (a/get output (k/* i 2)) (k/max -1.0 (k/min 1.0 left)))
         (k/= (a/get output (k/+ (k/* i 2) 1)) (k/max -1.0 (k/min 1.0 right)))))
-    (k/atomicStore :u64 (k/& cursor) frame-position :.release)
-    (k/atomicStore :u32 (k/& peak) (k/intFromFloat (k/* 1000.0 (k/min 1.0 block-peak))) :.release)))
+    (k/atomicStore :u64 (k/& cursor) frame-position :release)
+    (k/atomicStore :u32 (k/& peak) (k/intFromFloat (k/* 1000.0 (k/min 1.0 block-peak))) :release)))
 
-(a/defn callback :void {:callconv :.c}
+(a/defn callback :void {:callconv :c}
   [[device-pointer [:c-pointer recorder/Device]] [output [:optional [:* :anyopaque]]]
    [input [:optional [:*const :anyopaque]]] [frames :u32]]
   (k/= :_ device-pointer) (k/= :_ input)
@@ -168,22 +168,22 @@
   (let [config (k/var ((:ma_device_config_init recorder/api) (:ma_device_type_playback recorder/api)))]
     (a/merge! config {:sampleRate 48000 :dataCallback (k/& callback)})
     (a/merge! (:playback config)
-               {:pDeviceID (k/& (:id (a/get recorder/playback-info output-index)))
-                :format (:ma_format_f32 recorder/api)
-                :channels 2})
+              {:pDeviceID (k/& (:id (a/get recorder/playback-info output-index)))
+               :format (:ma_format_f32 recorder/api)
+               :channels 2})
     (when (k/!= ((:ma_device_init recorder/api) (k/& recorder/context) (k/& config) (k/& device)) 0) (k/return false))
     (when (k/!= ((:ma_device_start recorder/api) (k/& device)) 0)
       ((:ma_device_uninit recorder/api) (k/& device)) (k/return false))
     (k/= opened true) true))
 
-(a/defn play! :void [] (k/atomicStore :u8 (k/& playing) 1 :.release))
+(a/defn play! :void [] (k/atomicStore :u8 (k/& playing) 1 :release))
 
-(a/defn pause! :void [] (k/atomicStore :u8 (k/& playing) 0 :.release))
+(a/defn pause! :void [] (k/atomicStore :u8 (k/& playing) 0 :release))
 
-(a/defn seek! :void [[frame :u64]] (k/atomicStore :u64 (k/& seek-request) (k/min frame duration) :.release))
+(a/defn seek! :void [[frame :u64]] (k/atomicStore :u64 (k/& seek-request) (k/min frame duration) :release))
 
-(a/defn cursor-frame :u64 [] (k/atomicLoad :u64 (k/& cursor) :.acquire))
+(a/defn cursor-frame :u64 [] (k/atomicLoad :u64 (k/& cursor) :acquire))
 
 (a/defn playing? :bool []
-  (and (k/!= (k/atomicLoad :u8 (k/& playing) :.acquire) 0)
+  (and (k/!= (k/atomicLoad :u8 (k/& playing) :acquire) 0)
        (or (k/< (cursor-frame) duration) (:enabled (loop-state)))))

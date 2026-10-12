@@ -6,7 +6,7 @@
   [:clubs
    :spades
    (a/fn- is-clubs :bool [[self Suit]]
-          (k/== self :.clubs))])
+          (k/== self :clubs))])
 
 (a/defconst Variant
   (a/union {:attrs #{k/enum}}
@@ -14,8 +14,8 @@
             [:none :void]
             (a/fn- truthy :bool [[self Variant]]
                    (k/switch self
-                             (case [:.int] [n] (k/!= n 0))
-                             (case [:.none] false)))]))
+                     :int (a/with-block :_ [n] (k/!= n 0))
+                     :none false))]))
 
 (a/defstruct Counter
   [[:value :i32]
@@ -26,10 +26,10 @@
    (a/fn- plus :i32 [[self Counter] [amount :i32]]
           (k/+ (:value self) amount))
    (a/fn- category Category [[self Counter]]
-          (if (k/< (:value self) 20) :.small :.large))])
+          (if (k/< (:value self) 20) :small :large))])
 
 (a/deftest never-run
-  (let [suit (k/as :.clubs Suit)
+  (let [suit (k/as :clubs Suit)
         variant (Variant {:int 1})
         counter (k/var (Counter {:value 20}))
         amount (k/i32 3)]

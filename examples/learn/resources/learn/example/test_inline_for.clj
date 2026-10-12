@@ -12,10 +12,10 @@
         sum (k/var 0 :usize)]
     (a/inline-for [i nums]
                   (let [T (k/switch i
-                                    (case [2] :f32)
-                                    (case [4] :i8)
-                                    (case [6] :bool)
-                                    (a/case-else (k/unreachable)))]
+                            2 :f32
+                            4 :i8
+                            6 :bool
+                            (k/unreachable))]
                     (k/+= sum (type-name-length T))))
     (try (testing/expectEqual 9 sum))))
 

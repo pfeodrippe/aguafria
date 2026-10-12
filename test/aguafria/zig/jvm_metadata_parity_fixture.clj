@@ -11,13 +11,13 @@
 (a/deftest captured-native-parameters
   (let [result (Result {:ok 42})]
     (try (testing/expectEqual (:ok Tag) (k/as result Tag)))
-    (a/switch-stmt result
-                   (case [:.ok] [payload] (try (testing/expectEqual 42 payload)))
-                   (case [:.not_ok] (k/unreachable)))
-    (a/switch-stmt result
-                   (case [:.ok] [_ tag]
-                         (k/comptime (debug/assert (k/== tag :.ok))))
-                   (case [:.not_ok] (k/unreachable)))))
+    (k/switch result
+      :ok (a/with-block :_ [payload] (try (testing/expectEqual 42 payload)))
+      :not_ok (k/unreachable))
+    (k/switch result
+      :ok
+      (a/with-block :_ [_ tag] (k/comptime (debug/assert (k/== tag :ok))))
+      :not_ok (k/unreachable))))
 
 (a/deftest retained-native-type-expression
   (try (testing/expectEqual Tag (meta/Tag Result))))

@@ -5,59 +5,59 @@
             [aguafria.zig :as a]))
 
 (a/defconst clip-position
-  (k/extern [:* {:addrspace :.output} [:vector 4 :f32]] {:name "position"}))
+  (k/extern [:* {:addrspace :output} [:vector 4 :f32]] {:name "position"}))
 
 (a/defconst in-position
-  (k/extern [:* {:addrspace :.input} [:vector 3 :f32]]
+  (k/extern [:* {:addrspace :input} [:vector 3 :f32]]
             {:name "in_position" :decoration {:location 0}}))
 
 (a/defconst in-color
-  (k/extern [:* {:addrspace :.input} [:vector 3 :f32]]
+  (k/extern [:* {:addrspace :input} [:vector 3 :f32]]
             {:name "in_color" :decoration {:location 1}}))
 
 (a/defconst in-normal
-  (k/extern [:* {:addrspace :.input} [:vector 3 :f32]]
+  (k/extern [:* {:addrspace :input} [:vector 3 :f32]]
             {:name "in_normal" :decoration {:location 2}}))
 
 (a/defconst in-world
-  (k/extern [:* {:addrspace :.input} [:vector 3 :f32]]
+  (k/extern [:* {:addrspace :input} [:vector 3 :f32]]
             {:name "in_world" :decoration {:location 3}}))
 
 (a/defconst in-roughness
-  (k/extern [:* {:addrspace :.input} :f32] {:name "in_roughness" :decoration {:location 4}}))
+  (k/extern [:* {:addrspace :input} :f32] {:name "in_roughness" :decoration {:location 4}}))
 
 (a/defconst in-view-direction
-  (k/extern [:* {:addrspace :.input} [:vector 3 :f32]]
+  (k/extern [:* {:addrspace :input} [:vector 3 :f32]]
             {:name "in_view_direction" :decoration {:location 5}}))
 
 ;; Authored mesh uploaded once, shared by all cars. No CPU-expanded vertices.
 (a/defconst position
-  (k/extern [:* {:addrspace :.input} [:vector 3 :f32]]
+  (k/extern [:* {:addrspace :input} [:vector 3 :f32]]
             {:name "instance_position" :decoration {:location 0}}))
 
 (a/defconst normal
-  (k/extern [:* {:addrspace :.input} [:vector 3 :f32]] {:name "normal" :decoration {:location 1}}))
+  (k/extern [:* {:addrspace :input} [:vector 3 :f32]] {:name "normal" :decoration {:location 1}}))
 
 (a/defconst color
-  (k/extern [:* {:addrspace :.input} [:vector 3 :f32]] {:name "color" :decoration {:location 2}}))
+  (k/extern [:* {:addrspace :input} [:vector 3 :f32]] {:name "color" :decoration {:location 2}}))
 
 (a/defconst tint-weight
-  (k/extern [:* {:addrspace :.input} :f32] {:name "tint_weight" :decoration {:location 3}}))
+  (k/extern [:* {:addrspace :input} :f32] {:name "tint_weight" :decoration {:location 3}}))
 
 (a/defconst rotation
-  (k/extern [:* {:addrspace :.input} [:vector 4 :f32]]
+  (k/extern [:* {:addrspace :input} [:vector 4 :f32]]
             {:name "rotation" :decoration {:location 4}}))
 
 (a/defconst translation-scale
-  (k/extern [:* {:addrspace :.input} [:vector 4 :f32]]
+  (k/extern [:* {:addrspace :input} [:vector 4 :f32]]
             {:name "translation_scale" :decoration {:location 5}}))
 
 (a/defconst pivot-shadow
-  (k/extern [:* {:addrspace :.input} [:vector 4 :f32]]
+  (k/extern [:* {:addrspace :input} [:vector 4 :f32]]
             {:name "pivot_shadow" :decoration {:location 6}}))
 
 (a/defconst tint-mode
-  (k/extern [:* {:addrspace :.input} [:vector 4 :f32]]
+  (k/extern [:* {:addrspace :input} [:vector 4 :f32]]
             {:name "tint_mode" :decoration {:location 7}}))
 
 (a/defstruct Camera
@@ -68,48 +68,48 @@
    [:fit [:vector 4 :f32]]])
 
 (a/defconst camera
-  (k/extern [:* {:addrspace :.push_constant :const? true} Camera] {:name "camera"}))
+  (k/extern [:* {:addrspace :push_constant :const? true} Camera] {:name "camera"}))
 
 (a/defconst vertex-color-out
-  (k/extern [:* {:addrspace :.output} [:vector 3 :f32]]
+  (k/extern [:* {:addrspace :output} [:vector 3 :f32]]
             {:name "vertex_color_out" :decoration {:location 0}}))
 
 (a/defconst world-normal-out
-  (k/extern [:* {:addrspace :.output} [:vector 3 :f32]]
+  (k/extern [:* {:addrspace :output} [:vector 3 :f32]]
             {:name "world_normal_out" :decoration {:location 1}}))
 
 (a/defconst world-position-out
-  (k/extern [:* {:addrspace :.output} [:vector 3 :f32]]
+  (k/extern [:* {:addrspace :output} [:vector 3 :f32]]
             {:name "world_position_out" :decoration {:location 2}}))
 
 (a/defconst roughness-out
-  (k/extern [:* {:addrspace :.output} :f32] {:name "roughness_out" :decoration {:location 3}}))
+  (k/extern [:* {:addrspace :output} :f32] {:name "roughness_out" :decoration {:location 3}}))
 
 (a/defconst view-direction-out
-  (k/extern [:* {:addrspace :.output} [:vector 3 :f32]]
+  (k/extern [:* {:addrspace :output} [:vector 3 :f32]]
             {:name "view_direction_out" :decoration {:location 4}}))
 
 (a/defconst vertex-color
-  (k/extern [:* {:addrspace :.input} [:vector 3 :f32]]
+  (k/extern [:* {:addrspace :input} [:vector 3 :f32]]
             {:name "vertex_color" :decoration {:location 0}}))
 
 (a/defconst world-normal
-  (k/extern [:* {:addrspace :.input} [:vector 3 :f32]]
+  (k/extern [:* {:addrspace :input} [:vector 3 :f32]]
             {:name "world_normal" :decoration {:location 1}}))
 
 (a/defconst world-position
-  (k/extern [:* {:addrspace :.input} [:vector 3 :f32]]
+  (k/extern [:* {:addrspace :input} [:vector 3 :f32]]
             {:name "world_position" :decoration {:location 2}}))
 
 (a/defconst roughness
-  (k/extern [:* {:addrspace :.input} :f32] {:name "roughness" :decoration {:location 3}}))
+  (k/extern [:* {:addrspace :input} :f32] {:name "roughness" :decoration {:location 3}}))
 
 (a/defconst view-direction
-  (k/extern [:* {:addrspace :.input} [:vector 3 :f32]]
+  (k/extern [:* {:addrspace :input} [:vector 3 :f32]]
             {:name "view_direction" :decoration {:location 4}}))
 
 (a/defconst out-color
-  (k/extern [:* {:addrspace :.output} [:vector 4 :f32]]
+  (k/extern [:* {:addrspace :output} [:vector 4 :f32]]
             {:name "out_color" :decoration {:location 0}}))
 
 (a/defn- xyz [:vector 3 :f32]
@@ -134,14 +134,14 @@
 
 (a/defn- dot3 :f32
   [[a [:vector 3 :f32]] [b [:vector 3 :f32]]]
-  (k/reduce :.Add (k/* a b)))
+  (k/reduce :Add (k/* a b)))
 
 (a/defn- mix3 [:vector 3 :f32]
   [[a [:vector 3 :f32]] [b [:vector 3 :f32]] [t :f32]]
   (spv/glsl [:vector 3 :f32] "FMix" a b (splat3 t)))
 
 (a/defn mesh-vertex :void
-  {:attrs #{k/export} :callconv :.spirv_vertex}
+  {:attrs #{k/export} :callconv :spirv_vertex}
   []
   (k/= @clip-position (rgba @in-position))
   (k/= @vertex-color-out @in-color)
@@ -157,7 +157,7 @@
     (k/+ v (k/* (splat3 (a/get @rotation 3)) t) (spv/glsl [:vector 3 :f32] "Cross" r t))))
 
 (a/defn instances-vertex :void
-  {:attrs #{k/export} :callconv :.spirv_vertex}
+  {:attrs #{k/export} :callconv :spirv_vertex}
   []
   (k/= @world-position-out
        (k/* (k/+ (rotate (k/- @position (xyz @pivot-shadow))) (xyz @translation-scale))
@@ -185,19 +185,19 @@
         ry (k/+ (k/* (a/get p 0) (a/get angles 1)) (k/* (a/get p 1) (a/get angles 0)))]
     (k/= @clip-position
          (a/vector
-           [(k/* rx (a/get position-zoom 3) (a/get fit 0))
-            (k/+ 0.10
-                 (k/* (k/- (k/* (k/- ry) (a/get angles 3)) (k/* (a/get p 2) (a/get angles 2)))
-                      (a/get position-zoom 3)
-                      (a/get fit 1)))
-            (k/+ 0.5
-                 (k/* 0.22 (k/- (k/* ry (a/get angles 2)) (k/* (a/get p 2) (a/get angles 3)))))
-            1.0]
-           :f32))
+          [(k/* rx (a/get position-zoom 3) (a/get fit 0))
+           (k/+ 0.10
+                (k/* (k/- (k/* (k/- ry) (a/get angles 3)) (k/* (a/get p 2) (a/get angles 2)))
+                     (a/get position-zoom 3)
+                     (a/get fit 1)))
+           (k/+ 0.5
+                (k/* 0.22 (k/- (k/* ry (a/get angles 2)) (k/* (a/get p 2) (a/get angles 3)))))
+           1.0]
+          :f32))
     (k/= @view-direction-out
          (a/vector [(k/* (k/- (a/get angles 1)) (a/get angles 2))
-                     (k/* (k/- (a/get angles 0)) (a/get angles 2)) (a/get angles 3)]
-                    :f32))))
+                    (k/* (k/- (a/get angles 0)) (a/get angles 2)) (a/get angles 3)]
+                   :f32))))
 
 (a/defconst PI :f32 3.14159265359)
 
@@ -205,7 +205,7 @@
   [[p [:vector 2 :f32]]]
   (let [scaled (k/* p (a/vector [123.34 456.21] :f32))
         f (k/- scaled (k/floor scaled))
-        shifted (k/+ f (splat2 (k/reduce :.Add (k/* f (k/+ f (splat2 45.32))))))
+        shifted (k/+ f (splat2 (k/reduce :Add (k/* f (k/+ f (splat2 45.32))))))
         product (k/* (a/get shifted 0) (a/get shifted 1))]
     (k/- product (k/floor product))))
 
@@ -262,7 +262,7 @@
         specular (k// (k/* (splat3 (k/* distribution visibility)) fresnel)
                       (splat3 (k/max (k/* 4.0 nv nl) 0.001)))
         albedo (k/var
-                 (spv/glsl [:vector 3 :f32] "Pow" (k/max @vertex-color (splat3 0.0)) (splat3 2.2)))]
+                (spv/glsl [:vector 3 :f32] "Pow" (k/max @vertex-color (splat3 0.0)) (splat3 2.2)))]
     ;; World-metre detail: broad turf/asphalt variation remains readable at
     ;; broadcast distance; fine grain fades out instead of shimmering. The
     ;; current terrain palette identifies turf; voxel paint is unaffected.
@@ -280,8 +280,8 @@
         (if turf
           (let [turf-patch (surface-noise (k/* metres (splat2 0.08)))]
             (k/*=
-              albedo
-              (mix3 (a/vector [0.72 0.82 0.65] :f32) (a/vector [1.22 1.16 0.90] :f32) turf-patch))
+             albedo
+             (mix3 (a/vector [0.72 0.82 0.65] :f32) (a/vector [1.22 1.16 0.90] :f32) turf-patch))
             (k/*= albedo (splat3 (k/+ 0.85 (k/* 0.30 coarse) (k/* (k/- grain 0.5) 0.22 detail)))))
           (k/*= albedo (splat3 (k/+ 0.94 (k/* 0.12 coarse) (k/* (k/- grain 0.5) 0.22 detail)))))))
     (let [sun (a/vector [3.2 2.95 2.60] :f32)

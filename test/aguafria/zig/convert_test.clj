@@ -361,8 +361,10 @@
     (is (zero? (:fallback-count report)))
     (is (not (str/includes? clojure-source "(raw")))
     (is (str/includes? clojure-source "(k/switch"))
-    (is (str/includes? clojure-source "(a/inline-case"))
-    (is (str/includes? clojure-source "(a/case-else"))
+    (is (str/includes? clojure-source "(k/inline"))
+    (is (re-find #"\(a/with-block\s+:_\s+\[matched\]" clojure-source))
+    (is (not (re-find #"(?:switch-stmt|labeled-switch|:capture)" clojure-source)))
+    (is (not (re-find #"\((?:a/)?(?:case|inline-case|case-else|inline-case-else)\b" clojure-source)))
     (is (:success? verification))))
 
 (deftest ghostty-zig-syntax-is-structural-test

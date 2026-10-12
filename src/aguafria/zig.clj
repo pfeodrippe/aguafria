@@ -1509,43 +1509,13 @@
 (defmacro with-block
   "A scoped, labeled Zig block: (a/with-block :result ... (k/break :result value)).
   Labels are keywords, not variables. Returns the value of the matching break.
+  The anonymous label :_ returns the final expression. In a k/switch branch,
+  a leading vector binds its native payload/tag; [(k/* payload)] captures a pointer.
   Inside Aguafria emits a native labeled block; from the JVM executes the same
   block in process, capturing lexical values."
   {:aguafria/syntax '{:kind :syntax :name with-block :symbol aguafria.zig/with-block}
    :aguafria/scoped? true}
   [label & body]
-  (scoped-expansion &form &env))
-
-(defmacro switch
-  "Execute a native value-producing switch, retaining its case syntax.
-  From the JVM, Zig checks the cases and enclosing lexical captures together."
-  {:aguafria/syntax '{:kind :syntax :name switch :symbol aguafria.zig/switch}
-   :aguafria/scoped? true}
-  [value & cases]
-  (scoped-expansion &form &env))
-
-(defmacro switch-stmt
-  "Execute a native switch statement with lexical payload/tag captures.
-  Only the selected case runs; the JVM bridge returns no value."
-  {:aguafria/syntax '{:kind :syntax :name switch-stmt :symbol aguafria.zig/switch-stmt}
-   :aguafria/scoped? true}
-  [value & cases]
-  (scoped-expansion &form &env))
-
-(defmacro labeled-switch
-  "Execute a value-producing native dispatch loop.
-  The label and its continue forms stay together in the native scope."
-  {:aguafria/syntax '{:kind :syntax :name labeled-switch :symbol aguafria.zig/labeled-switch}
-   :aguafria/scoped? true}
-  [label value & cases]
-  (scoped-expansion &form &env))
-
-(defmacro labeled-switch-stmt
-  "Execute a labeled native switch statement, preserving its continue targets."
-  {:aguafria/syntax '{:kind :syntax :name labeled-switch-stmt
-                      :symbol aguafria.zig/labeled-switch-stmt}
-   :aguafria/scoped? true}
-  [label value & cases]
   (scoped-expansion &form &env))
 
 (defmacro while-loop

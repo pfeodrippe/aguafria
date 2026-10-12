@@ -4,7 +4,9 @@ const builtin = @import("builtin");
 // Zig discovers and type-checks actual test declarations in test mode. The
 // resulting code is linked into a library and invoked by the JVM, not executed
 // by a child test runner. The native boundary contains Zig assertion panics.
-pub fn main() void {}
+// This is a test-object runner, not an executable entry point. A public main
+// makes std.start export a C main even with -fno-entry, preventing multiple
+// independently selected test objects from sharing one prepared image.
 
 export fn aguafria_run_test() callconv(.c) u32 {
     return __aguafria_jvm_guard.call(runTest, .{}) orelse 3;

@@ -33,11 +33,11 @@
         Item (a/union {:attrs #{k/enum}} [[:a :u32] [:c Point] [:d :void] [:e :u32]])
         value (k/var (Item {:c (Point {:x 1 :y 2})}))
         result (k/switch value
-                        (case [(:a Item) (:e Item)] [item] item)
-                        (case [(:c Item)] [(a/pointer-capture item)]
-                              (a/with-block :blk
-                                (k/+= (:x @item) 1)
-                                (k/break :blk 6)))
-                        (case [(:d Item)] 8))]
+                 ((:a Item) (:e Item)) (a/with-block :_ [item] item)
+                 (:c Item)
+                 (a/with-block :blk [(k/* item)]
+                   (k/+= (:x @item) 1)
+                   (k/break :blk 6))
+                 (:d Item) 8)]
     (try (testing/expectEqual 6 result))
     (try (testing/expectEqual 2 (a/get-in value [:c :x])))))

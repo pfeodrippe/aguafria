@@ -15,25 +15,25 @@
         stack (k/var ((:initBuffer (std/ArrayList :i32)) (k/& buffer)))
         ip (k/var 0 :usize)]
     (try ((:appendSliceBounded stack) initial-stack))
-    (a/labeled-switch vm (a/get code ip)
+    (k/switch [vm (a/get code ip)]
       ;; Because all code after `continue` is unreachable, this branch does
       ;; not provide a result.
-                      (case [:.add]
-                        (a/block
-                         (try ((:appendBounded stack)
-                               (k/+ (a/unwrap ((:pop stack))) (a/unwrap ((:pop stack))))))
-                         (k/+= ip 1)
-                         (k/continue vm (a/get code ip))))
-                      (case [:.mul]
-                        (a/block
-                         (try ((:appendBounded stack)
-                               (k/* (a/unwrap ((:pop stack))) (a/unwrap ((:pop stack))))))
-                         (k/+= ip 1)
-                         (k/continue vm (a/get code ip))))
-                      (case [:.end] (a/unwrap ((:pop stack)))))))
+      :add
+      (a/block
+       (try ((:appendBounded stack)
+             (k/+ (a/unwrap ((:pop stack))) (a/unwrap ((:pop stack))))))
+       (k/+= ip 1)
+       (k/continue vm (a/get code ip)))
+      :mul
+      (a/block
+       (try ((:appendBounded stack)
+             (k/* (a/unwrap ((:pop stack))) (a/unwrap ((:pop stack))))))
+       (k/+= ip 1)
+       (k/continue vm (a/get code ip)))
+      :end (a/unwrap ((:pop stack))))))
 
 (a/deftest evaluate-test
-  (let [result (try (evaluate (k/& [7 2 -3]) (k/& [:.mul :.add :.end])))]
+  (let [result (try (evaluate (k/& [7 2 -3]) (k/& [:mul :add :end])))]
     (try (testing/expectEqual 1 result))))
 
 (comment

@@ -15,10 +15,10 @@
         choice (a/if-capture {:payload [item] :error [err]} source
                              (k/+ item bias)
                              (k/switch err
-                                       (case [(a/error-value :Rejected)] nil)))
+                               (a/error-value :Rejected) nil))
         recovered (a/catch-capture [err] source
                                    (k/switch err
-                                             (case [(a/error-value :Rejected)] nil)))]
+                                     (a/error-value :Rejected) nil))]
     (k/= :_ (k/& source))
     (try (testing/expectEqual 10 (a/unwrap choice)))
     (try (testing/expectEqual 7 (a/unwrap recovered)))))

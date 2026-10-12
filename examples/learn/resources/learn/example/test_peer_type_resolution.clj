@@ -110,9 +110,9 @@
     (let [b (a/if-capture {:payload [x] :error [err]} a
                           (k/+ x 3)
                           (k/switch err
-                                    (case [(a/error-value :A)] 0)
-                                    (case [(a/error-value :B)] 1)
-                                    (case [(a/error-value :C)] nil)))]
+                            (a/error-value :A) 0
+                            (a/error-value :B) 1
+                            (a/error-value :C) nil))]
       (try (testing/expectEqual (a/type [:optional :u32]) (k/TypeOf b))))
 
     ;; The non-error and error cases are only peers if the error case is just a switch expression;
@@ -120,9 +120,9 @@
     ;; and error case to be peers.
     (let [c (a/catch-capture [err] a
                              (k/switch err
-                                       (case [(a/error-value :A)] 0)
-                                       (case [(a/error-value :B)] 1)
-                                       (case [(a/error-value :C)] nil)))]
+                               (a/error-value :A) 0
+                               (a/error-value :B) 1
+                               (a/error-value :C) nil))]
       (try (testing/expectEqual (a/type [:optional :u32]) (k/TypeOf c))))))
 
 (comment

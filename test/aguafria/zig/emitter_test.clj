@@ -29,7 +29,7 @@
                    :emit-source-comment? false}]
       (is (= (str expected "fn external(value: i32) callconv(.c) i32;")
              (emit/emit-declaration
-              (assoc options :kind :fn-proto :return :i32 :callconv :.c
+              (assoc options :kind :fn-proto :return :i32 :callconv :c
                      :args [{:name 'value :type :i32}]))))
       (is (= (str expected "var external: i32;")
              (emit/emit-declaration
@@ -166,9 +166,9 @@
 
 (deftest inferred-member-calls-are-not-keyword-field-access
   (let [context (the-ns 'aguafria.zig.emitter-test)]
-    (doseq [[form expected] [['(:.init) ".init()"]
-                             ['(:.init 7) ".init(7)"]
-                             ['(:.fromPair 1 2) ".fromPair(1, 2)"]]]
+    (doseq [[form expected] [['((aguafria.zig/enum-literal ".init")) ".init()"]
+                             ['((aguafria.zig/enum-literal ".init") 7) ".init(7)"]
+                             ['((aguafria.zig/enum-literal ".fromPair") 1 2) ".fromPair(1, 2)"]]]
       (is (= expected (emit/emit-expr form)))
       (is (= expected (emit/emit-expr context form))))))
 
@@ -177,24 +177,24 @@
         scopes (atom [])
         form '(ak/const choice Choice
                         (a/with-block :result
-                          (ak/break :result (:.first input))))
+                          (ak/break :result ((a/enum-literal ".first") input))))
         plain (emit/emit-stmt-in context form)]
     (is (emit/scoped-result-context-required? context (last form)))
     (is (emit/scoped-result-context-required?
-         context '(a/with-block :result (ak/break :result :.first))))
+         context '(a/with-block :result (ak/break :result :first))))
     (is (not (emit/scoped-result-context-required?
               context '(a/with-block :result (ak/break :result (ak/as (ak/intCast input) :i32))))))
     (is (not (emit/scoped-result-context-required?
               context '(a/with-block :result
-                         (a/with-block :inner (ak/break :inner (:.first input)))
+                         (a/with-block :inner (ak/break :inner ((a/enum-literal ".first") input)))
                          (ak/break :result input)))))
     (binding [emit/*expression-observer*
               (fn [{:keys [form source result-context]}]
                 (swap! scopes conj {:form form :context result-context})
                 source)]
       (is (= plain (emit/emit-stmt-in context form))))
-    (is (= 'Choice (:context (first (filter #(= "with-block" (name (first (:form %)))) @scopes)))))
-    (is (every? #(nil? (:context %)) (filter #(= "break" (name (first (:form %)))) @scopes)))))
+    (is (= 'Choice (:context (first (filter #(and (symbol? (first (:form %))) (= "with-block" (name (first (:form %))))) @scopes)))))
+    (is (every? #(nil? (:context %)) (filter #(and (symbol? (first (:form %))) (= "break" (name (first (:form %))))) @scopes)))))
 
 (deftest keyword-labeled-native-blocks
   (let [context (the-ns 'aguafria.zig.emitter-test)
@@ -412,7 +412,7 @@
   (let [context (the-ns 'aguafria.zig.emitter-test)]
     (doseq [form '[(a/while-loop {:payload [ak]} optional (ak/= :_ ak))
                    (a/if-capture {:payload [ak]} optional ak 0)
-                   (case [:some] [ak] ak)
+                   (ak/switch value :some (a/with-block :_ [ak] ak))
                    (a/catch-capture [ak] fallible ak)
                    (ak/errdefer [ak] (ak/= :_ ak))]]
       (let [qualified (emit/qualify-form context form)]
@@ -546,7 +546,7 @@
 (deftest unreachable-forms-are-valid-expressions
   (is (= "unreachable" (emit/emit-expr '(unreachable))))
   (is (thrown? clojure.lang.ExceptionInfo (emit/emit-expr '(unreachable 1))))
-  (is (str/includes? (emit/emit-expr '(switch value (case-else (comptime (unreachable)))))
+  (is (str/includes? (emit/emit-expr '(aguafria.keyword/switch value (comptime (unreachable))))
                      "else => comptime unreachable")))
 
 (deftest reader-dereference-is-native-pointer-access
@@ -634,7 +634,7 @@
 (deftest callback-parameter-names-are-data
   (let [callback (fn [names]
                    [:*const
-                    [:fn {:callconv :.c}
+                    [:fn {:callconv :c}
                      (mapv (fn [parameter type]
                              {:name parameter :type type})
                            names [[:c-pointer :u8] :i32 :i32])
@@ -1005,7 +1005,7 @@
                 "} else return .different_member_set;")
            (emit/emit-stmt
             '(for [item items] (use item)
-                  (else-expression (return :.different_member_set))))))
+                  (else-expression (return :different_member_set))))))
     (is (= (str "inline for (items) |item| {\n"
                 "    use(item);\n"
                 "} else unreachable;")
@@ -1022,9 +1022,9 @@
           (emit/emit-stmt
            '(while-loop
              {:else-expression
-              (switch value
-                      (case [0] zero)
-                      (case-else other))}
+              (aguafria.keyword/switch value
+                0 zero
+                other)}
              ready
              (advance)))]
       (is (str/ends-with? source "\n}"))
@@ -1296,7 +1296,7 @@
   (let [declaration {:kind :fn :name 'crash :return :noreturn
                      :declaration-key [:fn 'crash]
                      :args []
-                     :body ['(ak/branchHint :.cold) 'unreachable]}
+                     :body ['(ak/branchHint :cold) 'unreachable]}
         source
         (emit/emit-reloadable-module
          "demo.cold" [declaration]
@@ -1545,7 +1545,7 @@
 (deftest callback-type-parameter-names-are-not-value-references
   (let [context (the-ns 'aguafria.zig.emitter-test)
         declaration {:kind :const :name 'Callback
-                     :value '(a/type [:*const [:fn {:callconv :.c}
+                     :value '(a/type [:*const [:fn {:callconv :c}
                                                [{:name it :type :i32}] :bool]])}]
     (is (map? (emit/prepare-declaration context declaration)))
     (is (thrown-with-msg?

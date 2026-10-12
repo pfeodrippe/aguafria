@@ -8,13 +8,13 @@
    [:b :f32]])
 
 (a/defn- getNum :u32 [[u U]]
-  (switch u
+  (k/switch u
     ;; Here `num` is a runtime-known value that is either
     ;; `u.a` or `u.b` and `tag` is `u`'s comptime-known tag value.
-          (a/inline-case-else [num tag]
-                              (if (k/== tag :.b)
-                                (k/intFromFloat num)
-                                num))))
+
+    (k/inline (a/with-block :_ [num tag] (if (k/== tag :b)
+                                           (k/intFromFloat num)
+                                           num)))))
 
 (a/deftest test
   (let [u (U {:b 42})]

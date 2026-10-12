@@ -90,26 +90,38 @@
                       [expression (capture-branch captures expression handler)])}))
 
 (defn native-switch
-  "Analyze native cases and their payload bindings without Clojure case semantics."
+  "Analyze flat selector/result pairs and branch-local native captures."
   [{:keys [node]}]
-  (let [[operator & arguments] (:children node)
-        labeled? (contains? #{'labeled-switch 'labeled-switch-stmt}
-                            (:name (api/resolve {:name (sexpr operator)})))
-        [condition & cases] (if labeled? (rest arguments) arguments)
-        condition (native-expression condition)
+  (let [[_ header & cases] (:children node)
+        condition (native-expression (if (= :vector (:tag header)) (second (:children header)) header))
+        branch (fn [target]
+                 (let [inline? (and (= :list (:tag target))
+                                    (symbol? (sexpr (first (:children target))))
+                                    (= {:ns 'aguafria.keyword :name 'inline}
+                                       (select-keys (api/resolve {:name (sexpr (first (:children target)))}) [:ns :name])))
+                       target (if inline? (second (:children target)) target)
+                       capture? (and (= :list (:tag target))
+                                     (symbol? (sexpr (first (:children target))))
+                                     (= {:ns 'aguafria.zig :name 'with-block}
+                                        (select-keys (api/resolve {:name (sexpr (first (:children target)))}) [:ns :name]))
+                                     (= :vector (:tag (nth (:children target) 2 nil))))]
+                   (if capture?
+                     (capture-branch (nth (:children target) 2) condition
+                                     (call-node 'do (drop 3 (:children target))))
+                     (native-expression target))))
         branches
-        (mapv (fn [prong]
-                (let [[operator & forms] (:children prong)
-                      ordinary? (contains? #{'case 'inline-case} (sexpr operator))
-                      [patterns forms] (if ordinary? [(first forms) (rest forms)] [nil forms])
-                      captures (when (and (= :vector (:tag (first forms))) (next forms))
-                                 (first forms))
-                      forms (if captures (rest forms) forms)
-                      patterns (remove #(= '_ (sexpr %)) (:children patterns))]
-                  (call-node 'do
-                             (concat (mapv native-expression patterns)
-                                     [(capture-branch captures condition (call-node 'do forms))]))))
-              cases)]
+        (vec (concat
+              (map (fn [[pattern target]]
+                     (let [value (sexpr pattern)
+                           grouped? (or (= :vector (:tag pattern))
+                                        (and (seq? value) (or (seq? (first value)) (number? (first value))
+                                                              (char? (first value)) (every? keyword? value))))
+                           patterns (if grouped? (:children pattern) [pattern])]
+                       (call-node 'do
+                                  (concat (map native-expression (remove #(= '_ (sexpr %)) patterns))
+                                          [(branch target)]))))
+                   (partition 2 cases))
+              (when (odd? (count cases)) [(branch (last cases))])))]
     {:node (call-node 'do (cons condition branches))}))
 
 (defn native-while

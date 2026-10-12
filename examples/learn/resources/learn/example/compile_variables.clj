@@ -5,6 +5,6 @@
             [aguafria.zig :as a]))
 
 (a/defconst separator
-  (if (k/== (os/-tag builtin/os) :.windows)
+  (if (k/== (os/-tag builtin/os) :windows)
     \\
     \/))

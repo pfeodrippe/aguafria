@@ -16,8 +16,8 @@
 (a/defconst animation-fps :f32 8.0)
 
 (a/defstruct Snapshot {:layout :extern}
-              [[:time :f32] [:frame :u32] [:playing :bool] [:audio_ready :bool]
-               [:audio_revision :u32] [:reload_failures :u32] [:rendered_frames :u64]])
+             [[:time :f32] [:frame :u32] [:playing :bool] [:audio_ready :bool]
+              [:audio_revision :u32] [:reload_failures :u32] [:rendered_frames :u64]])
 
 (a/defvar window [:optional [:* glfw/GLFWwindow]] k/null)
 
@@ -73,7 +73,7 @@
 
 (a/defvar vertex-count :u32 0)
 
-(a/defconst DevelopmentView (a/type [:*const [:fn {:callconv :.c} [] :void]]))
+(a/defconst DevelopmentView (a/type [:*const [:fn {:callconv :c} [] :void]]))
 
 (a/defvar development-tick [:optional DevelopmentView] k/null)
 
@@ -98,7 +98,7 @@
 ;; One native ECS world for the game and its attached development tools.
 ;; Parsed text remains a contiguous asset; entities hold runtime passage state.
 (a/defstruct PassageState {:layout :extern}
-              [[:node :u32] [:revision :u32] [:takes :u32] [:visited :bool]])
+             [[:node :u32] [:revision :u32] [:takes :u32] [:visited :bool]])
 
 (a/defvar world [:optional [:* flecs/ecs_world_t]] k/null)
 
@@ -123,8 +123,8 @@
   (k/= passage-entities (mem/zeroes [:array 1024 :u64])))
 
 (a/defstruct Story {:layout :extern}
-              [[:count :u32] [:text_length :u32] [:nodes [:array 1024 story/Node]]
-               [:text [:array 262144 :u8]]])
+             [[:count :u32] [:text_length :u32] [:nodes [:array 1024 story/Node]]
+              [:text [:array 262144 :u8]]])
 
 (a/defvar stories [:array 2 Story] (mem/zeroes [:array 2 Story]))
 
@@ -314,7 +314,7 @@
     (when (k/>= index (:count data)) (k/return ""))
     (let [node (a/get (:nodes data) index)]
       (a/slice (:text data) (:offset node)
-                (k/+ (:offset node) (:length node))))))
+               (k/+ (:offset node) (:length node))))))
 
 (a/defn story-choice-parent :u32 []
   ;; Keep the leaf's response visible while returning to its enclosing choices.
@@ -648,7 +648,7 @@
         (k/= start (k/+ end 1))))
     (k/+ row 32.0)))
 
-(a/defn build-frame :u32 {:callconv :.c}
+(a/defn build-frame :u32 {:callconv :c}
   [[output [:c-pointer mesh/GpuVertex]] [width :i32] [height :i32]]
   (k/= :_ width) (k/= :_ height)
   (k/= vertices output) (k/= vertex-count 0)

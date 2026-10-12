@@ -1,10 +1,11 @@
 (ns learn.example.test-void-in-hashmap
   (:require [aguafria.keyword :as k]
+            [aguafria.std :as std]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
 (a/deftest turn-HashMap-into-a-set-with-void
-  (let [map (k/var ((:init (aguafria.std/AutoHashMap :i32 :void))
+  (let [map (k/var ((:init (std/AutoHashMap :i32 :void))
                     testing/allocator))]
     (k/defer ((:deinit map)))
     (try ((:put map) 1 (a/block)))

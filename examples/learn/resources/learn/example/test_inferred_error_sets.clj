@@ -25,9 +25,9 @@
 (a/deftest inferred-error-set
   (a/if-capture-stmt {:payload [_] :error [err]} (add-inferred :u8 255 1)
                      (k/unreachable)
-                     (a/switch-stmt err
-                        ;; ok
-                                    (case [(a/error-value :Overflow)] (a/block)))))
+                     (k/switch err
+                       ;; ok
+                       (a/error-value :Overflow) (a/block))))
 
 (comment
   (inferred-error-set))

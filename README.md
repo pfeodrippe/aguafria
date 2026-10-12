@@ -177,8 +177,9 @@ be inferred, e.g. `(a/defvar mouse-down false)`. `:attrs` always takes a set,
 even for one attribute; both native
 declarations and JVM calls reject single values. Local compile-time variables
 use `(ak/var 1 :i32 {:attrs #{ak/comptime}})`. Thread-local native storage is
-resolved on each calling JVM platform thread; virtual threads are rejected
-because they can migrate between OS threads.
+resolved on each calling JVM platform thread; realization from virtual threads
+is rejected because they can migrate between OS threads. Metadata-only inspection
+of a TLS descriptor is allowed and does not materialize thread-local storage.
 
 Function Var metadata exposes the authored typed argument vectors and documents
 the return type, including private and external functions, using ordinary Clojure
@@ -259,6 +260,27 @@ valid native expressions; it is not a first-class function usable with `apply`.
 If a host computation should execute, bind its result first and pass that binding
 to `ak/TypeOf`. This unevaluated behavior is specific to constructs that require
 it, not a rule that all builtins should suppress argument evaluation.
+An empty native expression such as `(a/block)` retains its `void` type across
+JVM bindings; `(a/value result)` decodes that value to nil, but `ak/TypeOf`
+distinguishes it from native null.
+
+Immutable integer-vector literals constructed by Zig retain their typed literal
+provenance for comptime operands such as `ak/shuffle` masks. Mutable copies and
+vectors containing native runtime lanes do not acquire that proof; application
+memory is never read back to invent a compile-time constant.
+
+A fixed `[:sentinel-const :u8 0]` function parameter can accept a JVM string using
+owned UTF-8-plus-NUL storage. Returned native views retain that backing. This does
+not permit coercing arbitrary nonsentinel native slices or dropping constness.
+Unsigned narrow arguments (`u8`, `u16`, `c_ushort`) use the native-storage bridge
+rather than relying on signed JVM byte/short argument extension.
+
+Native field access, including `ak/field`, preserves mutable aliases and const
+restrictions. Packed-field pointers retain their alignment and bit range—even
+byte-aligned fields can have a packed host-integer range. By-value JVM transport
+uses a refreshed field buffer; native address-taking still addresses the original
+backing storage. Do not mutate that transport buffer as if it were the backing
+struct: use native assignment/address-taking or `aguafria.zig.value/set-value!`.
 
 `aguafria.std` and its nested namespaces are interned from EDN resources, so
 they support normal `:require`, completion, `doc`, and REPL discovery without
@@ -283,14 +305,30 @@ thousands of generated source files:
     (a/cast [:c-pointer Circle]))
 ```
 
+### Type spellings
+
+Primitive types accept both keyword and qualified spellings in type positions:
+
+```clojure
+(a/defn add k/u32 [[x k/u32] [y k/u32]] (k/+ x y))
+;; Equivalent signature:
+(a/defn add :u32 [[x :u32] [y :u32]] (k/+ x y))
+```
+
+This also applies to struct/union fields, enum backing types, and nested type
+schemas such as `[:array 2 k/u8]` and `[:array 2 :u8]`. Equivalent field types do
+not merge separately declared nominal types. Computed type expressions retain
+their expression semantics; type normalization does not rewrite constructor
+calls or infer intent from runtime values.
+
 ### Enum tags, switch, and error propagation
 
 Use ordinary keywords for enum tags: `:little`, `:big`, `:some-tag`. They emit
 `.little`, `.big`, `.some_tag`, respectively, and work through the ordinary JVM
 bridge too—for example `(k/as :little Endian)` or a typed native function call.
-Field-name positions and type schemas are unchanged. Primitive keywords such as
-`:u32` still denote types; the older dotted spelling remains an escape for a tag
-that collides with a primitive name, and remains accepted in existing source.
+Field-name positions and type schemas are unchanged. Outside explicit switch
+selectors, disambiguate a tag that collides with a primitive type name using
+`(a/enum-literal ".void")`, rather than a dotted keyword or a runtime guess.
 
 Simple switches use selector/result pairs, with an optional final default:
 
@@ -300,10 +338,38 @@ Simple switches use selector/result pairs, with an optional final default:
   :big (k/try (testing/expectEqual 0x10203040 @u32-ptr)))
 ```
 
-A vector selector groups tags, e.g. `[:little :big] result`. Keywords in flat
+A parenthesized selector list groups tags, e.g. `(:little :big) result` or
+`((:a Item) (:e Item)) result`. Keywords in flat
 selector positions are explicitly enum tags, including primitive-name collisions.
-Existing explicit `case`, `inline-case`, and capture clauses remain available
-for advanced Zig switches; do not mix those clauses with the flat notation.
+All native switches use this flat notation. Legacy `case`, `case-else`, and
+`inline-case` wrappers are rejected, not supported as an alternate API.
+An optional final expression is the default.
+`k/switch` is the only public switch form; expression/statement emission follows
+its enclosing context. There are no `a/switch-stmt` or labeled-switch variants.
+Native payload bindings are the leading binding vector of a branch's
+`a/with-block`. `k/inline` marks a branch for native comptime specialization:
+
+```clojure
+(k/switch item
+  (:a :b) (a/with-block :_ [payload] (use-payload payload))
+  :c (a/with-block :update [(k/* payload)]
+       (update-payload payload)
+       (k/break :update result))
+  (k/inline (a/with-block :_ [payload tag] (handle-other payload tag))))
+
+(k/switch [dispatch initial-state]
+  :next (k/continue dispatch :done)
+  :done result)
+```
+
+`:_` denotes an anonymous value block:
+its final expression supplies the result. Named blocks retain explicit native
+`k/break` behavior. A switch capture vector binds the native payload and optional
+tag; `(k/* payload)` requests a pointer to the original backing storage.
+Returns and errors still belong to the enclosing native function, not a callback.
+A labeled switch uses `[label initial-value]`; its label is control syntax,
+not a Var. Neither capture metadata nor branch `fn` capture syntax is supported.
+Ordinary Clojure `case` outside native switches is unchanged.
 Only the selected branch executes. CIDER metadata and `.cljfmt.edn` give
 `k/switch` the same indentation shape as `case`.
 
@@ -797,6 +863,59 @@ Learn is a coverage corpus, not a special precompilation path. For example:
                  :parallelism 4})
 ```
 
+Prepare explicit `a/deftest` entries in genuine Zig test mode with `:tests`:
+
+```clojure
+(a/precompile! {:tests '[my.app.math/check-results my.app.math/check-allocator]})
+```
+
+Each selected test is compiled to its own test-frontend object, preserving
+`builtin.is_test`, the single selected-test table, static dependencies and the
+real testing allocator. Objects join the immutable AOT image; `:tests` reports
+`:prepared` only after publication. Combining `:tests` with `:analyze` delegates
+those test bodies to their native entries instead of preparing unrelated JVM
+fragments. Other namespace operations retain their ordinary admission checks.
+Preparation never invokes the tests. Execution loads a temporary, byte-identical
+copy of the prepared image so repeated calls and different selected tests do not
+share test-local globals; the copy is closed and removed afterward. Pass, skip,
+native failure and contained panic remain distinct outcomes. This path currently
+requires the host target/default CPU; explicit `:target` or `:cpu` is rejected.
+Test-object compilations are counted separately from the final pack link—this
+is not a one-total-compilation claim.
+
+Authored panic roots are compiled in their original **library** frontend context,
+then lowered from LLVM bitcode into separate object units for the AOT pack. This
+preserves `builtin.output_mode`, custom panic handling and root options without
+synthesizing a process `main` or imposing that panic root on neighboring entries.
+Preparation does not load the objects or execute application bodies. Both the
+library-IR and object-lowering compiler invocations are counted.
+
+A public `main(std.process.Init)` or `main(std.process.Init.Minimal)` is also
+prepared without starting its native process host or allocating argv/environment
+storage. Runtime host ids identify executions, not compiler artifacts. Repeated
+invocations load private copies of the prepared host image, establish the real
+process facilities on the native thread, and close/delete those copies after
+completion. Existing host state-sharing and thread-stack options still apply.
+
+Public C exports may require independent linkage namespaces. Opt in explicitly:
+
+```clojure
+(a/precompile! {:namespaces '[my.app.first-abi my.app.second-abi]
+                 :linkage-contexts '[my.app.first-abi my.app.second-abi]})
+```
+
+For these owners only, graphs with authored external/dynamic exports compile
+into dedicated, immutable AOT images. Export names, strong linkage, calling
+conventions and implementation bodies remain unchanged—even when two graphs
+both export `foo`. The images are compiled and linked during preparation, not
+promoted from standalone library cache entries. All image links must succeed
+before new artifact indexes are published. Consumers use normal bundle lookup
+without a special execution option. The report records
+`:bundles :isolated-linkage-contexts` and every pack/compiler invocation.
+This can produce multiple images; it is **not** a single-image or single-total-
+compilation result. The option does not select additional namespaces or waive
+unsupported compiler flags, dynamic imports, or asset restrictions.
+
 Use `:ignore '[my.app.expensive-example]` to exclude selected namespaces before
 loading/precompiling them. Reports list `:ignored` separately, never as prepared.
 This excludes direct selections, not transitive imports required by another
@@ -883,17 +1002,19 @@ significant because location may affect `@src`, relative assets or linking.
 Key-version changes invalidate old entries without deleting them. There is no
 fallback to the old key format; binaries are rebuilt/prepared under the new keys.
 
-Explicit precompilation packs generated JVM handlers into one immutable native
-library per preparation, without a handler-count cap.
+Explicit precompilation packs compatible ordinary JVM handlers into one shared
+immutable native library, without a handler-count cap. Native process hosts
+retain dedicated lifecycle images. Explicit `:linkage-contexts` requests also
+permit dedicated ABI images for authored exports, as described above.
 Already cached handlers are included, so earlier packs do not leave the new
 preparation split across libraries. Incompatible compiler configurations produce
 an explicit error rather than silently creating multiple bundles. Fresh
-preparation validates and links the collected handlers in a single compiler build;
+preparation validates and links each collected linkage context in its final pack build;
 it does not load or execute them. A rejected build aborts preparation with its
 diagnostics, without publishing the pack or retrying smaller groups. A handler
 that cannot join the pack is reported as unsupported, not built separately.
 The report's `:bundles :compiler-invocations` counts pack builds only. Compiler
-type queries, namespace images, infrastructure and native test programs currently
+type queries, namespace images, infrastructure, root units and native test programs currently
 still use additional compiler invocations during preparation.
 `:compiler-work :compiler-invocations` counts the whole preparation, including
 rejected compiler attempts and infrastructure builds. Its `:one-compilation?`

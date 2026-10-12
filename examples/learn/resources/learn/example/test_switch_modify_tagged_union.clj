@@ -13,11 +13,11 @@
 
 (a/deftest modify-tagged-union-in-switch
   (let [c (k/var (ComplexType {:ok 42}))]
-    (a/switch-stmt c
-                   (case [(:ok ComplexTypeTag)] [(a/pointer-capture value)]
-                         (a/block
-                          (k/+= @value 1)))
-                   (case [(:not_ok ComplexTypeTag)] (k/unreachable)))
+    (k/switch c
+      (:ok ComplexTypeTag)
+      (a/with-block :_ [(k/* value)] (a/block
+                                      (k/+= @value 1)))
+      (:not_ok ComplexTypeTag) (k/unreachable))
     (try (testing/expectEqual 43 (:ok c)))))
 
 (comment

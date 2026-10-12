@@ -12,5 +12,5 @@
   []
   (let [queue (k/var {} Queue)]
     (k/for [value (a/array [1 2 3 4] :u64)]
-      (k/= :_ ((:push queue) io/failing value :.instant)))
+      (k/= :_ ((:push queue) io/failing value :instant)))
     (:len queue)))

@@ -140,8 +140,17 @@
                   "// User-authored comment\npub const n = 1;\n"
                   "// Aguafria declaration: named/type\n"]]
       (is (= text (artifact/generated-source-identity text))))
-    (let [located (str (source "a.clj:7:1") "pub fn site() @TypeOf(@src()) { return @src(); }\n")]
-      (is (= located (artifact/generated-source-identity located))))))
+    (let [site "pub fn site() @TypeOf(@src()) { return @src(); }\n"
+          located (str (source "a.clj:7:1") site)
+          identity (artifact/generated-source-identity located)]
+      (is (= identity (artifact/generated-source-identity
+                       (str (source "/same/source/a.clj:7:1") site))))
+      (is (= (count (filter #{\newline} located))
+             (count (filter #{\newline} identity))))
+      ;; Actual generated line movement remains observable, unlike the text
+      ;; within a diagnostic-only comment occupying the same source line.
+      (is (not= identity (artifact/generated-source-identity (str "\n" located))))
+      (is (not= identity (artifact/generated-source-identity (str code site)))))))
 
 (deftest unordered-data-has-canonical-identity
   (let [left (array-map :options (array-map :optimize "safe" :flags #{:a :b})

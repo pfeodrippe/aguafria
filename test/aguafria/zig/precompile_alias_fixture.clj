@@ -7,7 +7,7 @@
 (a/defn monotonic-status :c_int
   []
   (let [timestamp (k/var (mem/zeroes (a/type c/timespec)))]
-    (c/clock_gettime :.MONOTONIC (k/& timestamp))))
+    (c/clock_gettime :MONOTONIC (k/& timestamp))))
 
 (a/defn sleep-status :c_int
   []

@@ -63,11 +63,11 @@
 (deftest scoped-forms-preserve-native-result-roles
   (let [context (the-ns 'aguafria.zig.jvm-scoped-statement-test)]
     (doseq [[form result?]
-            [['(a/switch input (case [0] 42) (case-else 7)) true]
-             ['(a/switch-stmt input (case [0] (k/+= state 1))) false]
+            [['(k/switch input 0 42 7) true]
+             ['(k/switch input 0 (k/+= state 1)) false]
              ['(a/if-capture-stmt {:payload [item]} input (k/= state item)) false]
-             ['(a/labeled-switch vm input (case [0] (k/continue vm 1))) true]
-             ['(a/labeled-switch-stmt vm input (case [0] (k/continue vm 1))) false]
+             ['(k/switch [vm input] 0 (k/continue vm 1)) true]
+             ['(k/switch [vm input] 0 (k/continue vm 1)) false]
              ['(a/while-loop {} ready (k/+= state 1)) false]
              ['(a/while-loop {:else-expression false} ready (k/break true)) true]
              ['(k/for [item items] (k/= :_ item)) false]
@@ -86,8 +86,8 @@
   (let [context (the-ns 'aguafria.zig.jvm-scoped-statement-test)]
     (doseq [[emit plain namespaced]
             [[emitter/emit-stmt-in
-              '(switch-stmt input (case [0] (set! state 1)))
-              '(a/switch-stmt input (case [0] (set! state 1)))]
+              '(aguafria.keyword/switch input 0 (set! state 1))
+              '(k/switch input 0 (set! state 1))]
              [emitter/emit-expr
               '(while-loop {:else-expression false} ready (break true))
               '(a/while-loop {:else-expression false} ready (break true))]
@@ -101,9 +101,9 @@
     (is (= #{'source 'state}
            (set (emitter/scoped-captures
                  context
-                 '(a/switch-stmt source
-                                 (case [:.ok] [state] (k/= :_ state))
-                                 (case [:.other] (k/+= state 1)))
+                 '(k/switch source
+                    :ok (a/with-block :_ [state] (k/= :_ state))
+                    :other (k/+= state 1))
                  '[source state]))))))
 
 (deftest native-dispatch-labels-are-not-jvm-captures
@@ -111,9 +111,9 @@
     (is (= #{'code 'ip 'result}
            (set (emitter/scoped-captures
                  context
-                 '(a/labeled-switch vm code
-                                    (case [:.add] (continue vm (a/get code ip)))
-                                    (case [:.end] result))
+                 '(k/switch [vm code]
+                    :add (continue vm (a/get code ip))
+                    :end result)
                  '[vm code ip result]))))))
 
 (deftest native-for-owners-capture-outer-values-not-iterators-or-labels
@@ -145,7 +145,7 @@
   (let [context (the-ns 'aguafria.zig.jvm-scoped-statement-test)]
     (is (= ['vm]
            (emitter/scoped-captures
-            context '(a/labeled-switch vm input (case [0] vm)) '[vm])))
+            context '(k/switch [vm input] 0 vm) '[vm])))
     (is (= ['ready]
            (emitter/scoped-captures
             context '(a/while-loop {:label loop} ready (continue loop)) '[loop ready])))))
@@ -157,10 +157,10 @@
                             emitter/*local-type-bindings* {'vm false 'err false}]
                     (emitter/qualify-form
                      context
-                     '(a/labeled-switch vm input
-                                        (case [0] (k/continue vm vm))
-                                        (case [1] (a/break-label vm))
-                                        (case-else vm))))
+                     '(k/switch [vm input]
+                        0 (k/continue vm vm)
+                        1 (a/break-label vm)
+                        vm)))
         loop-form '(a/while-loop {:label vm :body-label vm :error [err]
                                   :else-expression err} input (k/break 0))
         qualified-loop (binding [emitter/*local-name-bindings* {'vm '(deref address)
@@ -179,15 +179,15 @@
 
 (deftest contextual-control-results-defer-to-the-zig-destination
   (let [context (the-ns 'aguafria.zig.jvm-scoped-statement-test)]
-    (doseq [form ['(a/switch input (case [0] (k/intCast wide))
-                             (case-else (k/intCast wide)))
-                  '(a/labeled-switch vm input (case [0] (k/intCast wide))
-                                     (case-else (k/intCast wide)))
+    (doseq [form ['(k/switch input 0 (k/intCast wide)
+                             (k/intCast wide))
+                  '(k/switch [vm input] 0 (k/intCast wide)
+                             (k/intCast wide))
                   '(a/while-loop {:else-expression (k/intCast wide)} ready (k/break 0))
                   '(a/while-loop {:else-expression 0} ready (k/break (k/intCast wide)))]]
       (is (emitter/scoped-result-context-required? context form)))
     (is (not (emitter/scoped-result-context-required?
-              context '(a/switch input (case [0] (k/u8 wide)) (case-else 0)))))
+              context '(k/switch input 0 (k/u8 wide) 0))))
     (is (not (emitter/scoped-result-context-required?
               context '(a/while-loop {:else-expression 0} ready
                                      (a/while-loop {} nested (k/break (k/intCast wide)))
@@ -204,11 +204,11 @@
       #(do
          (is (thrown-with-msg?
               clojure.lang.ExceptionInfo #"TestExpectedEqual"
-              (let [_ (jvm/invoke-scoped! (ns-name *ns*) '(a/switch-stmt 0) {} false)]
+              (let [_ (jvm/invoke-scoped! (ns-name *ns*) '(k/switch 0) {} false)]
                 :unreachable)))
          (is (= 1 @calls))
          (reset! result {:ok nil})
-         (is (nil? (jvm/invoke-scoped! (ns-name *ns*) '(a/switch-stmt 0) {} false)))
+         (is (nil? (jvm/invoke-scoped! (ns-name *ns*) '(k/switch 0) {} false)))
          (is (= 2 @calls))))))
 
 (deftest scoped-results-remove-only-the-generated-error-carrier

@@ -344,7 +344,7 @@
     (try
       (binding [*ns* namespace runtime/*source-only-registration?* true]
         (require '[aguafria.std.testing :as testing])
-        (eval '(a/defextern getpid :c_int {:zig/prefix "extern"}  []))
+        (eval '(a/defextern getpid :c_int {:zig/prefix "extern"} []))
         (eval (list 'a/deftest 'same-process-test
                     (list 'try (list 'testing/expectEqual
                                      (list 'ak/as pid :c_int) '(getpid))))))
@@ -380,12 +380,12 @@
         (require '[aguafria.std :as std] '[aguafria.std.testing :as testing])
         (eval '(a/deftest detect-leak-test
                  (let [allocator testing/allocator
-                       list (ak/var :.empty (std/ArrayList :u21))]
+                       list (ak/var :empty (std/ArrayList :u21))]
                    (try ((a/field list :append) allocator \☔))
                    (try (testing/expectEqual 1 (a/field (a/field list :items) :len))))))
         (eval '(a/deftest cleaned-up-test
                  (let [allocator testing/allocator
-                       list (ak/var :.empty (std/ArrayList :u21))]
+                       list (ak/var :empty (std/ArrayList :u21))]
                    (ak/defer ((a/field list :deinit) allocator))
                    (try ((a/field list :append) allocator \☔))
                    (try (testing/expectEqual 1 (a/field (a/field list :items) :len)))))))

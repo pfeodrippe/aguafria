@@ -9,7 +9,7 @@
 (a/defn build :void
   [[b [:* std/Build]]]
   (let [lib ((:addLibrary b)
-             {:linkage :.dynamic
+             {:linkage :dynamic
               :name "mathtest"
               :root_module ((:createModule b)
                             {:root_source_file ((:path b) "mathtest.zig")})

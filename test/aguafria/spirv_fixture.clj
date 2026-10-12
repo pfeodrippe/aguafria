@@ -8,20 +8,20 @@
 (a/defstruct Buffer {:layout :extern} [[:data Vertices]])
 
 (a/defconst vertices
-  (k/extern [:* {:addrspace :.storage_buffer} Buffer]
+  (k/extern [:* {:addrspace :storage_buffer} Buffer]
             {:name "vertices" :decoration {:descriptor {:set 0 :binding 0}}}))
 
-(a/defconst position (k/extern [:* {:addrspace :.output} [:vector 4 :f32]] {:name "position"}))
+(a/defconst position (k/extern [:* {:addrspace :output} [:vector 4 :f32]] {:name "position"}))
 
 (a/defn main :void
-  {:attrs #{k/export} :callconv :.spirv_vertex}
+  {:attrs #{k/export} :callconv :spirv_vertex}
   []
   (k/= @position (a/get (:data @vertices) 0)))
 
 (a/defconst intensity :f32 (a/clj! options/*intensity*))
 
 (a/defconst color
-  (k/extern [:* {:addrspace :.output} [:vector 4 :f32]]
+  (k/extern [:* {:addrspace :output} [:vector 4 :f32]]
             {:name "color" :decoration {:location 0}}))
 
 (a/defn fragment :void

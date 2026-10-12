@@ -18,24 +18,24 @@
 (a/defvar ticks :u64 0)
 
 (a/defn reset-state! :void []
-  (k/atomicStore :u64 (k/& observed) 0 :.release)
-  (k/atomicStore :u64 (k/& ticks) 0 :.release)
-  (k/atomicStore :bool (k/& running) true :.release))
+  (k/atomicStore :u64 (k/& observed) 0 :release)
+  (k/atomicStore :u64 (k/& ticks) 0 :release)
+  (k/atomicStore :bool (k/& running) true :release))
 
 (a/defn stop! :void []
-  (k/atomicStore :bool (k/& running) false :.release))
+  (k/atomicStore :bool (k/& running) false :release))
 
 (a/defn observed-value :u64 []
-  (k/atomicLoad :u64 (k/& observed) :.acquire))
+  (k/atomicLoad :u64 (k/& observed) :acquire))
 
 (a/defn tick-value :u64 []
-  (k/atomicLoad :u64 (k/& ticks) :.acquire))
+  (k/atomicLoad :u64 (k/& ticks) :acquire))
 
 (a/defn main :!void {:attrs #{:public}} [[process-init std-process/Init]]
-  (while (k/atomicLoad :bool (k/& running) :.acquire)
-    (k/atomicStore :u64 (k/& observed) (vsr/sector_floor 4097) :.release)
-    (set! _ (k/atomicRmw :u64 (k/& ticks) :.Add 1 :.release))
-    (try (std-io/sleep (:io process-init) (duration/fromMilliseconds 1) :.awake))))
+  (while (k/atomicLoad :bool (k/& running) :acquire)
+    (k/atomicStore :u64 (k/& observed) (vsr/sector_floor 4097) :release)
+    (set! _ (k/atomicRmw :u64 (k/& ticks) :Add 1 :release))
+    (try (std-io/sleep (:io process-init) (duration/fromMilliseconds 1) :awake))))
 
 (defonce last-gate (atom nil))
 

@@ -163,7 +163,7 @@
 
 (deftest generated-container-inspection-uses-native-fields
   (doseq [type [:u21 :u8 [:optional :u21]]]
-    (with-open [native (ak/var :.empty (std/ArrayList (a/type type)))]
+    (with-open [native (ak/var :empty (std/ArrayList (a/type type)))]
       (let [items (if (= type :u8) "" [])
             expected {:items items :capacity 0 :pointer_stability {:state :unlocked}}]
         (is (= expected @native))

@@ -335,14 +335,14 @@
   :note "Declare an opaque type with unknown size and alignment."}
 
  "continue :sw .next_state"
- {:clojure-source "(k/continue sw :.next_state)"
+ {:clojure-source "(k/continue sw :next_state)"
   :kind :statements
   :note "Redispatch the enclosing switch labeled sw using the next_state enum literal."}
 
  "inline else"
- {:clojure-source "a/inline-case-else"
-  :kind :reference
-  :note "An inline fallback switch prong specializes its body for each remaining value."}
+ {:clojure-source "(k/switch value (k/inline (a/with-block :_ [payload tag] (handle-remaining payload tag))))"
+  :kind :expr
+  :note "An inline final default specializes its native body for each remaining value; the block's binding vector captures the native payload and tag."}
 
  "inline for"
  {:clojure-source "a/inline-for"

@@ -8,7 +8,7 @@
   (k/+ a b))
 
 (a/deftest noinline-function-call
-  (try (testing/expectEqual 12 (k/call :.auto add [3 9]))))
+  (try (testing/expectEqual 12 (k/call :auto add [3 9]))))
 
 (comment
   (noinline-function-call))

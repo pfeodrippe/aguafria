@@ -4,11 +4,11 @@
             [aguafria.zig :as a]))
 
 (a/defconst input
-  (k/extern [:* {:addrspace :.input} [:vector 3 :f32]]
+  (k/extern [:* {:addrspace :input} [:vector 3 :f32]]
             {:name "input" :decoration {:location 0}}))
 
 (a/defconst output
-  (k/extern [:* {:addrspace :.output} [:vector 4 :f32]]
+  (k/extern [:* {:addrspace :output} [:vector 4 :f32]]
             {:name "output" :decoration {:location 0}}))
 
 (a/defn fragment :void
@@ -18,7 +18,7 @@
         intensity (k/exp (a/get @input 0))]
     (k/= @output
          (a/vector [(a/get direction 0)
-                     (a/get direction 1)
-                     (a/get direction 2)
-                     intensity]
-                    :f32))))
+                    (a/get direction 1)
+                    (a/get direction 2)
+                    intensity]
+                   :f32))))

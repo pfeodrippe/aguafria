@@ -411,7 +411,7 @@
   [[reader [:* Reader]]]
   (if (can-read reader 1)
     (let [value (a/index (a/field (a/deref reader) bytes)
-                          (a/field (a/deref reader) cursor))]
+                         (a/field (a/deref reader) cursor))]
       (ak/= (a/field (a/deref reader) cursor)
             (+ (a/field (a/deref reader) cursor) 1))
       value)
@@ -581,7 +581,7 @@
                    data-offset
                    (ak/as (ak/intCast
                            (a/field (a/index tensor-catalog tensor-index)
-                                     relative_offset))
+                                    relative_offset))
                           :usize)))))
       (GgufSummary {:loaded true :valid valid
                     :error_code (a/field reader error_code)
@@ -828,7 +828,7 @@
         (GgufSummary {:loaded false :valid false :error_code parser-truncated
                       :version 0 :tensor_count 0 :metadata_count 0
                       :f32_tensors 0 :q4_0_tensors 0 :q6_k_tensors 0
-                :descriptor_end 0 :data_offset 0 :file_size 0})))
+                      :descriptor_end 0 :data_offset 0 :file_size 0})))
 
 (a/defn model-storage-kind :u8
   "Inspect whether weights are absent, heap-owned, or read-only mapped."
@@ -912,8 +912,8 @@
               (a/field (a/index metadata-catalog metadata-index) key_length)))
     0
     (a/index (a/unwrap model-bytes)
-              (+ (a/field (a/index metadata-catalog metadata-index) key_start)
-                 byte-index))))
+             (+ (a/field (a/index metadata-catalog metadata-index) key_start)
+                byte-index))))
 
 (a/defn metadata-name-equals :bool
   [[metadata-index :usize]
@@ -987,7 +987,7 @@
               (ak/*% (ak/bit-xor
                       hash
                       (ak/as (a/index (a/unwrap model-bytes)
-                                       (+ start index))
+                                      (+ start index))
                              :u64))
                      1099511628211))))
     hash))
@@ -1004,7 +1004,7 @@
               (ak/*% (ak/bit-xor
                       hash
                       (ak/as (a/index (a/unwrap model-bytes)
-                                       (+ left-start index))
+                                      (+ left-start index))
                              :u64))
                      1099511628211)))
       (dotimes [index right-length]
@@ -1012,7 +1012,7 @@
               (ak/*% (ak/bit-xor
                       hash
                       (ak/as (a/index (a/unwrap model-bytes)
-                                       (+ right-start index))
+                                      (+ right-start index))
                              :u64))
                      1099511628211))))
     hash))
@@ -1052,7 +1052,7 @@
       (dotimes [index right-length]
         (when (ak/!=
                (a/index (a/unwrap model-bytes)
-                         (+ token-start left-length index))
+                        (+ token-start left-length index))
                (a/index (a/unwrap model-bytes) (+ right-start index)))
           (ak/= equal false)))
       equal)))
@@ -1185,20 +1185,20 @@
         merges-index (find-metadata "tokenizer.ggml.merges")
         tokens-info
         (a/index metadata-catalog
-                  (if (< tokens-index metadata-catalog-count) tokens-index 0))
+                 (if (< tokens-index metadata-catalog-count) tokens-index 0))
         merges-info
         (a/index metadata-catalog
-                  (if (< merges-index metadata-catalog-count) merges-index 0))
+                 (if (< merges-index metadata-catalog-count) merges-index 0))
         ^:var valid (ak/bool (and (< tokens-index metadata-catalog-count)
-                   (< merges-index metadata-catalog-count)
-                   (ak/== (a/field tokens-info value_type) 9)
-                   (ak/== (a/field tokens-info element_type) 8)
-                   (ak/== (a/field tokens-info element_count)
-                          tokenizer-vocabulary-capacity)
-                   (ak/== (a/field merges-info value_type) 9)
-                   (ak/== (a/field merges-info element_type) 8)
-                   (<= (a/field merges-info element_count)
-                       tokenizer-vocabulary-capacity)))
+                                  (< merges-index metadata-catalog-count)
+                                  (ak/== (a/field tokens-info value_type) 9)
+                                  (ak/== (a/field tokens-info element_type) 8)
+                                  (ak/== (a/field tokens-info element_count)
+                                         tokenizer-vocabulary-capacity)
+                                  (ak/== (a/field merges-info value_type) 9)
+                                  (ak/== (a/field merges-info element_type) 8)
+                                  (<= (a/field merges-info element_count)
+                                      tokenizer-vocabulary-capacity)))
         ^:var cursor (ak/usize (if valid (a/field tokens-info value_start) 0))]
     (ak/= tokenizer-valid false)
     (ak/= tokenizer-token-count 0)
@@ -1305,8 +1305,8 @@
                  (ak/== (mod (a/index (a/field (a/index tensor-catalog kv-index) dimensions) 1)
                              (/ hidden attention-heads)) 0))
           (ak/as (ak/intCast
-            (/ (a/index (a/field (a/index tensor-catalog kv-index) dimensions) 1)
-               (/ hidden attention-heads))) :u32)
+                  (/ (a/index (a/field (a/index tensor-catalog kv-index) dimensions) 1)
+                     (/ hidden attention-heads))) :u32)
           (ak/as 0 :u32))
         profile
         (cond
@@ -1497,8 +1497,8 @@
               (a/field (a/index tensor-catalog tensor-index) name_length)))
     0
     (a/index (a/unwrap model-bytes)
-              (+ (a/field (a/index tensor-catalog tensor-index) name_start)
-                 byte-index))))
+             (+ (a/field (a/index tensor-catalog tensor-index) name_start)
+                byte-index))))
 
 (a/defn tensor-name-equals :bool
   [[tensor-index :usize]
@@ -1555,7 +1555,7 @@
                    (std-posix/mmap
                     ak/null size
                     {:READ true}
-                    {:TYPE :.PRIVATE}
+                    {:TYPE :PRIVATE}
                     (runtime/fileno file)
                     0)
                    ak/null)]
@@ -1616,42 +1616,42 @@
                       (* (ak/as (a/index block 1) :u16) 256))
         scale (ak/as (ak/floatCast (ak/as (ak/bitCast scale-bits) :f16)) :f32)
         packed-bytes (ak/as (ak/bitCast
-                      (a/deref
-                       (a/cast (+ block 2)
-                                [:* {:const? true}
-                                 [:array 16 :u8]]))) [:vector 16 :u8])
+                             (a/deref
+                              (a/cast (+ block 2)
+                                      [:* {:const? true}
+                                       [:array 16 :u8]]))) [:vector 16 :u8])
         low-unsigned
         (ak/as (ak/& packed-bytes
-              (ak/as (ak/splat 15) (a/type [:vector 16 :u8]))) [:vector 16 :u8])
+                     (ak/as (ak/splat 15) (a/type [:vector 16 :u8]))) [:vector 16 :u8])
         high-unsigned
         (ak/as (ak/>> packed-bytes
-               (ak/as (ak/splat 4) [:vector 16 :u3])) [:vector 16 :u8])
+                      (ak/as (ak/splat 4) [:vector 16 :u3])) [:vector 16 :u8])
         low-signed
         (ak/as (- (ak/as (ak/intCast low-unsigned)
-                  (a/type [:vector 16 :i16]))
-           (ak/as (ak/splat 8) (a/type [:vector 16 :i16]))) [:vector 16 :i16])
+                         (a/type [:vector 16 :i16]))
+                  (ak/as (ak/splat 8) (a/type [:vector 16 :i16]))) [:vector 16 :i16])
         high-signed
         (ak/as (- (ak/as (ak/intCast high-unsigned)
-                  (a/type [:vector 16 :i16]))
-           (ak/as (ak/splat 8) (a/type [:vector 16 :i16]))) [:vector 16 :i16])
+                         (a/type [:vector 16 :i16]))
+                  (ak/as (ak/splat 8) (a/type [:vector 16 :i16]))) [:vector 16 :i16])
         low-values
         (ak/as (ak/as (ak/floatFromInt low-signed)
-               (a/type [:vector 16 :f32])) [:vector 16 :f32])
+                      (a/type [:vector 16 :f32])) [:vector 16 :f32])
         high-values
         (ak/as (ak/as (ak/floatFromInt high-signed)
-               (a/type [:vector 16 :f32])) [:vector 16 :f32])
+                      (a/type [:vector 16 :f32])) [:vector 16 :f32])
         low-input (ak/as (ak/bitCast
-                   (a/deref
-                    (a/cast input
-                             [:* {:const? true}
-                              [:array 16 :f32]]))) [:vector 16 :f32])
+                          (a/deref
+                           (a/cast input
+                                   [:* {:const? true}
+                                    [:array 16 :f32]]))) [:vector 16 :f32])
         high-input (ak/as (ak/bitCast
-                    (a/deref
-                     (a/cast (+ input 16)
-                              [:* {:const? true}
-                               [:array 16 :f32]]))) [:vector 16 :f32])]
+                           (a/deref
+                            (a/cast (+ input 16)
+                                    [:* {:const? true}
+                                     [:array 16 :f32]]))) [:vector 16 :f32])]
     (* scale
-       (ak/reduce :.Add
+       (ak/reduce :Add
                   (+ (* low-values low-input)
                      (* high-values high-input))))))
 
@@ -1683,10 +1683,10 @@
   (let [^:var square-sum (ak/f32 0.0)]
     (dotimes [index length]
       (ak/= square-sum (+ square-sum (* (a/index input index)
-                                       (a/index input index)))))
+                                        (a/index input index)))))
     (let [inverse-rms (/ 1.0 (std-math/sqrt (+ (/ square-sum
-                                                   (ak/as (ak/floatFromInt length) :f32))
-                                                epsilon)))]
+                                                  (ak/as (ak/floatFromInt length) :f32))
+                                               epsilon)))]
       (dotimes [index length]
         (ak/= (a/index output index)
               (* (a/index input index) inverse-rms (a/index weights index)))))))
@@ -1903,7 +1903,7 @@
     (when valid
       (let [memory (a/unwrap sequence-memory)
             mamba-count (* model-mamba-layer-count
-                            model-mamba-recurrent-size)
+                           model-mamba-recurrent-size)
             conv-count (* model-mamba-layer-count
                           model-mamba-conv-state-size)
             kv-count (* model-attention-layer-count
@@ -1919,7 +1919,7 @@
         (ak/memset (a/slice memory key-start (+ key-start kv-count)) 0.0)
         (ak/memset (a/slice memory value-start (+ value-start kv-count)) 0.0)
         (ak/memset (a/slice action-head-inputs (* racer action-head-input-count)
-                    (* (+ racer 1) action-head-input-count)) 0.0)
+                            (* (+ racer 1) action-head-input-count)) 0.0)
         (ak/= (a/index sequence-positions racer) 0)))
     valid))
 
@@ -1935,13 +1935,13 @@
       (dotimes [index model-hidden-size]
         (ak/= (a/index output index)
               (a/index action-head-inputs
-                        (+ (* racer action-head-input-count)
-                           (* (ak/as (ak/min
-                                      (- (a/index sequence-positions racer) 1)
-                                      (ak/as 7 :u16))
-                                     :usize)
-                              model-hidden-size)
-                           index)))))
+                       (+ (* racer action-head-input-count)
+                          (* (ak/as (ak/min
+                                     (- (a/index sequence-positions racer) 1)
+                                     (ak/as 7 :u16))
+                                    :usize)
+                             model-hidden-size)
+                          index)))))
     valid))
 
 (a/defn copy-action-features! :bool
@@ -1955,7 +1955,7 @@
       (dotimes [index action-head-input-count]
         (ak/= (a/index output index)
               (a/index action-head-inputs
-                        (+ (* racer action-head-input-count) index)))))
+                       (+ (* racer action-head-input-count) index)))))
     valid))
 
 (a/defn sequence-summary SequenceSummary
@@ -2037,9 +2037,9 @@
         up-index (layer-ffn-up-index layer)
         down-index (layer-ffn-down-index layer)
         ^:var valid (ak/bool (ak/! (or (ak/== norm-index tensor-not-found)
-                        (ak/== gate-index tensor-not-found)
-                        (ak/== up-index tensor-not-found)
-                        (ak/== down-index tensor-not-found))))]
+                                       (ak/== gate-index tensor-not-found)
+                                       (ak/== up-index tensor-not-found)
+                                       (ak/== down-index tensor-not-found))))]
     (when valid
       (ak/= valid
             (tensor-rms-norm! normalized hidden norm-index
@@ -2088,8 +2088,8 @@
         ^:var d (ak/as (std-mem/zeroes (a/type [:array model-max-mamba-head-count :f32])) [:array model-max-mamba-head-count :f32])
         ^:var dt-bias (ak/as (std-mem/zeroes (a/type [:array model-max-mamba-head-count :f32])) [:array model-max-mamba-head-count :f32])
         ^:var valid (ak/bool (and (< layer model-layer-count)
-                   (ak/! (attention-layer? layer))
-                   (ak/!= base tensor-not-found)))]
+                                  (ak/! (attention-layer? layer))
+                                  (ak/!= base tensor-not-found)))]
     (when valid
       (ak/= valid
             (tensor-rms-norm! normalized hidden norm-index
@@ -2172,8 +2172,8 @@
    [ffn-activated [:c-pointer :f32]]
    [ffn-output [:c-pointer :f32]]]
   (and (mamba-layer-step! layer hidden recurrent-state conv-state normalized
-                           projected convolved scan-output gated-output
-                           branch-output)
+                          projected convolved scan-output gated-output
+                          branch-output)
        (layer-ffn! layer hidden normalized ffn-gate ffn-up ffn-activated
                    ffn-output)))
 
@@ -2198,8 +2198,8 @@
         query-index (+ base 3)
         value-index (+ base 4)
         ^:var valid (ak/bool (and (< position sequence-capacity)
-                   (attention-layer? layer)
-                   (ak/!= base tensor-not-found)))]
+                                  (attention-layer? layer)
+                                  (ak/!= base tensor-not-found)))]
     (when valid
       (ak/= valid
             (tensor-rms-norm! normalized hidden norm-index
@@ -2216,10 +2216,10 @@
     (when valid
       (dotimes [component model-attention-kv-size]
         (ak/= (a/index key-cache
-                        (+ (* position model-attention-kv-size) component))
+                       (+ (* position model-attention-kv-size) component))
               (a/index key component))
         (ak/= (a/index value-cache
-                        (+ (* position model-attention-kv-size) component))
+                       (+ (* position model-attention-kv-size) component))
               (a/index value component)))
       (dotimes [query-head model-attention-head-count]
         (let [kv-head
@@ -2236,7 +2236,7 @@
                       (+ score
                          (* (a/index query (+ query-start component))
                             (a/index key-cache
-                                      (+ cache-start component))))))
+                                     (+ cache-start component))))))
               (ak/= (a/index scores token) (* score model-attention-scale))))
           (softmax! scores (+ position 1))
           (dotimes [component model-attention-head-size]
@@ -2246,8 +2246,8 @@
                       (+ total
                          (* (a/index scores token)
                             (a/index value-cache
-                                      (+ (* token model-attention-kv-size)
-                                         kv-start component))))))
+                                     (+ (* token model-attention-kv-size)
+                                        kv-start component))))))
               (ak/= (a/index attention-output (+ query-start component))
                     total)))))
       (ak/= valid
@@ -2390,11 +2390,11 @@
                 (ak/= (a/index residual index)
                       (* 12.0 (embedding-value-kernel token index))))
               (ak/= :_ (tensor-rms-norm!
-                       (ak/& (a/index normalized 0))
-                       (ak/& (a/index residual 0)) norm-index 768 0.00001))
+                        (ak/& (a/index normalized 0))
+                        (ak/& (a/index residual 0)) norm-index 768 0.00001))
               (ak/= :_ (tensor-matvec!
-                       (ak/& (a/index projected 0)) 3376 in-index
-                       (ak/& (a/index normalized 0))))
+                        (ak/& (a/index projected 0)) 3376 in-index
+                        (ak/& (a/index normalized 0))))
               (dotimes [channel 1792]
                 (ak/= (a/index convolved channel)
                       (silu (+ (* (a/index projected (+ 1536 channel))
@@ -2419,13 +2419,13 @@
                (ak/& (a/index dt-bias 0))
                48 32 128)
               (ak/= :_ (tensor-rms-norm-gated!
-                       (ak/& (a/index gated-output 0))
-                       (ak/& (a/index scan-output 0))
-                       (ak/& (a/index projected 0))
-                       mamba-norm-index 1536 0.00001))
+                        (ak/& (a/index gated-output 0))
+                        (ak/& (a/index scan-output 0))
+                        (ak/& (a/index projected 0))
+                        mamba-norm-index 1536 0.00001))
               (ak/= :_ (tensor-matvec!
-                       (ak/& (a/index branch-output 0)) 768 out-index
-                       (ak/& (a/index gated-output 0))))
+                        (ak/& (a/index branch-output 0)) 768 out-index
+                        (ak/& (a/index gated-output 0))))
               (+ (a/index residual component)
                  (* 0.246 (a/index branch-output component))))))))))
 
@@ -2525,9 +2525,9 @@
             low-shift (ak/u3 (if (>= (mod sub-block 4) 2) 4 0))
             high-shift (ak/u3 (ak/intCast (* (mod sub-block 4) 2)))
             low-packed (ak/as (ak/bitCast (a/deref (a/cast (+ block low-index)
-                                             [:* {:const? true} [:array 16 :u8]]))) [:vector 16 :u8])
+                                                           [:* {:const? true} [:array 16 :u8]]))) [:vector 16 :u8])
             high-packed (ak/as (ak/bitCast (a/deref (a/cast (+ block high-index)
-                                              [:* {:const? true} [:array 16 :u8]]))) [:vector 16 :u8])
+                                                            [:* {:const? true} [:array 16 :u8]]))) [:vector 16 :u8])
             low (ak/& (ak/>> low-packed (ak/as (ak/splat low-shift) (a/type [:vector 16 :u3])))
                       (ak/as (ak/splat 15) (a/type [:vector 16 :u8])))
             high (ak/& (ak/>> high-packed (ak/as (ak/splat high-shift) (a/type [:vector 16 :u3])))
@@ -2537,12 +2537,12 @@
                          (ak/as (ak/splat 32) (a/type [:vector 16 :i16])))
             scale (ak/as (ak/bitCast (a/index block (+ 192 group))) :i8)
             scaled-delta (ak/as (ak/splat (* delta (ak/as (ak/floatFromInt scale) :f32)))
-                               (a/type [:vector 16 :f32]))
+                                (a/type [:vector 16 :f32]))
             values (* scaled-delta (ak/as (ak/floatFromInt quantized) (a/type [:vector 16 :f32])))
             inputs (ak/as (ak/bitCast (a/deref (a/cast (+ input (* group 16))
-                                         [:* {:const? true} [:array 16 :f32]]))) [:vector 16 :f32])]
+                                                       [:* {:const? true} [:array 16 :f32]]))) [:vector 16 :f32])]
         (ak/= total (+ total (* values inputs)))))
-    (ak/reduce :.Add total)))
+    (ak/reduce :Add total)))
 
 (a/defn- embedding-value-kernel :f32
   "Read the active profile's embedding width and quantization, not a fixed
@@ -2744,14 +2744,14 @@
                                    (ak/& (a/index hidden 0))
                                    norm-index 768 0.00001))
         (ak/= :_ (tensor-matvec! (ak/& (a/index gate 0)) 2048 gate-index
-                                (ak/& (a/index normalized 0))))
+                                 (ak/& (a/index normalized 0))))
         (ak/= :_ (tensor-matvec! (ak/& (a/index up 0)) 2048 up-index
-                                (ak/& (a/index normalized 0))))
+                                 (ak/& (a/index normalized 0))))
         (dotimes [index 2048]
           (ak/= (a/index activated index)
                 (* (silu (a/index gate index)) (a/index up index))))
         (ak/= :_ (tensor-matvec! (ak/& (a/index output 0)) 768 down-index
-                                (ak/& (a/index activated 0))))
+                                 (ak/& (a/index activated 0))))
         (a/index output 0)))))
 
 (a/defn action-head-logit :f32
@@ -2812,13 +2812,13 @@
         (a/init [32 33 34 35 36 37 38 39] [:array 8 :u32])
         ^:var candidate-logits (ak/as (std-mem/zeroes (a/type [:array 8 :f32])) [:array 8 :f32])
         position (ak/usize (if (< racer sequence-racer-count)
-                   (ak/as (a/index sequence-positions racer) :usize)
-                   sequence-capacity))
+                             (ak/as (a/index sequence-positions racer) :usize)
+                             sequence-capacity))
         ^:var valid (ak/bool (and (a/field model-summary valid)
-                   (ak/!= sequence-memory ak/null)
-                   (< racer sequence-racer-count)
-                   (< position sequence-capacity)
-                   (<= token model-vocabulary-size)))
+                                  (ak/!= sequence-memory ak/null)
+                                  (< racer sequence-racer-count)
+                                  (< position sequence-capacity)
+                                  (<= token model-vocabulary-size)))
         ^:var checksum (ak/f32 0.0)
         team-actor (>= racer protocol/racer-count)
         candidate-count (if team-actor team-head-output-count
@@ -2830,7 +2830,7 @@
         (ak/= (a/index hidden index)
               (if (ak/== token model-vocabulary-size)
                 (a/index fused-observation-inputs
-                          (+ (* racer model-hidden-size) index))
+                         (+ (* racer model-hidden-size) index))
                 (* 12.0 (embedding-value-kernel token index)))))
       (dotimes [layer model-layer-count]
         (when valid
@@ -2887,21 +2887,21 @@
           (dotimes [slot (- action-head-token-count 1)]
             (dotimes [index model-hidden-size]
               (ak/= (a/index action-head-inputs
-                              (+ (* racer action-head-input-count)
-                                 (* slot model-hidden-size)
-                                 index))
+                             (+ (* racer action-head-input-count)
+                                (* slot model-hidden-size)
+                                index))
                     (a/index action-head-inputs
-                              (+ (* racer action-head-input-count)
-                                 (* (+ slot 1) model-hidden-size)
-                                 index))))))
+                             (+ (* racer action-head-input-count)
+                                (* (+ slot 1) model-hidden-size)
+                                index))))))
         (dotimes [index model-hidden-size]
           (let [hidden-value (a/index normalized index)
                 feature-slot (ak/min position (- action-head-token-count 1))]
             (ak/= checksum (+ checksum hidden-value))
             (ak/= (a/index action-head-inputs
-                            (+ (* racer action-head-input-count)
-                               (* feature-slot model-hidden-size)
-                               index))
+                           (+ (* racer action-head-input-count)
+                              (* feature-slot model-hidden-size)
+                              index))
                   hidden-value)))
         (dotimes [candidate candidate-count]
           (let [candidate-token (a/index candidate-tokens candidate)
@@ -2911,14 +2911,14 @@
                   (team-head-logit
                    candidate
                    (ak/& (a/index action-head-inputs
-                                   (* racer action-head-input-count))))
+                                  (* racer action-head-input-count))))
 
                   (and (ak/! team-actor)
                        (a/field action-head-summary valid))
                   (action-head-logit
                    candidate
                    (ak/& (a/index action-head-inputs
-                                   (* racer action-head-input-count))))
+                                  (* racer action-head-input-count))))
 
                   :else
                   (/ (embedding-row-dot
@@ -2956,10 +2956,10 @@
   (let [tokenized (tokenize-compact-ascii bytes length)
         ^:var report (ak/as (empty-forward-report) ForwardReport)
         ^:var valid (ak/bool (and (a/field tokenized valid)
-                   (ak/! (a/field tokenized truncated))
-                   (ak/== (a/field tokenized token_count)
-                          action-head-token-count)
-                   (< racer sequence-racer-count)))]
+                                  (ak/! (a/field tokenized truncated))
+                                  (ak/== (a/field tokenized token_count)
+                                         action-head-token-count)
+                                  (< racer sequence-racer-count)))]
     (when (and valid reset)
       (ak/= valid (reset-sequence! racer)))
     (when valid
@@ -2983,7 +2983,7 @@
                            (* position-sign
                               (embedding-value-kernel token dimension))))))
               (ak/= (a/index fused-observation-inputs
-                              (+ (* racer model-hidden-size) dimension))
+                             (+ (* racer model-hidden-size) dimension))
                     (* total 6.0))))
           (ak/= report (forward-token! racer model-vocabulary-size))
           (ak/= valid (a/field report valid)))))
@@ -3010,8 +3010,8 @@
   (let [tokenized (tokenize-compact-ascii bytes length)
         ^:var report (ak/as (empty-forward-report) ForwardReport)
         ^:var valid (ak/bool (and (a/field tokenized valid)
-                   (ak/! (a/field tokenized truncated))
-                   (> (a/field tokenized token_count) 0)))]
+                                  (ak/! (a/field tokenized truncated))
+                                  (> (a/field tokenized token_count) 0)))]
     (when (and valid reset)
       (ak/= valid (reset-sequence! racer)))
     (when valid
@@ -3068,7 +3068,7 @@
             (when (or (< second-byte 128) (> second-byte 191))
               (ak/return (ak/as 65535 :u16)))
             (ak/= code (+ (* (ak/as (- first-byte 192) :u32) 64)
-                         (ak/as (- second-byte 128) :u32)))
+                          (ak/as (- second-byte 128) :u32)))
             (ak/= offset (+ offset 1))))
         (let [byte (gpt2-codepoint-byte code)]
           (when (or (< byte 0) (>= written capacity))
@@ -3086,11 +3086,11 @@
     (ak/return (ak/as 0xffffffff :u32)))
   (let [separate (find-tensor "output.weight")
         output (if (< separate tensor-catalog-count) separate
-                 (find-tensor "token_embd.weight"))
+                   (find-tensor "token_embd.weight"))
         slot (ak/min (- (ak/as (a/index sequence-positions racer) :usize) 1)
                      (- action-head-token-count 1))
         hidden (ak/& (a/index action-head-inputs
-                      (+ (* racer action-head-input-count) (* slot model-hidden-size))))
+                              (+ (* racer action-head-input-count) (* slot model-hidden-size))))
         ^:var best (ak/u32 0xffffffff)
         ^:var best-score (ak/f32 -3.4e38)]
     (when (>= output tensor-catalog-count)
@@ -3120,7 +3120,7 @@
               ^:var same true]
           (dotimes [i length]
             (when (ak/!= (a/index (a/unwrap model-bytes) (+ start i))
-                        (a/index spelling i))
+                         (a/index spelling i))
               (ak/= same false)))
           (when same (ak/return (ak/as (ak/intCast token) :u32)))))))
   (ak/as 0xffffffff :u32))
@@ -3231,8 +3231,8 @@
         end-role (vocabulary-token-id "<|end_of_role|>" 15)
         eos (metadata-u32 (find-metadata "tokenizer.ggml.eos_token_id") 0xffffffff)
         total (+ 10 (a/field content token_count)
-                    (a/field system-role token_count) (a/field system-content token_count)
-                   (a/field user-role token_count) (a/field assistant-role token_count))
+                 (a/field system-role token_count) (a/field system-content token_count)
+                 (a/field user-role token_count) (a/field assistant-role token_count))
         ^:var result (std-mem/zeroes (a/type TokenizationReport))
         ^:var cursor (ak/usize 0)]
     (ak/= (a/field result byte_count) (a/field content byte_count))
@@ -3321,8 +3321,8 @@
           (ak/= (a/field result stop) 4)
           (ak/return result))
         (let [size (decode-language-token! token
-                     (ak/& (a/index (a/field result bytes) (a/field result byte_count)))
-                     (- 2048 (a/field result byte_count)))]
+                                           (ak/& (a/index (a/field result bytes) (a/field result byte_count)))
+                                           (- 2048 (a/field result byte_count)))]
           (when (ak/== size 65535)
             (ak/= (a/field result valid) false)
             (ak/= (a/field result stop) 4)
@@ -3354,11 +3354,11 @@
   "Execute deterministic native fixtures without allocating or invoking a server."
   []
   (let [block (a/init [0 60 153 153 153 153 153 153 153 153
-                              153 153 153 153 153 153 153 153] [:array 18 :u8])
+                       153 153 153 153 153 153 153 153] [:array 18 :u8])
         input (a/init [1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
-                              1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
-                              1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
-                              1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0] [:array 32 :f32])
+                       1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
+                       1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0
+                       1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0] [:array 32 :f32])
         norm-input (a/init [1.0 2.0 3.0 4.0] [:array 4 :f32])
         weights (a/init [1.0 1.0 1.0 1.0] [:array 4 :f32])
         ^:var norm-output (ak/as (a/init [0.0 0.0 0.0 0.0] [:array 4 :f32]) [:array 4 :f32])

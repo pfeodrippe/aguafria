@@ -5,11 +5,11 @@
             [aguafria.zig :as a]))
 
 (a/defn- char-to-digit :u8 [[c :u8]]
-  (switch c
-          (case [(k/... \0 \9)] (k/- c \0))
-          (case [(k/... \A \Z)] (k/+ (k/- c \A) 10))
-          (case [(k/... \a \z)] (k/+ (k/- c \a) 10))
-          (a/case-else (math/maxInt :u8))))
+  (k/switch c
+    (k/... \0 \9) (k/- c \0)
+    (k/... \A \Z) (k/+ (k/- c \A) 10)
+    (k/... \a \z) (k/+ (k/- c \a) 10)
+    (math/maxInt :u8)))
 
 (a/defn parseU64 [:error-union :u64]
   [[buf [:slice-const :u8]] [radix :u8]]

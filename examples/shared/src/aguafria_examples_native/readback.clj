@@ -30,12 +30,12 @@
 (a/defvar height :u32 0)
 
 (a/defn status :u8 []
-  (ak/atomicLoad :u8 (ak/& state) :.acquire))
+  (ak/atomicLoad :u8 (ak/& state) :acquire))
 
 (a/defn acknowledge! :bool []
   (let [current (status)]
     (and (>= current 4)
-         (ak/== (ak/cmpxchgStrong :u8 (ak/& state) current 0 :.acq_rel :.acquire) ak/null))))
+         (ak/== (ak/cmpxchgStrong :u8 (ak/& state) current 0 :acq_rel :acquire) ak/null))))
 
 (a/defn request! :bool
   "Copy a NUL-terminated path; reject empty/oversized paths and an occupied slot."
@@ -45,11 +45,11 @@
     (while (and (< length 1024) (ak/!= (a/index path length) 0))
       (ak/= length (+ length 1)))
     (when (or (ak/== length 0) (>= length 1024)) (ak/return false))
-    (when (ak/!= (ak/cmpxchgStrong :u8 (ak/& state) 0 1 :.acq_rel :.acquire) ak/null)
+    (when (ak/!= (ak/cmpxchgStrong :u8 (ak/& state) 0 1 :acq_rel :acquire) ak/null)
       (ak/return false))
     (dotimes [index (+ length 1)]
       (ak/= (a/index filename index) (a/index path index)))
-    (ak/atomicStore :u8 (ak/& state) 2 :.release)
+    (ak/atomicStore :u8 (ak/& state) 2 :release)
     true))
 
 (a/defn supported-format? :bool [[format vk/VkFormat]]
@@ -59,7 +59,7 @@
       (ak/== format vk/VK_FORMAT_R8G8B8A8_SRGB)))
 
 (a/defn reject! :void []
-  (ak/atomicStore :u8 (ak/& state) 5 :.release))
+  (ak/atomicStore :u8 (ak/& state) 5 :release))
 
 (a/defn release! :void [[device vk/VkDevice]]
   (when (ak/!= mapped ak/null) (vk/vkUnmapMemory device memory))
@@ -73,9 +73,9 @@
   (a/set-many! width (a/field extent width) height (a/field extent height))
   (let [bytes (* (ak/as width :u64) height 4)
         info (vk/VkBufferCreateInfo
-               {:sType vk/VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO
-                :size bytes :usage vk/VK_BUFFER_USAGE_TRANSFER_DST_BIT
-                :sharingMode vk/VK_SHARING_MODE_EXCLUSIVE})
+              {:sType vk/VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO
+               :size bytes :usage vk/VK_BUFFER_USAGE_TRANSFER_DST_BIT
+               :sharingMode vk/VK_SHARING_MODE_EXCLUSIVE})
         ^:var requirements (mem/zeroes (a/type vk/VkMemoryRequirements))
         ^:var properties (mem/zeroes (a/type vk/VkPhysicalDeviceMemoryProperties))
         ^:var selected (ak/u32 0xffffffff)]
@@ -94,14 +94,14 @@
           (ak/= selected (ak/intCast index)))))
     (when (ak/== selected 0xffffffff) (release! device) (ak/return false))
     (let [allocation (vk/VkMemoryAllocateInfo
-                       {:sType vk/VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO
-                        :allocationSize (a/field requirements size) :memoryTypeIndex selected})]
+                      {:sType vk/VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO
+                       :allocationSize (a/field requirements size) :memoryTypeIndex selected})]
       (when (or (ak/!= (vk/vkAllocateMemory device (ak/& allocation) ak/null (ak/& memory)) vk/VK_SUCCESS)
                 (ak/!= (vk/vkBindBufferMemory device buffer memory 0) vk/VK_SUCCESS)
                 (ak/!= (vk/vkMapMemory device memory 0 bytes 0 (ak/& mapped)) vk/VK_SUCCESS))
         (release! device)
         (ak/return false)))
-    (ak/atomicStore :u8 (ak/& state) 3 :.release)
+    (ak/atomicStore :u8 (ak/& state) 3 :release)
     true))
 
 (a/defn record! :void
@@ -117,28 +117,28 @@
                         :dstQueueFamilyIndex vk/VK_QUEUE_FAMILY_IGNORED
                         :image source
                         :subresourceRange (vk/VkImageSubresourceRange
-                                            {:aspectMask vk/VK_IMAGE_ASPECT_COLOR_BIT
-                                             :levelCount 1 :layerCount 1})})
+                                           {:aspectMask vk/VK_IMAGE_ASPECT_COLOR_BIT
+                                            :levelCount 1 :layerCount 1})})
         region (vk/VkBufferImageCopy
-                 {:imageSubresource (vk/VkImageSubresourceLayers
-                                      {:aspectMask vk/VK_IMAGE_ASPECT_COLOR_BIT :layerCount 1})
-                  :imageExtent (vk/VkExtent3D {:width width :height height :depth 1})})
+                {:imageSubresource (vk/VkImageSubresourceLayers
+                                    {:aspectMask vk/VK_IMAGE_ASPECT_COLOR_BIT :layerCount 1})
+                 :imageExtent (vk/VkExtent3D {:width width :height height :depth 1})})
         host-barrier (vk/VkBufferMemoryBarrier
-                       {:sType vk/VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER
-                        :srcAccessMask vk/VK_ACCESS_TRANSFER_WRITE_BIT
-                        :dstAccessMask vk/VK_ACCESS_HOST_READ_BIT
-                        :srcQueueFamilyIndex vk/VK_QUEUE_FAMILY_IGNORED
-                        :dstQueueFamilyIndex vk/VK_QUEUE_FAMILY_IGNORED
-                        :buffer buffer :size vk/VK_WHOLE_SIZE})]
+                      {:sType vk/VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER
+                       :srcAccessMask vk/VK_ACCESS_TRANSFER_WRITE_BIT
+                       :dstAccessMask vk/VK_ACCESS_HOST_READ_BIT
+                       :srcQueueFamilyIndex vk/VK_QUEUE_FAMILY_IGNORED
+                       :dstQueueFamilyIndex vk/VK_QUEUE_FAMILY_IGNORED
+                       :buffer buffer :size vk/VK_WHOLE_SIZE})]
     (vk/vkCmdPipelineBarrier command vk/VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
                              vk/VK_PIPELINE_STAGE_TRANSFER_BIT 0 0 ak/null 0 ak/null 1 (ak/& barrier))
     (vk/vkCmdCopyImageToBuffer command source vk/VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
                                buffer 1 (ak/& region))
     (a/set-many!
-      (a/field barrier srcAccessMask) vk/VK_ACCESS_TRANSFER_READ_BIT
-      (a/field barrier dstAccessMask) 0
-      (a/field barrier oldLayout) vk/VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
-      (a/field barrier newLayout) vk/VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
+     (a/field barrier srcAccessMask) vk/VK_ACCESS_TRANSFER_READ_BIT
+     (a/field barrier dstAccessMask) 0
+     (a/field barrier oldLayout) vk/VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
+     (a/field barrier newLayout) vk/VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
     (vk/vkCmdPipelineBarrier command vk/VK_PIPELINE_STAGE_TRANSFER_BIT
                              (ak/| vk/VK_PIPELINE_STAGE_HOST_BIT vk/VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT)
                              0 0 ak/null 1 (ak/& host-barrier) 1 (ak/& barrier))))
@@ -148,9 +148,9 @@
   [[format vk/VkFormat] [frame :u64] [revision :u64] [tick :u64]]
   (let [^:var header-buffer (mem/zeroes (a/type [:array 256 :u8]))
         header (catch (mem/print (ak/& header-buffer)
-                        "P6\n# pitoco frame={d} revision={d} tick={d} vk_format={d}\n{d} {d}\n255\n"
-                        [frame revision tick format width height])
-                 (ak/return false))
+                                 "P6\n# pitoco frame={d} revision={d} tick={d} vk_format={d}\n{d} {d}\n255\n"
+                                 [frame revision tick format width height])
+                      (ak/return false))
         pixels (a/cast mapped [:c-pointer :u8])
         bgra (or (ak/== format vk/VK_FORMAT_B8G8R8A8_UNORM)
                  (ak/== format vk/VK_FORMAT_B8G8R8A8_SRGB))
@@ -164,8 +164,8 @@
             green (a/index pixels (+ source 1))
             blue (a/index pixels (+ source (if bgra (ak/as 0 :usize) 2)))]
         (a/set-many! (a/index pixels target) red
-                      (a/index pixels (+ target 1)) green
-                      (a/index pixels (+ target 2)) blue)))
+                     (a/index pixels (+ target 1)) green
+                     (a/index pixels (+ target 2)) blue)))
     (let [bytes (* (ak/as width :usize) height 3)
           success (and (ak/== (fwrite (a/field header ptr) 1 (a/field header len) file)
                               (a/field header len))
@@ -177,4 +177,4 @@
   [[device vk/VkDevice] [format vk/VkFormat] [frame :u64] [revision :u64] [tick :u64]]
   (let [saved (write-frame! format frame revision tick)]
     (release! device)
-    (ak/atomicStore :u8 (ak/& state) (if saved 4 6) :.release)))
+    (ak/atomicStore :u8 (ak/& state) (if saved 4 6) :release)))

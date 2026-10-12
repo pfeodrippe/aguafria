@@ -34,6 +34,16 @@ pub fn Inspector(comptime declarations: anytype) type {
             @compileLog("aguafria.operation.hex:" ++ encoded);
         }
 
+        pub inline fn inRuntime() bool {
+            return !@inComptime();
+        }
+
+        pub inline fn logContext(comptime id: []const u8) void {
+            // Read phase before passing it to a comptime log parameter.
+            const in_comptime = @inComptime();
+            log("aguafria.context:" ++ id ++ ":" ++ if (in_comptime) ":comptime" else ":runtime");
+        }
+
         pub fn literal(comptime value: anytype) []const u8 {
             @setEvalBranchQuota(10_000_000);
             if (@TypeOf(value) == comptime_float)
@@ -501,6 +511,11 @@ pub fn Inspector(comptime declarations: anytype) type {
 
         pub fn schema(comptime T: type) []const u8 {
             @setEvalBranchQuota(10_000_000);
+            // Match the JVM type-result writer rather than choosing an arbitrary
+            // zero-argument function declaration with this structural signature.
+            if (@typeInfo(T) == .@"fn" and
+                @import("jvm_result.zig").__aguafria_jvm.hasStructuralType(T))
+                return "[:fn {} [] " ++ schema(@typeInfo(T).@"fn".return_type.?) ++ "]";
             if (declarationSchema(T)) |identity| return identity;
             return switch (@typeInfo(T)) {
                 .int, .float, .bool, .void, .noreturn, .comptime_int, .comptime_float, .type => ":" ++ @typeName(T),
@@ -573,6 +588,9 @@ pub fn Inspector(comptime declarations: anytype) type {
                         if (p.attrs.@"allowzero" and p.size != .c) options = options ++ " :allowzero? true";
                         if (p.attrs.@"align") |alignment| {
                             options = options ++ std.fmt.comptimePrint(" :align {d}", .{alignment});
+                        }
+                        if (comptime @import("jvm_result.zig").__aguafria_jvm.pointerBitRange(T)) |bits| {
+                            options = options ++ std.fmt.comptimePrint(" :bit-start {d} :bit-end {d}", .{ bits.start, bits.host_bytes });
                         }
                         if ((p.attrs.@"addrspace" != null and p.attrs.@"addrspace" != .generic))
                             options = options ++ " :addrspace :." ++ @tagName(p.attrs.@"addrspace".?);

@@ -11,7 +11,7 @@
     (try (k/comptime
           (testing/expectEqual (a/type [:vector 4 :bool])
                                (k/TypeOf result))))
-    (let [is-all-true (k/reduce :.And result)]
+    (let [is-all-true (k/reduce :And result)]
       (try (k/comptime
             (testing/expectEqual (a/type :bool) (k/TypeOf is-all-true))))
       (try (testing/expectEqual false is-all-true)))))

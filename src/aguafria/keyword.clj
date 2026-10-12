@@ -212,6 +212,14 @@
     (fn [target operand]
       ((requiring-resolve 'aguafria.zig.jvm/invoke-assignment!) token target operand))
 
+    (= "@field" (:zig-name token))
+    (fn [receiver field-name]
+      ;; A field is an lvalue when its receiver is mutable. The ordinary
+      ;; builtin result bridge would copy it and lose assignment/aliasing.
+      ((requiring-resolve 'aguafria.zig.jvm/invoke-syntax!)
+       {:kind :syntax :name 'field :symbol 'aguafria.zig/field}
+       [receiver field-name]))
+
     (= "@as" (:zig-name token))
     (fn [value type]
       ((requiring-resolve 'aguafria.zig.jvm/coerce!) value type))

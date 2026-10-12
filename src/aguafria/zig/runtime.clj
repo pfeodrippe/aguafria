@@ -178,6 +178,7 @@
   nil)
 
 (def ^:dynamic ^:private *namespace-image-preparation?* false)
+(def ^:dynamic ^:private *native-host-context?* false)
 
 (def ^:dynamic *precompile-build-submitter*
   "Precompile-owned bounded scheduler for frozen native compiler inputs.
@@ -452,11 +453,11 @@
             :type type
             :threadlocal? threadlocal?)
      #(cond
-        inferred?
+        (or inferred? threadlocal?)
+        ;; TLS addresses are runtime, platform-thread-local values; they cannot
+        ;; be passed to the declared-constant reader's comptime pointer argument.
         (let [view ((requiring-resolve 'aguafria.zig.jvm/variable-view!) declaration)]
           (assoc (zig-value/realize! view) :owners [view]))
-
-        threadlocal? (materialize-constant! declaration)
         :else (materialize-state! declaration)))))
 
 (defn- env-true?
@@ -4107,7 +4108,11 @@
                    ;; their native compiler/optimization profile.
                   :jvm-wrapper? (materializing-jvm-wrapper? module-name)
                   :jvm-namespace-image? *namespace-image-preparation?*
+                  :native-host-context? *native-host-context?*
                   :development-panic effective-development-panic
+                  ;; Root-sensitive graphs compile as independent object units;
+                  ;; the aggregate library still uses the shared bridge root.
+                  :bundle-forwarder development-panic-forwarder-source
                   :development-panic-support-path (:path panic-support)
                   :compiler-owned-linkage-support
                   (assoc (select-keys panic-support [:path :hash])
@@ -4159,7 +4164,8 @@
               collecting-handler? (and *compile-only?* bundle/*preparing*
                                        bundle/*batch-validation?* bundle/*validation-dependencies*
                                        (or jvm-adapter? (:jvm-wrapper? artifact)
-                                           (:jvm-namespace-image? artifact)))
+                                           (:jvm-namespace-image? artifact)
+                                           (:native-host-context? artifact)))
               candidate (when (or collecting-handler? (and bundle/*preparing* (not cached?)))
                           (bundle/candidate artifact))
               _ (when (and collecting-handler? (nil? candidate))
@@ -4254,6 +4260,9 @@
           (bundle/observe!
            (merge artifact
                   {:bundle bundled
+                   :isolated-linkage? (boolean (or (:isolated-linkage? candidate)
+                                                   (:isolated-linkage? prepared?)
+                                                   (:isolated-linkage? bundled)))
                    :validation-pending? (boolean (or batch-validation?
                                                      (:validation-pending? prepared?)))
                    :cached? cached?
@@ -5098,12 +5107,18 @@
    (when *compile-only?*
      (throw (ex-info "Native library loading is forbidden during compile-only preparation"
                      {:aguafria/phase :compile-only :library (:library-path compiled)})))
-   (let [arena (Arena/ofShared)]
+   (let [arena (Arena/ofShared)
+         isolated-path (atom nil)]
      (try
-       (let [lookup (if-let [entry (:bundle compiled)]
-                      (bundle/symbol-lookup entry)
-                      (SymbolLookup/libraryLookup
-                       ^Path (.toPath (io/file (:library-path compiled))) arena))
+       (let [isolated (when (and (:isolated-bundle? compiled) (:bundle compiled))
+                        (let [image (bundle/open-isolated-symbol-lookup! (:bundle compiled) arena)]
+                          (reset! isolated-path (:path image))
+                          image))
+             lookup (if isolated (:lookup isolated)
+                        (if-let [entry (:bundle compiled)]
+                          (bundle/symbol-lookup entry)
+                          (SymbolLookup/libraryLookup
+                           ^Path (.toPath (io/file (:library-path compiled))) arena)))
              linker (Linker/nativeLinker)
              _ (when (:native-test-context? compiled)
                  (let [binding (bind-function
@@ -5189,6 +5204,7 @@
              (bind-publication-epoch!
               linker lookup (vals dispatch-bindings))]
          (merge compiled {:arena arena :lookup lookup :linker linker
+                          :isolated-library-path @isolated-path
                           :loaded-declarations declarations
                           :functions functions
                           :values values
@@ -5203,6 +5219,7 @@
                           :native-value-refs (AtomicLong. 0)}))
        (catch Throwable error
          (try (.close ^Arena arena) (catch Throwable _))
+         (when @isolated-path (Files/deleteIfExists ^Path @isolated-path))
          (throw
           (ex-info
            (str "Aguafria could not load the compiled Zig library\n\n"
@@ -6240,7 +6257,15 @@
                      declaration (jvm-callable-argument-declaration declaration)
                      argument-modes
                      (mapv (fn [{:keys [type]}]
-                             (if (contains? scalar-layouts (scalar-key type))
+                             ;; Panama's byte/short carriers are signed. On
+                             ;; ABIs requiring zero-extended unsigned narrow
+                             ;; arguments (notably Darwin arm64), sign extension
+                             ;; can corrupt adjacent arguments inside Zig. Use
+                             ;; the existing exact native-storage bridge rather
+                             ;; than claiming a signed carrier has an unsigned ABI.
+                             (if (and (contains? scalar-layouts (scalar-key type))
+                                      (not (contains? #{:u8 :u16 :c_ushort}
+                                                      (scalar-key type))))
                                :scalar
                                :native))
                            (:args declaration))
@@ -11682,9 +11707,13 @@
 (defn call-with-inspection-context
   "Reuse one source/dependency snapshot across an analysis run's probes.
   A later run captures current declarations and build options again."
-  [module f]
-  (binding [*inspection-context* (inspection-context module)]
-    (f)))
+  ([module f] (call-with-inspection-context module identity f))
+  ([module declaration-filter f]
+   (let [context (inspection-context module)
+         declarations (vec (declaration-filter (:declarations context)))]
+     (binding [*inspection-context* (assoc context :declarations declarations
+                                           :options (inspection-options module declarations))]
+       (f)))))
 
 (defn inspect-module!
   "Compile a separate inspection source with Zig's test frontend, never execute
@@ -11745,18 +11774,22 @@
 
 (defn- native-test-commands
   [compiler-options selector source-file runner-file object-file library-file panic-support]
-  {:compile-command
-   (vec (concat [(:zig compiler-options) "test-obj" "--test-filter" selector
-                 "--test-no-exec" "--test-runner" (.getAbsolutePath ^File runner-file)
-                 "-fno-entry" "-fPIC" "-fllvm"
-                 (str "-femit-bin=" (.getAbsolutePath ^File object-file)) "-lc"]
-                (root-module-arguments source-file compiler-options)))
-   :link-command
-   (vec (concat [(:zig compiler-options) "build-lib" (.getAbsolutePath ^File object-file)
-                 (:path panic-support) "-dynamic" "-lc"
-                 (str "-femit-bin=" (.getAbsolutePath ^File library-file))]
-                (when-let [target (:target compiler-options)] ["-target" (str target)])
-                (when-let [cpu (:cpu compiler-options)] ["-mcpu" (str cpu)])))})
+  (let [link-arguments (bundle/test-object-link-arguments
+                        (cons "-lc" (root-module-arguments source-file (dissoc compiler-options :target :cpu))))]
+    {:link-arguments link-arguments
+     :compile-command
+     (vec (concat [(:zig compiler-options) "test-obj" "--test-filter" selector
+                   "--test-no-exec" "--test-runner" (.getAbsolutePath ^File runner-file)
+                   "-fno-entry" "-fPIC" "-fllvm"
+                   (str "-femit-bin=" (.getAbsolutePath ^File object-file)) "-lc"]
+                  (root-module-arguments source-file compiler-options)))
+     :link-command
+     (vec (concat [(:zig compiler-options) "build-lib" (.getAbsolutePath ^File object-file)
+                   (:path panic-support) "-dynamic"]
+                  link-arguments
+                  [(str "-femit-bin=" (.getAbsolutePath ^File library-file))]
+                  (when-let [target (:target compiler-options)] ["-target" (str target)])
+                  (when-let [cpu (:cpu compiler-options)] ["-mcpu" (str cpu)])))}))
 
 (defn- native-test-plan
   [module test-name & [candidate]]
@@ -11771,21 +11804,34 @@
         basename (str/replace (last (str/split module #"\.")) "-" "_")
         source-file (io/file directory (str basename ".zig"))
         debug-format (native-debug-format compiler-options)
-        token (subs (sha256 [source runner compiler-options (:hash panic-support) debug-format]) 0 24)
+        hash (sha256 [:native-test-object-v2 (artifact/generated-source-identity source)
+                      runner compiler-options (:hash panic-support) debug-format])
+        token (subs hash 0 24)
+        prefix (str "t_" token "_")
+        exports ["aguafria_run_test" "aguafria_test_panic_message"]
+        runner (reduce #(str/replace %1 %2 (str prefix %2)) runner exports)
         runner-file (io/file directory (str "jvm_test_runner_" token ".zig"))
         object-file (io/file directory (str "test_" token ".o"))
         library-file (io/file directory (System/mapLibraryName (str "test_" token)))
         selector (str basename ".test." (:test-name selected))
         ;; The compiler's test-object frontend retains real test discovery and
         ;; builtin.is_test. Link its object without a second LLVM codegen pass.
-        {:keys [compile-command link-command]}
+        {:keys [compile-command link-command link-arguments]}
         (native-test-commands compiler-options selector source-file runner-file
                               object-file library-file panic-support)
         details {:module module :test test-name :test-name (:test-name selected)
                  :source-path (.getAbsolutePath source-file)
                  :library-path (.getAbsolutePath library-file)
                  :dependencies dependencies :execution :in-process
-                 :command compile-command :link-command link-command}]
+                 :command compile-command :link-command link-command
+                 :export-prefix prefix}
+        bundle-artifact {:module (str module "$test$" test-name) :hash hash
+                         :native-test-object? true :object-path (.getAbsolutePath object-file)
+                         :source-path (.getAbsolutePath source-file)
+                         :prefix prefix :exports exports :command compile-command
+                         :development-panic-support-path (:path panic-support)
+                         :debug-format debug-format :forwarder development-panic-forwarder-source
+                         :link-args link-arguments}]
     ;; Root and transitive generated sources use immutable content-addressed
     ;; paths. Materialize them before the loader can register later declarations.
     (locking compile-lock
@@ -11794,13 +11840,14 @@
           (Files/writeString (.toPath ^File file) text StandardCharsets/UTF_8
                              (make-array StandardOpenOption 0)))))
     {:module module :source source :directory directory
+     :bundle-artifact bundle-artifact :compiler-options compiler-options
      :library-file library-file :debug-format debug-format
      :panic-support panic-support :details details
      ;; Arbitrary extra compiler arguments can name mutable external inputs.
      ;; Compile those immediately in their original loading context.
      :parallel-safe? (immutable-compiler-inputs? compiler-options)}))
 
-(defn- build-native-test-plan!
+(defn- build-standalone-native-test-plan!
   [{:keys [module source directory library-file debug-format panic-support details]}]
   (build-development-panic-support! panic-support)
   (let [path (.getAbsolutePath ^File library-file)
@@ -11838,6 +11885,34 @@
                              :duration-ms (/ (- (System/nanoTime) started) 1e6)})))
     details))
 
+(defn- build-native-test-plan!
+  [{:keys [bundle-artifact compiler-options module source directory details panic-support] :as plan}]
+  (if-let [entry (and bundle-artifact (bundle/find-artifact (:cache-dir compiler-options) bundle-artifact))]
+    (do
+      (explanation/event! {:event :bundle-cache-hit :module module :bundle-id (:id entry)})
+      (assoc details :library-path (:library entry) :source-path (:source-path entry) :bundle entry))
+    (if (and bundle/*preparing* bundle-artifact)
+      (do
+        ;; These are real test-frontend objects, not library-mode substitutes.
+        ;; Test discovery/filtering remains isolated for every selected test.
+        (when (or (:target compiler-options) (:cpu compiler-options))
+          (throw (ex-info "Native test object packing currently requires the host compiler target"
+                          {:aguafria/phase :native-test-preparation :reason :target-configuration})))
+        (build-development-panic-support! panic-support)
+        (let [command (:command details)
+              result (binding [compiler-work/*phase* :native-test]
+                       (run-command command (.getAbsolutePath directory)))]
+          (when-not (zero? (:exit result))
+            (let [{:keys [message diagnostics report location]}
+                  (pretty-zig-error module source (:source-path details) command (:err result))]
+              (throw (compilation-exception
+                      message (assoc details :aguafria/phase :zig-test :aguafria/report report
+                                     :status :failed :exit (:exit result) :stderr (:err result)
+                                     :diagnostics diagnostics) location nil))))
+          (bundle/observe! bundle-artifact)
+          (assoc details :bundle-artifact bundle-artifact)))
+      (build-standalone-native-test-plan! plan))))
+
 (defn- native-test-library!
   [module test-name & [candidate]]
   (build-native-test-plan! (native-test-plan module test-name candidate)))
@@ -11845,8 +11920,9 @@
 (defn- prepare-native-test!
   [test candidate]
   (let [prepared (fn [artifact]
-                   {:test test :status :prepared
-                    :artifact (select-keys artifact [:library-path :source-path])})]
+                   (cond-> {:test test :status (if (:bundle-artifact artifact) :pending-publication :prepared)
+                            :artifact (select-keys artifact [:library-path :source-path])}
+                     (:bundle-artifact artifact) (assoc :bundle-artifact (:bundle-artifact artifact))))]
     (if *precompile-build-submitter*
       (let [plan (native-test-plan (namespace test) (symbol (name test)) candidate)]
         (if (:parallel-safe? plan)
@@ -11901,6 +11977,17 @@
 
 (declare check-native-panic!)
 
+(defn- call-with-native-test-lookup [artifact f]
+  (if-let [entry (:bundle artifact)]
+    (bundle/call-with-isolated-symbol-lookup entry f)
+    (with-open [arena (Arena/ofConfined)]
+      (let [delegate (SymbolLookup/libraryLookup (:library-path artifact) arena)
+            names #{"aguafria_run_test" "aguafria_test_panic_message"}]
+        (f (reify SymbolLookup
+             (find [_ name]
+               (.find delegate (if (names name)
+                                 (str (:export-prefix artifact) name) name)))))))))
+
 (defn run-test!
   "Call one registered Zig test inside this JVM through Panama.
 
@@ -11922,24 +12009,25 @@
         (binding [*out* stdout *err* stderr]
           ((requiring-resolve 'aguafria.zig.jvm/call-with-output)
            (fn []
-             (with-open [arena (Arena/ofConfined)]
-               (let [lookup (SymbolLookup/libraryLookup (:library-path artifact) arena)
-                     address (.orElseThrow (.find lookup "aguafria_run_test"))
-                     function (.downcallHandle (Linker/nativeLinker) address
-                                               (FunctionDescriptor/of ValueLayout/JAVA_INT
-                                                                      (make-array MemoryLayout 0))
-                                               (make-array Linker$Option 0))]
-                 (let [result (.invokeWithArguments function (ArrayList.))]
-                   (when (= 3 result)
-                     (let [panic-handle (.downcallHandle
-                                         (Linker/nativeLinker)
-                                         (.orElseThrow (.find lookup "aguafria_test_panic_message"))
-                                         (FunctionDescriptor/of ValueLayout/ADDRESS (make-array MemoryLayout 0))
-                                         (make-array Linker$Option 0))]
-                       (check-native-panic! {:panic-handle panic-handle
-                                             :panic-context (bind-panic-context (Linker/nativeLinker) lookup)
-                                             :declaration {:qualified-name (symbol module (str test-name))}})))
-                   result))))))
+             (call-with-native-test-lookup
+              artifact
+              (fn [^SymbolLookup lookup]
+                (let [address (.orElseThrow (.find lookup "aguafria_run_test"))
+                      function (.downcallHandle (Linker/nativeLinker) address
+                                                (FunctionDescriptor/of ValueLayout/JAVA_INT
+                                                                       (make-array MemoryLayout 0))
+                                                (make-array Linker$Option 0))]
+                  (let [result (.invokeWithArguments function (ArrayList.))]
+                    (when (= 3 result)
+                      (let [panic-handle (.downcallHandle
+                                          (Linker/nativeLinker)
+                                          (.orElseThrow (.find lookup "aguafria_test_panic_message"))
+                                          (FunctionDescriptor/of ValueLayout/ADDRESS (make-array MemoryLayout 0))
+                                          (make-array Linker$Option 0))]
+                        (check-native-panic! {:panic-handle panic-handle
+                                              :panic-context (bind-panic-context (Linker/nativeLinker) lookup)
+                                              :declaration {:qualified-name (symbol module (str test-name))}})))
+                    result)))))))
         diagnostics (when (= 1 status)
                       (native-stack-diagnostics (:source-path artifact) (str stderr)))
         report (native-stack-source-report diagnostics)
@@ -14079,13 +14167,24 @@
               {:kind :field :receiver qualified-name
                :address [pointer qualified-name] :member (:name field)}))
            (doseq [field fields
-                   :when (some #(and (simple-symbol? %)
-                                     (nil? (native-type-declaration module %)))
+                   :let [field-type (native-field-type-expression declaration field)
+                         child-type (native-field-child-expression field-type (:type field))]
+                   :when (some (fn [type]
+                                 (when (symbol? type)
+                                   (let [dependency (native-type-declaration module type)]
+                                     (or (and (simple-symbol? type) (nil? dependency))
+                                         ;; At runtime a recursive child hits the
+                                         ;; schema walk's seen set and uses this
+                                         ;; compiler-reflected fallback instead.
+                                         (and dependency child-type
+                                              (some #(= (:declaration-key declaration)
+                                                        (:declaration-key %))
+                                                    (declaration-live-slice
+                                                     (registered-declarations (:module dependency))
+                                                     dependency)))))))
                                (tree-seq vector? rest (:type field)))]
              ((requiring-resolve 'aguafria.zig.jvm/precompile-reflected-layout!)
-              module (or (native-field-child-expression
-                          (native-field-type-expression declaration field) (:type field))
-                         (native-field-type-expression declaration field)))))
+              module (or child-type field-type))))
          {:type qualified-name :status :prepared})))
     {:type qualified-name :status :unsupported :reason :external-type-layout}))
 
@@ -14263,7 +14362,7 @@
          :generation (or (:wrapper-generation owner-binding) generation)
          :close! close!}))))
 
-(declare start-process-main! await-host!)
+(declare start-process-main! await-host! precompile-process-main!)
 
 (defn- process-entry-call?
   [declaration arguments]
@@ -14338,7 +14437,9 @@
                               (:return declaration)) :comptime-result
                    (process-entry-call? declaration []) :process-entry)]
       (if reason
-        {:function qualified-name :status :skipped :reason reason}
+        (if (= :process-entry reason)
+          (precompile-process-main! qualified-name)
+          {:function qualified-name :status :skipped :reason reason})
         (binding [*compile-only?* true]
           (let [compilation (materialize-jvm-callable! qualified-name)
                 return-type (jvm-callable-result-type declaration)
@@ -14384,7 +14485,8 @@
 (defn precompile-functions!
   "Materialize concrete JVM-callable functions in a registered namespace without
   invoking their bodies. Return skipped declarations whose compilation requires
-  a specialization, test runner, or process entry host. Extern calls use the
+  a specialization or test runner. Process entries prepare their real native
+  host without starting it. Extern calls use the
   configured link inputs; missing linkage is reported as a preparation failure."
   [module]
   (let [module (str module)
@@ -14504,7 +14606,7 @@
        "envc: usize, env_pointer: [*]const ?[*:0]const u8) callconv(.c) u8 {\n"
        "    return __aguafria_jvm_guard.call(__aguafria_process_body, .{argc, argv_pointer, envc, env_pointer}) orelse 255;\n"
        "}\n"
-       "export fn aguafria_host_panic_message() callconv(.c) ?[*:0]const u8 {\n"
+       "export fn __aguafria_host_panic_message() callconv(.c) ?[*:0]const u8 {\n"
        "    return __aguafria_jvm_guard.aguafria_guard_message();\n}\n"
        "fn __aguafria_process_body(argc: usize, argv_pointer: [*]const [*:0]const u8, "
        "envc: usize, env_pointer: [*]const ?[*:0]const u8) u8 {\n"
@@ -14572,6 +14674,31 @@
                 ;; modules must be selected from the application root, just
                 ;; as they are when that converted namespace is compiled.
                 :zig/build-profile-owner target-module}})
+
+(defn- process-main-module [qualified-name]
+  ;; Runtime host ids identify leases, not generated code. Each invocation
+  ;; loads private prepared bytes, so stable code identity does not share state.
+  (str "aguafria.host." (artifact/key-for :process-host qualified-name)))
+
+(defn precompile-process-main!
+  "Prepare the real native process host without allocating argv/environment,
+  initializing process facilities, loading a library, or starting a thread."
+  [function]
+  (let [qualified-name (qualified-function-name function)
+        module (namespace qualified-name)
+        declaration (current-function-declaration (get @registry module) qualified-name)]
+    (when-not (process-entry-call? declaration [])
+      (throw (ex-info "Expected a native process entry" {:function qualified-name})))
+    (let [host-module (process-main-module qualified-name)
+          declarations [(process-main-host-declaration host-module module declaration)]
+          snapshot (development-dependency-snapshot declarations)
+          type-source (emit/emit-type (:type (first (:args declaration))))
+          source (process-main-host-source host-module module
+                                           (emit/identifier (or (:zig-name declaration) (:name declaration)))
+                                           (str/includes? type-source "process.Init.Minimal"))]
+      (binding [*compile-only?* true *native-host-context?* true]
+        (compile-source! host-module source declarations snapshot))
+      {:function qualified-name :status :prepared :execution-context :native-process-host})))
 
 (defn- find-required-symbol
   [^SymbolLookup lookup symbol-name data]
@@ -14745,7 +14872,7 @@
          target-module (namespace qualified-name)
          _ (await-callable-generation! target-module)
          id (.incrementAndGet live-host-sequence)
-         host-module (str "aguafria.host." id)
+         host-module (process-main-module qualified-name)
          requested-at (System/currentTimeMillis)
          argv (vec (cons (or (:argv0 options) (name qualified-name)) arguments))
          environment (->> (System/getenv)
@@ -14815,10 +14942,10 @@
                            (emit/identifier (or (:zig-name declaration)
                                                 (:name declaration)))
                            minimal-init?)
-                   compiled (compile-source! host-module source declarations
-                                             dependency-snapshot)
+                   compiled (binding [*native-host-context?* true]
+                              (compile-source! host-module source declarations dependency-snapshot))
                    loaded (load-module
-                           compiled [] {}
+                           (assoc compiled :isolated-bundle? true) [] {}
                            (dependency-dispatch-entries dependency-snapshot)
                            (dependency-state-entries dependency-snapshot))
                    linker ^Linker (:linker loaded)
@@ -14838,7 +14965,7 @@
                     descriptor (into-array Linker$Option []))
                    panic-handle
                    (.downcallHandle linker
-                                    (.orElseThrow (.find lookup "aguafria_host_panic_message"))
+                                    (.orElseThrow (.find lookup "__aguafria_host_panic_message"))
                                     (FunctionDescriptor/of ValueLayout/ADDRESS (make-array MemoryLayout 0))
                                     (make-array Linker$Option 0))
                    argument-arena (Arena/ofShared)
@@ -14941,7 +15068,12 @@
                                   :run-handle :owned-state)
                            (when (seq owned-state)
                              (refresh-project-dispatch!))
-                           (when loaded (.close ^Arena (:arena loaded)))
+                           (when loaded
+                             (try
+                               (.close ^Arena (:arena loaded))
+                               (finally
+                                 (when-let [path (:isolated-library-path loaded)]
+                                   (Files/deleteIfExists ^Path path)))))
                            (when argument-arena (.close ^Arena argument-arena))
                            (when-not (native-host-active?)
                              (set-all-active-call-tracking! true)

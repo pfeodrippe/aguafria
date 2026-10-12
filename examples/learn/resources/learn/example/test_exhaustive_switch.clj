@@ -11,9 +11,9 @@
 (a/deftest enum-literals-with-switch
   (let [color (:off Color)
         result (k/switch color
-                         (case [:.auto] false)
-                         (case [:.on] false)
-                         (case [:.off] true))]
+                 :auto false
+                 :on false
+                 :off true)]
     (try (testing/expect result))))
 
 (comment

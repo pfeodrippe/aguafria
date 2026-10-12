@@ -861,11 +861,11 @@
                         outputs# (binding [aguafria.zig.explain/*reporter* #(swap! events# conj %)]
                                    [(aguafria.zig/value
                                      (evaluate# (aguafria.keyword/& [7 2 -3])
-                                                (aguafria.keyword/& [:.mul :.add :.end])))
+                                                (aguafria.keyword/& [:mul :add :end])))
                                     (with-open [seven# (aguafria.keyword/i32 7)]
                                       (aguafria.zig/value
                                        (evaluate# (aguafria.keyword/& [seven# 2 -3])
-                                                  (aguafria.keyword/& [:.mul :.add :.end]))))
+                                                  (aguafria.keyword/& [:mul :add :end]))))
                                     (aguafria.zig/value (length# (aguafria.keyword/& [])))
                                     (with-open [slice# (retain# (aguafria.keyword/& [4 5]))]
                                       (let [seen# (java.util.IdentityHashMap.)]
@@ -924,7 +924,7 @@
 
 (deftest untyped-aggregate-addresses-wait-for-the-actual-pointer-context
   (let [syntax (:aguafria/token (meta #'k/&))]
-    (doseq [initializer [[7 2 -3] [:.mul :.add :.end] [] {:left 6 :right 5}]]
+    (doseq [initializer [[7 2 -3] [:mul :add :end] [] {:left 6 :right 5}]]
       (let [address (jvm/invoke-syntax! syntax [initializer])]
         (is (instance? aguafria.zig.jvm.ContextualAddress address))
         (is (= initializer (:initializer address)))))
@@ -1719,8 +1719,8 @@
 (deftest coverage-reports-constant-readers-without-inflating-operation-coverage
   (let [summary (precompile/coverage
                  [{:constant-readers [{:status :prepared}
-                                     {:status :failed}
-                                     {:status :skipped :reason :compiler-rejected-root}]
+                                      {:status :failed}
+                                      {:status :skipped :reason :compiler-rejected-root}]
                    :operations [{:status :observed :handlers [{:status :prepared}]}
                                 {:status :unobserved}]}])]
     (is (= {:total 3 :statuses {:prepared 1 :failed 1 :skipped 1}
@@ -1797,7 +1797,7 @@
         signatures (set (mapcat :signatures operations))]
     (is (zero? (get-in report [:baseline :exit])))
     (is (not (:compiler-errors? report)) (:diagnostics report))
-    (is (contains? signatures [{:comptime :.ready} {:comptime :.ready}]))
+    (is (contains? signatures [{:comptime :ready} {:comptime :ready}]))
     (is (contains? signatures [{:comptime-type :comptime_int} {:comptime-type :comptime_int}]))
     (is (= 5 (count (filter :literal-arguments operations))))
     (is (every? #(= :prepared (:status %)) (mapcat :handlers operations)))))
@@ -2022,16 +2022,16 @@
                                        (list (symbol "let") [(symbol "input") (list (symbol "k/i32") number#)]
                                              '~'(mapv a/value
                                                       [(k/as (a/with-block :result
-                                                               (k/break :result (:.first input))) Choice)
+                                                               (k/break :result ((a/enum-literal ".first") input))) Choice)
                                                        (k/as (a/with-block :result
-                                                               (k/break :result (:.second input))) Choice)
+                                                               (k/break :result ((a/enum-literal ".second") input))) Choice)
                                                        (k/as (a/with-block :result
                                                                (try (testing/expectEqual input input))
-                                                               (k/break :result (:.first input))) Choice)
+                                                               (k/break :result ((a/enum-literal ".first") input))) Choice)
                                                        (k/as (a/with-block :pick
                                                                (when (k/> input 10)
-                                                                 (k/break :pick :.second))
-                                                               (k/break :pick :.first))
+                                                                 (k/break :pick :second))
+                                                               (k/break :pick :first))
                                                              Status)]))))
                                     [4 14]))]
                     (prn {:outputs outputs# :events @events#})))
@@ -2075,7 +2075,7 @@
   (let [module 'aguafria.zig.discovery-scoped-context-fixture
         operation {:id "missing-result-identity" :status :observed
                    :function 'aguafria.zig/with-block
-                   :scoped-form '(a/with-block :result (k/break :result :.first))
+                   :scoped-form '(a/with-block :result (k/break :result :first))
                    :scope-captures [] :scope-result-context? true
                    :signatures [[nil]]}
         fail! (fn [& _] (throw (ex-info "Prepared an unresolved result type" {})))]
@@ -2541,7 +2541,7 @@
   ;; checked by the separate empty-cache, two-JVM regression below.
   (let [suit 'aguafria.zig.discovery-private-methods-fixture/Suit
         counter 'aguafria.zig.discovery-private-methods-fixture/Counter
-        cases [[suit :.clubs]
+        cases [[suit :clubs]
                [:i32 42]
                [counter {:value 20}]
                [[:array 2 :u8] [1 2]]]
@@ -2564,7 +2564,7 @@
                   shell/sh (fn [& _] (throw (ex-info "Unexpected native compilation" {})))]
       (with-redefs-fn {#'discovery/prepare-declared-functions! (constantly [])}
         #(discovery/prepare! 'aguafria.zig.discovery-private-methods-fixture)))
-    (is (= [[:literal suit :.clubs]
+    (is (= [[:literal suit :clubs]
             [:runtime :i32]
             [:runtime counter]
             [:runtime [:array 2 :u8]]]
@@ -2607,7 +2607,7 @@
                                (when (= "build-lib" (second args))
                                  (swap! commands conj (vec args)))
                                (apply original args))]
-        (with-open [suit (k/as :.clubs suit-type)
+        (with-open [suit (k/as :clubs suit-type)
                     variant (variant-type {:int 1})
                     counter (k/var (counter-type {:value 20}))
                     amount (k/i32 3)]
@@ -2683,7 +2683,7 @@
                                   (aguafria.zig.runtime/source
                                    'aguafria.zig.discovery-private-methods-fixture)
                                   "pub fn initial_value(")))
-                    (with-open [suit# (aguafria.keyword/as :.clubs suit-type#)
+                    (with-open [suit# (aguafria.keyword/as :clubs suit-type#)
                                 variant# (variant-type# {:int 1})
                                 counter# (aguafria.keyword/var (counter-type# {:value 20}))
                                 amount# (aguafria.keyword/i32 3)]
@@ -2956,11 +2956,11 @@
                                     (aguafria.zig/value
                                      (aguafria.std.testing/expectEqual
                                       :comptime_int (aguafria.keyword/TypeOf (aguafria.keyword/+ 1 2))))))
-                         (assert (aguafria.zig/value (aguafria.keyword/== :.ready :.ready)))
+                         (assert (aguafria.zig/value (aguafria.keyword/== :ready :ready)))
                          (assert (= "literal=.ready\n"
                                     (let [writer# (java.io.StringWriter.)]
                                       (binding [*err* writer#]
-                                        (aguafria.std.debug/print "literal={any}\n" [:.ready]))
+                                        (aguafria.std.debug/print "literal={any}\n" [:ready]))
                                       (str writer#))))
                          (assert (= 493 (aguafria.zig/value (aguafria.zig/number-literal "0o755"))))
                          (assert (= 101 (aguafria.zig/value (aguafria.zig/char-literal "'\\x65'"))))

@@ -7,7 +7,7 @@
   [])
 
 (a/defcomptime export-foo
-  (k/export (k/& internalName) {:name "foo" :linkage :.strong}))
+  (k/export (k/& internalName) {:name "foo" :linkage :strong}))
 
 (comment
   (internalName))

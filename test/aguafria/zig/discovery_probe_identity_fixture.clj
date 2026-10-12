@@ -14,5 +14,5 @@
   [[input :i32]]
   (k/const choice (a/field Choices :Entry)
            (a/with-block :result
-             (k/break :result (:.first input))))
+             (k/break :result ((a/enum-literal ".first") input))))
   (k/+ (:value choice) 10))

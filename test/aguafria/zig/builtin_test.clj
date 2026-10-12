@@ -16,7 +16,7 @@
 (deftest compiler-builtin-values-are-real-jvm-values
   (is (false? @builtin/is_test))
   (is (true? (ak/== builtin/is_test false)))
-  (is (true? (ak/== builtin/mode :.debug)))
+  (is (true? (ak/== builtin/mode :debug)))
   (is (= (a/value (a/field builtin/cpu :arch))
          (a/value (a/field (a/field builtin/target :cpu) :arch))))
   (is (= "@import(\"builtin\").is_test"

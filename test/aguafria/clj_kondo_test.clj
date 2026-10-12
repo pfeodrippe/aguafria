@@ -102,22 +102,22 @@
   (let [findings
         (lint "(ns fixture (:require [aguafria.zig :as a] [aguafria.keyword :as k]))
                (let [source 1 state 0]
-                 (a/switch-stmt source
-                   (case [:.ok] [(a/pointer-capture value)] (k/+= @value state))
-                   (case-else (k/= state 1)))
-                 (a/labeled-switch vm source
-                   (case [0] (k/continue vm state))
-                   (case-else state))
-                 (a/labeled-switch-stmt exit source
-                   (case [0] (a/break-label exit))
-                   (case-else (k/= state 1)))
+                 (k/switch source
+                   :ok (a/with-block :_ [(k/* value)] (k/+= @value state))
+                   (k/= state 1))
+                 (k/switch [vm source]
+                   0 (k/continue vm state)
+                   state)
+                 (k/switch [exit source]
+                   0 (a/break-label exit)
+                   (k/= state 1))
                  (a/while-loop {:label loop :payload [item] :error [err]
                                 :continue (k/+= state item) :else [(k/= state err)]}
                    source (k/= state item) (k/continue loop)))")]
     (is (empty? findings) (pr-str findings)))
-  (let [findings (lint "(ns fixture (:require [aguafria.zig :as a]))
+  (let [findings (lint "(ns fixture (:require [aguafria.keyword :as k]))
                        (let [source 1 unused 2]
-                         (a/switch source (case [0] source) (case-else source)))")]
+                         (k/switch source 0 source source))")]
     (is (= ["unused binding unused"] (mapv :message findings)))))
 
 (defn- findings-of [kind findings]

@@ -35,12 +35,12 @@
   :note "An integer literal acquires its type from context."}
 
  ".strict"
- {:clojure-source ":.strict"
+ {:clojure-source ":strict"
   :kind :expr
   :note "The strict floating-point mode enum literal."}
 
  ".optimized"
- {:clojure-source ":.optimized"
+ {:clojure-source ":optimized"
   :kind :expr
   :note "The optimized floating-point mode enum literal."}
 

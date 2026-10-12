@@ -17,7 +17,7 @@
     (is (str/includes? text "shader.clj:12:5: type mismatch"))))
 
 (deftest shader-calling-conventions-are-explicit
-  (doseq [[convention expected] [[:.spirv_vertex "callconv(.spirv_vertex)"]
+  (doseq [[convention expected] [[:spirv_vertex "callconv(.spirv_vertex)"]
                                  [{:spirv_fragment {}} "callconv(.{.spirv_fragment = .{}})"]]]
     (let [declaration {:kind :fn
                        :name 'entry

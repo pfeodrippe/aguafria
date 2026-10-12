@@ -12,8 +12,8 @@
           (let [{:keys [minimum maximum]} t]
             (debug/assert (k/>= maximum minimum))
             (if (k/< value minimum)
-              :.low
-              (if (k/> value maximum) :.high :.medium))))])
+              :low
+              (if (k/> value maximum) :high :medium))))])
 
 (a/defn main [:error-union :void] []
   (let [threshold (k/var (Threshold {:maximum 0.20}))

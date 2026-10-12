@@ -20,8 +20,8 @@
 (a/defn- bar [:error-union :void] []
   (a/if-capture-stmt {:error [err]} (baz)
                      (try (quux))
-                     (a/switch-stmt err
-                                    (case [(a/error-value :FileNotFound)] (try (hello))))))
+                     (k/switch err
+                       (a/error-value :FileNotFound) (try (hello)))))
 
 (a/defn- foo [:error-union :void] [[x :i32]]
   (if (k/>= x 5)

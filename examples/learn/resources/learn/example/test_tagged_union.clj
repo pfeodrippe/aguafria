@@ -16,14 +16,14 @@
 (a/deftest switch-on-tagged-union
   (let [c (ComplexType {:ok 42})]
     (try (testing/expectEqual (:ok ComplexTypeTag) (k/as c ComplexTypeTag)))
-    (a/switch-stmt c
-                   (case [:.ok] [value] (try (testing/expectEqual 42 value)))
-                   (case [:.not_ok] (k/unreachable)))
-    (a/switch-stmt c
-                   (case [:.ok] [_ tag]
-        ;; Because we're in the '.ok' prong, 'tag' is compile-time known to be '.ok':
-                         (k/comptime (debug/assert (k/== tag :.ok))))
-                   (case [:.not_ok] (k/unreachable)))))
+    (k/switch c
+      :ok (a/with-block :_ [value] (try (testing/expectEqual 42 value)))
+      :not_ok (k/unreachable))
+    (k/switch c
+      :ok
+      ;; Because we're in the '.ok' prong, 'tag' is compile-time known to be '.ok':
+      (a/with-block :_ [_ tag] (k/comptime (debug/assert (k/== tag :ok))))
+      :not_ok (k/unreachable))))
 
 (a/deftest get-tag-type
   (try (testing/expectEqual ComplexTypeTag (meta/Tag ComplexType))))

@@ -4,7 +4,7 @@
             [aguafria.zig :as a]))
 
 (a/defextern ExitProcess :noreturn
-  {:zig/prefix "extern \"kernel32\"" :callconv :.winapi}
+  {:zig/prefix "extern \"kernel32\"" :callconv :winapi}
   [[exit-code :c_uint]])
 
 (a/defn- bar [:error-union :anyerror :u32] []

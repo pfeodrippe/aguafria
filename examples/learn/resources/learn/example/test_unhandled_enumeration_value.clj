@@ -8,9 +8,9 @@
 
 (a/deftest exhaustive-switching
   (let [color (:off Color)]
-    (a/switch-stmt color
-                   (case [(:auto Color)] (a/block))
-                   (case [(:on Color)] (a/block)))))
+    (aguafria.keyword/switch color
+      (:auto Color) (a/block)
+      (:on Color) (a/block))))
 
 (comment
   (exhaustive-switching))

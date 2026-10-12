@@ -33,7 +33,7 @@
             [['(k/for [item items] (k/+= sum item)) true false]
              ['(k/while flag (k/+= sum 1)) true false]
              ['(k/for [item items] (k/+= sum item) (a/else-expression sum)) false true]
-             ['(k/switch selector (case [0] sum) (case-else sum)) false true]]]
+             ['(k/switch selector 0 sum sum) false true]]]
       (let [form (binding [emitter/*lexical-bindings* '#{items sum flag selector}]
                    (emitter/qualify-form context source))
             emit #(if statement? (emitter/emit-stmt-in context form) (emitter/emit-expr context form))
@@ -80,8 +80,8 @@
                      (binding [aguafria.zig.explain/*reporter* #(swap! events# conj %)]
                        (require 'learn.example.test-for)
                        (let [forms# (with-open [reader# (java.io.PushbackReader.
-                                                        (clojure.java.io/reader
-                                                         (clojure.java.io/resource "learn/example/test_for.clj")))]
+                                                         (clojure.java.io/reader
+                                                          (clojure.java.io/resource "learn/example/test_for.clj")))]
                                       (binding [*read-eval* false]
                                         (into [] (take-while some?)
                                               (repeatedly #(read {:eof nil} reader#)))))

@@ -14,10 +14,10 @@
                    :continue (a/assign-expr "+=" i 1)}
                   (k/< i 3)
                   (let [T (k/switch i
-                                    (case [0] :f32)
-                                    (case [1] :i8)
-                                    (case [2] :bool)
-                                    (a/case-else (k/unreachable)))]
+                            0 :f32
+                            1 :i8
+                            2 :bool
+                            (k/unreachable))]
                     (k/+= sum (type-name-length T))))
     (try (testing/expectEqual 9 sum))))
 

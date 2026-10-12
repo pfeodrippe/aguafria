@@ -762,7 +762,7 @@
 
 (deftest function-signatures-do-not-materialize-parameter-storage
   (doseq [type [[:fn {} [{:type :i32}] :i32]
-                [:fn {:callconv :.c} [{:name :argument :type 'Missing}] 'Missing]
+                [:fn {:callconv :c} [{:name :argument :type 'Missing}] 'Missing]
                 [:*const [:fn {} [{:type 'Missing}] 'Missing]]]]
     (is (false? (#'runtime/ensure-native-type-binding! "fixture" type)))))
 
@@ -2147,7 +2147,7 @@
          '(aguafria.zig/container
            {:kind :struct :layout :normal}
            [(aguafria.zig/field-decl count :u32)
-            (aguafria.zig/fn-decl calculate :u32  [] 1)])}
+            (aguafria.zig/fn-decl calculate :u32 [] 1)])}
         baseline (runtime/declaration-info declaration)
         body-change
         (runtime/declaration-info
@@ -2155,14 +2155,14 @@
                 '(aguafria.zig/container
                   {:kind :struct :layout :normal}
                   [(aguafria.zig/field-decl count :u32)
-                   (aguafria.zig/fn-decl calculate :u32  [] 2)])))
+                   (aguafria.zig/fn-decl calculate :u32 [] 2)])))
         layout-change
         (runtime/declaration-info
          (assoc declaration :value
                 '(aguafria.zig/container
                   {:kind :struct :layout :packed}
                   [(aguafria.zig/field-decl count :u32)
-                   (aguafria.zig/fn-decl calculate :u32  [] 1)])))]
+                   (aguafria.zig/fn-decl calculate :u32 [] 1)])))]
     (is (= 64 (count (:schema-fingerprint baseline))))
     (is (= (:schema-fingerprint baseline)
            (:schema-fingerprint body-change)))
@@ -2182,7 +2182,7 @@
          '[(aguafria.zig/container
             {:kind :struct :layout :normal}
             [(aguafria.zig/field-decl count :u32)
-             (aguafria.zig/fn-decl calculate :u32  [] 1)])]}
+             (aguafria.zig/fn-decl calculate :u32 [] 1)])]}
         baseline (runtime/declaration-info declaration)
         method-change
         (runtime/declaration-info
@@ -2190,14 +2190,14 @@
                 '[(aguafria.zig/container
                    {:kind :struct :layout :normal}
                    [(aguafria.zig/field-decl count :u32)
-                    (aguafria.zig/fn-decl calculate :u32  [] 2)])]))
+                    (aguafria.zig/fn-decl calculate :u32 [] 2)])]))
         field-change
         (runtime/declaration-info
          (assoc declaration :body
                 '[(aguafria.zig/container
                    {:kind :struct :layout :normal}
                    [(aguafria.zig/field-decl count :u64)
-                    (aguafria.zig/fn-decl calculate :u32  [] 1)])]))]
+                    (aguafria.zig/fn-decl calculate :u32 [] 1)])]))]
     (is (:type-factory? baseline))
     (is (= 64 (count (:schema-fingerprint baseline))))
     (is (= (:schema-fingerprint baseline)
@@ -2217,9 +2217,9 @@
           :args [{:name 'Target :type :type :properties {:zig/prefix "comptime"}}
                  {:name 'Zig :type :type :properties {:zig/prefix "comptime"}}]
           :return :type
-          :body '[(return (switch Target
-                            (case [:zig] Zig)
-                            (case [:c] Zig)))]})
+          :body '[(return (aguafria.keyword/switch Target
+                            :zig Zig
+                            :c Zig))]})
         alias
         (runtime/declaration-info
          {:module "fixture.api"

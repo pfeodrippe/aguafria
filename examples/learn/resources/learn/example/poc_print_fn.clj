@@ -16,44 +16,44 @@
            state (k/var (:start State) nil {:attrs #{k/comptime}})
            next-arg (k/var 0 :usize {:attrs #{k/comptime}})]
        (a/inline-for [c format i (a/range 0)]
-                     (a/switch-stmt state
-                                    (case [(:start State)]
-                                      (a/switch-stmt c
-                                                     (case [\{]
-                                                       (do
-                                                         (when (k/< start-index i)
-                                                           (try ((:write self) (a/slice format start-index i))))
-                                                         (k/= state (:open-brace State))))
-                                                     (case [\}]
-                                                       (do
-                                                         (when (k/< start-index i)
-                                                           (try ((:write self) (a/slice format start-index i))))
-                                                         (k/= state (:close-brace State))))
-                                                     (a/case-else (do))))
-                                    (case [(:open-brace State)]
-                                      (a/switch-stmt c
-                                                     (case [\{]
-                                                       (do
-                                                         (k/= state (:start State))
-                                                         (k/= start-index i)))
-                                                     (case [\}]
-                                                       (do
-                                                         (try ((:print-value self) (a/get args next-arg)))
-                                                         (k/+= next-arg 1)
-                                                         (k/= state (:start State))
-                                                         (k/= start-index (k/+ i 1))))
-                                                     (case [\s] (k/continue))
-                                                     (a/case-else
-                                                      (k/compileError
-                                                       (k/++ "Unknown format character: " (a/init [c] [:array 1 :u8]))))))
-                                    (case [(:close-brace State)]
-                                      (a/switch-stmt c
-                                                     (case [\}]
-                                                       (do
-                                                         (k/= state (:start State))
-                                                         (k/= start-index i)))
-                                                     (a/case-else
-                                                      (k/compileError "Single '}' encountered in format string"))))))
+                     (k/switch state
+                       (:start State)
+                       (k/switch c
+                         \{
+                         (do
+                           (when (k/< start-index i)
+                             (try ((:write self) (a/slice format start-index i))))
+                           (k/= state (:open-brace State)))
+                         \}
+                         (do
+                           (when (k/< start-index i)
+                             (try ((:write self) (a/slice format start-index i))))
+                           (k/= state (:close-brace State)))
+                         (do))
+                       (:open-brace State)
+                       (k/switch c
+                         \{
+                         (do
+                           (k/= state (:start State))
+                           (k/= start-index i))
+                         \}
+                         (do
+                           (try ((:print-value self) (a/get args next-arg)))
+                           (k/+= next-arg 1)
+                           (k/= state (:start State))
+                           (k/= start-index (k/+ i 1)))
+                         \s (k/continue)
+
+                         (k/compileError
+                          (k/++ "Unknown format character: " (a/init [c] [:array 1 :u8]))))
+                       (:close-brace State)
+                       (k/switch c
+                         \}
+                         (do
+                           (k/= state (:start State))
+                           (k/= start-index i))
+
+                         (k/compileError "Single '}' encountered in format string"))))
        (k/comptime
         (do
           (when (k/!= (:len args) next-arg)

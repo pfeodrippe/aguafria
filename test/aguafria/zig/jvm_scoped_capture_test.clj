@@ -11,23 +11,23 @@
     (is (= 10 (a/value (a/if-capture {:payload [item] :error [err]} source
                                      (k/+ item bias)
                                      (k/switch err
-                                               (case [(a/error-value :Rejected)] 0))))))
+                                       (a/error-value :Rejected) 0)))))
     (is (= 7 (a/value (a/catch-capture [err] source
                                        (k/switch err
-                                                 (case [(a/error-value :Rejected)] 0))))))
+                                         (a/error-value :Rejected) 0)))))
     (is (= 10 (a/value (a/unwrap
                         (a/if-capture {:payload [item] :error [err]} source
                                       (k/+ item bias)
                                       (k/switch err
-                                                (case [(a/error-value :Rejected)] nil)))))))
+                                        (a/error-value :Rejected) nil))))))
     (k/= source (a/error-value :Rejected))
     (is (= 31 (a/value (a/catch-capture [err] source
                                         (k/switch err
-                                                  (case [(a/error-value :Rejected)] 31))))))
+                                          (a/error-value :Rejected) 31)))))
     (is (= 29 (a/value (a/if-capture {:payload [item] :error [err]} source
                                      (k/+ item bias)
                                      (k/switch err
-                                               (case [(a/error-value :Rejected)] 29)))))))
+                                       (a/error-value :Rejected) 29))))))
   (with-open [target (k/var 0 :i32)]
     (a/if-capture-stmt {:payload [item]} (k/as 11 [:optional :i32])
                        (k/= target item))

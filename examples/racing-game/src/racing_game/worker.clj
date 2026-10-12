@@ -202,7 +202,7 @@
   event loop. This is safe from desktop, headless nREPL, and worker threads."
   []
   (let [^:var timestamp (std-mem/zeroes (a/type std-c/timespec))
-        result (std-c/clock_gettime :.MONOTONIC (ak/& timestamp))]
+        result (std-c/clock_gettime :MONOTONIC (ak/& timestamp))]
     (if (ak/== result 0)
       (+ (ak/as (ak/floatFromInt (a/field timestamp sec)) :f64)
          (/ (ak/as (ak/floatFromInt (a/field timestamp nsec)) :f64)
@@ -228,40 +228,40 @@
               (ak/== (a/field request prompt_byte_count) 0)
               (> (a/field request prompt_byte_count) 160)
               (<= (a/field request expires_tick) (a/field request observed_tick))
-              (ak/== (ak/atomicLoad :u8 (ak/& worker-started) :.acquire) 0))
+              (ak/== (ak/atomicLoad :u8 (ak/& worker-started) :acquire) 0))
       (ak/return false))
     (let [state (ak/& (a/index language-mailbox-states actor))]
-      (when (ak/!= (ak/cmpxchgStrong :u8 state 0 4 :.acq_rel :.acquire) ak/null)
+      (when (ak/!= (ak/cmpxchgStrong :u8 state 0 4 :acq_rel :acquire) ak/null)
         (ak/return false))
       (ak/= (a/index language-requests actor) request)
       (ak/= (a/field (a/index language-requests actor) enqueue_seconds) (monotonic-seconds))
-      (ak/= :_ (ak/atomicRmw :u64 (ak/& request-count) :.Add 1 :.monotonic))
-      (ak/= :_ (ak/atomicRmw :u64 (ak/& (a/index request-counts actor)) :.Add 1 :.monotonic))
-      (ak/atomicStore :u8 state 1 :.release))
+      (ak/= :_ (ak/atomicRmw :u64 (ak/& request-count) :Add 1 :monotonic))
+      (ak/= :_ (ak/atomicRmw :u64 (ak/& (a/index request-counts actor)) :Add 1 :monotonic))
+      (ak/atomicStore :u8 state 1 :release))
     true))
 
 (a/defn- process-language-request! :bool
   "One actor's worker exclusively owns that actor's model sequence. Readable
   and legacy requests share the same thread, never concurrent model state." [[actor :usize]]
   (let [state (ak/& (a/index language-mailbox-states actor))]
-    (when (ak/!= (ak/cmpxchgStrong :u8 state 1 2 :.acq_rel :.acquire) ak/null)
+    (when (ak/!= (ak/cmpxchgStrong :u8 state 1 2 :acq_rel :acquire) ak/null)
       (ak/return false))
     (let [request (a/index language-requests actor)
           started (monotonic-seconds)
           generation (inference/generate-language-with-system! actor
-                       (ak/& (a/index (a/field request system_bytes) 0))
-                       (a/field request system_byte_count)
-                       (ak/& (a/index (a/field request prompt_bytes) 0))
-                       (a/field request prompt_byte_count) 64)
+                                                               (ak/& (a/index (a/field request system_bytes) 0))
+                                                               (a/field request system_byte_count)
+                                                               (ak/& (a/index (a/field request prompt_bytes) 0))
+                                                               (a/field request prompt_byte_count) 64)
           finished (monotonic-seconds)]
       (ak/= (a/index language-results actor)
-        (LanguageResult {:valid true :request request :generation generation
-          :queue_us (ak/intFromFloat (* (ak/max 0.0 (- started (a/field request enqueue_seconds))) 1000000.0))
-          :inference_us (ak/intFromFloat (* (ak/max 0.0 (- finished started)) 1000000.0))
-          :total_us (ak/intFromFloat (* (ak/max 0.0 (- finished (a/field request enqueue_seconds))) 1000000.0))}))
-      (ak/= :_ (ak/atomicRmw :u64 (ak/& result-count) :.Add 1 :.monotonic))
-      (ak/= :_ (ak/atomicRmw :u64 (ak/& (a/index result-counts actor)) :.Add 1 :.monotonic))
-      (ak/atomicStore :u8 state 3 :.release))
+            (LanguageResult {:valid true :request request :generation generation
+                             :queue_us (ak/intFromFloat (* (ak/max 0.0 (- started (a/field request enqueue_seconds))) 1000000.0))
+                             :inference_us (ak/intFromFloat (* (ak/max 0.0 (- finished started)) 1000000.0))
+                             :total_us (ak/intFromFloat (* (ak/max 0.0 (- finished (a/field request enqueue_seconds))) 1000000.0))}))
+      (ak/= :_ (ak/atomicRmw :u64 (ak/& result-count) :Add 1 :monotonic))
+      (ak/= :_ (ak/atomicRmw :u64 (ak/& (a/index result-counts actor)) :Add 1 :monotonic))
+      (ak/atomicStore :u8 state 3 :release))
     true))
 
 (a/defn take-language-result! LanguageResult
@@ -270,16 +270,16 @@
   (when (>= actor actor-count)
     (ak/return (std-mem/zeroes (a/type LanguageResult))))
   (let [state (ak/& (a/index language-mailbox-states actor))]
-    (when (ak/!= (ak/cmpxchgStrong :u8 state 3 4 :.acq_rel :.acquire) ak/null)
+    (when (ak/!= (ak/cmpxchgStrong :u8 state 3 4 :acq_rel :acquire) ak/null)
       (ak/return (std-mem/zeroes (a/type LanguageResult))))
     (let [result (a/index language-results actor)]
-      (ak/atomicStore :u8 state 0 :.release)
+      (ak/atomicStore :u8 state 0 :release)
       result)))
 
 (a/defn language-mailbox-state :u8
   "Diagnostic state only: 0 idle, 1 queued, 2 thinking, 3 reply ready, 4 copying." [[actor :usize]]
   (if (< actor actor-count)
-    (ak/atomicLoad :u8 (ak/& (a/index language-mailbox-states actor)) :.acquire)
+    (ak/atomicLoad :u8 (ak/& (a/index language-mailbox-states actor)) :acquire)
     255))
 
 (a/defn- persona-text [:slice-const :u8]
@@ -375,7 +375,7 @@
         rendered
         (catch
          (std-mem/print
-         (ak/& bytes)
+          (ak/& bytes)
           "Team {d}. A{d}: rank {d}/20, tire {d}% {s}, damage {d}% {s}, {s}. B{d}: rank {d}/20, tire {d}% {s}, damage {d}% {s}, {s}. Box {s}."
           [(a/field request team)
            (a/field request driver_a)
@@ -440,8 +440,8 @@
         ^:var cumulative (ak/f32 0.0)
         candidate-count (ak/as (a/field report candidate_count) :usize)
         ^:var chosen (ak/u8 (ak/intCast (if (> candidate-count 0)
-                            (- candidate-count 1)
-                            0)))
+                                          (- candidate-count 1)
+                                          0)))
         ^:var found (ak/bool false)]
     (dotimes [index candidate-count]
       (ak/= maximum
@@ -472,7 +472,7 @@
    [prompt PromptBuffer]
    [tokens inference/TokenizationReport]
    [queue-us :u64]
-  [inference-us :u64]]
+   [inference-us :u64]]
   (let [team-actor (ak/== (a/field request actor_kind) actor-kind-team)
         candidate-count (ak/u8 (if team-actor 3 8))
         valid (and (a/field report valid)
@@ -487,15 +487,15 @@
             (SampledAction
              {:code (ak/intCast (- (a/field report best_token) 32))
               :state (a/index sampler-states
-                               (ak/intCast (a/field request racer)))})
+                              (ak/intCast (a/field request racer)))})
             (sample-action report (ak/intCast (a/field request racer))))
           (SampledAction {:code 0 :state 0}))
         action-code (a/field sampled code)
         lane-code (if team-actor 1 (mod action-code 3))
         lane-target (ak/f32 (cond
-                      (ak/== lane-code 0) -0.075
-                      (ak/== lane-code 1) 0.0
-                      :else 0.075))
+                              (ak/== lane-code 0) -0.075
+                              (ak/== lane-code 1) 0.0
+                              :else 0.075))
         target-speed (if team-actor 0.0 (action-target-speed action-code))
         target (a/field request target)
         item-action (ak/u8 (if (and (ak/! team-actor) (>= action-code 4)) 1 0))
@@ -533,7 +533,7 @@
       :tokens_per_second
       (if (> inference-us 0)
         (/ (* (ak/as (ak/floatFromInt
-                     (a/field tokens token_count))
+                      (a/field tokens token_count))
                      :f32)
               1000000.0)
            (ak/as (ak/floatFromInt inference-us) :f32))
@@ -579,20 +579,20 @@
         racer (ak/as (a/field request racer) :usize)]
     (ak/= (a/index results racer) result)
     (ak/atomicStore :u64 (ak/& (a/index result-revisions racer))
-                    (a/field request revision) :.release)
-    (ak/= :_ (ak/atomicRmw :u64 (ak/& result-count) :.Add 1 :.monotonic))
+                    (a/field request revision) :release)
+    (ak/= :_ (ak/atomicRmw :u64 (ak/& result-count) :Add 1 :monotonic))
     (ak/= :_ (ak/atomicRmw :u64 (ak/& (a/index result-counts racer))
-                          :.Add 1 :.monotonic))))
+                           :Add 1 :monotonic))))
 
 (a/defn- worker-loop! :void
   "Long-lived shell for one AI actor. Mutable model state and mailboxes are
   actor-disjoint; immutable weights remain shared across all actor threads."
   [[racer :usize]]
-  (ak/while (ak/!= (ak/atomicLoad :u8 (ak/& worker-running) :.acquire) 0)
+  (ak/while (ak/!= (ak/atomicLoad :u8 (ak/& worker-running) :acquire) 0)
     (let [language-work (process-language-request! racer)
           revision
           (ak/atomicLoad :u64 (ak/& (a/index request-revisions racer))
-                         :.acquire)
+                         :acquire)
           found (and (ak/! language-work) (> revision (a/index consumed-revisions racer)))]
       (when found
         (let [request (a/index requests racer)]
@@ -602,13 +602,13 @@
             (process-request! request))))
       (when (and (ak/! found) (ak/! language-work))
         (ak/= :_ (ak/atomicRmw :u64 (ak/& idle-wait-count)
-                              :.Add 1 :.monotonic))
+                               :Add 1 :monotonic))
         (idle-wait!)))))
 
 (a/defn start! :bool
   "Allocate one sequence state per actor and one fixed native worker per actor."
   []
-  (if (ak/!= (ak/atomicLoad :u8 (ak/& worker-started) :.acquire) 0)
+  (if (ak/!= (ak/atomicLoad :u8 (ak/& worker-started) :acquire) 0)
     true
     (if (ak/! (inference/initialize-sequences!))
       false
@@ -638,7 +638,7 @@
         (dotimes [actor actor-count]
           (ak/= (a/index sampler-states actor)
                 (+ 101 (* (ak/as (ak/intCast actor) :u64) 103))))
-        (ak/atomicStore :u8 (ak/& worker-running) 1 :.release)
+        (ak/atomicStore :u8 (ak/& worker-running) 1 :release)
         (let [^:var all-started (ak/bool true)]
           (dotimes [racer actor-count]
             (when all-started
@@ -655,10 +655,10 @@
                           (+ worker-thread-count 1)))))))
           (if all-started
             (do
-              (ak/atomicStore :u8 (ak/& worker-started) 1 :.release)
+              (ak/atomicStore :u8 (ak/& worker-started) 1 :release)
               true)
             (do
-              (ak/atomicStore :u8 (ak/& worker-running) 0 :.release)
+              (ak/atomicStore :u8 (ak/& worker-running) 0 :release)
               (dotimes [racer actor-count]
                 (when (ak/!= (a/index worker-threads racer) ak/null)
                   (std-thread/join
@@ -676,14 +676,14 @@
         requested
         (if (< racer actor-count)
           (ak/atomicLoad :u64 (ak/& (a/index request-revisions racer))
-                         :.acquire)
+                         :acquire)
           0)
         completed
         (if (< racer actor-count)
           (ak/atomicLoad :u64 (ak/& (a/index result-revisions racer))
-                         :.acquire)
+                         :acquire)
           0)]
-    (if (or (ak/== (ak/atomicLoad :u8 (ak/& worker-started) :.acquire) 0)
+    (if (or (ak/== (ak/atomicLoad :u8 (ak/& worker-started) :acquire) 0)
             (ak/! (a/field request valid))
             (>= racer actor-count)
             (> requested completed)
@@ -697,11 +697,11 @@
         (ak/= (a/field published enqueue_seconds) (monotonic-seconds))
         (ak/= (a/index requests racer) published)
         (ak/atomicStore :u64 (ak/& (a/index request-revisions racer))
-                        (a/field published revision) :.release)
+                        (a/field published revision) :release)
         (ak/= :_ (ak/atomicRmw :u64 (ak/& request-count)
-                              :.Add 1 :.monotonic))
+                               :Add 1 :monotonic))
         (ak/= :_ (ak/atomicRmw :u64 (ak/& (a/index request-counts racer))
-                              :.Add 1 :.monotonic))
+                               :Add 1 :monotonic))
         true))))
 
 (a/defn result-for InferenceResult
@@ -712,7 +712,7 @@
     (empty-result)
     (let [revision
           (ak/atomicLoad :u64 (ak/& (a/index result-revisions racer))
-                         :.acquire)]
+                         :acquire)]
       (if (> revision after-revision)
         (a/index results racer)
         (empty-result)))))
@@ -724,19 +724,19 @@
       (when (or (let [state (language-mailbox-state racer)]
                   (or (ak/== state 1) (ak/== state 2)))
                 (> (ak/atomicLoad :u64
-                              (ak/& (a/index request-revisions racer))
-                              :.acquire)
-               (ak/atomicLoad :u64
-                              (ak/& (a/index result-revisions racer))
-                              :.acquire)))
+                                  (ak/& (a/index request-revisions racer))
+                                  :acquire)
+                   (ak/atomicLoad :u64
+                                  (ak/& (a/index result-revisions racer))
+                                  :acquire)))
         (ak/= pending (+ pending 1))))
     (WorkerSummary
-     {:running (ak/!= (ak/atomicLoad :u8 (ak/& worker-running) :.acquire) 0)
-      :started (ak/!= (ak/atomicLoad :u8 (ak/& worker-started) :.acquire) 0)
+     {:running (ak/!= (ak/atomicLoad :u8 (ak/& worker-running) :acquire) 0)
+      :started (ak/!= (ak/atomicLoad :u8 (ak/& worker-started) :acquire) 0)
       :threads worker-thread-count
-      :requests (ak/atomicLoad :u64 (ak/& request-count) :.acquire)
-      :results (ak/atomicLoad :u64 (ak/& result-count) :.acquire)
-      :idle_waits (ak/atomicLoad :u64 (ak/& idle-wait-count) :.acquire)
+      :requests (ak/atomicLoad :u64 (ak/& request-count) :acquire)
+      :results (ak/atomicLoad :u64 (ak/& result-count) :acquire)
+      :idle_waits (ak/atomicLoad :u64 (ak/& idle-wait-count) :acquire)
       :pending pending
       :requests_by_actor request-counts
       :results_by_actor result-counts
@@ -745,11 +745,11 @@
 (a/defn stop! :void
   "Join the worker before model memory or native libraries are released."
   []
-  (when (ak/!= (ak/atomicLoad :u8 (ak/& worker-started) :.acquire) 0)
-    (ak/atomicStore :u8 (ak/& worker-running) 0 :.release)
+  (when (ak/!= (ak/atomicLoad :u8 (ak/& worker-started) :acquire) 0)
+    (ak/atomicStore :u8 (ak/& worker-running) 0 :release)
     (dotimes [racer actor-count]
       (when (ak/!= (a/index worker-threads racer) ak/null)
         (std-thread/join (a/unwrap (a/index worker-threads racer)))
         (ak/= (a/index worker-threads racer) ak/null)))
     (ak/= worker-thread-count 0)
-    (ak/atomicStore :u8 (ak/& worker-started) 0 :.release)))
+    (ak/atomicStore :u8 (ak/& worker-started) 0 :release)))

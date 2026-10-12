@@ -20,10 +20,10 @@
 (a/deftest merge-error-sets
   (a/if-capture-stmt {:error [err]} (foo)
                      (k/panic "unexpected")
-                     (a/switch-stmt err
-                                    (case [(a/error-value :OutOfMemory)] (k/panic "unexpected"))
-                                    (case [(a/error-value :PathNotFound)] (k/panic "unexpected"))
-                                    (case [(a/error-value :NotDir)] (a/block)))))
+                     (k/switch err
+                       (a/error-value :OutOfMemory) (k/panic "unexpected")
+                       (a/error-value :PathNotFound) (k/panic "unexpected")
+                       (a/error-value :NotDir) (a/block))))
 
 (comment
   (merge-error-sets))

@@ -40,18 +40,18 @@
     (is (= 9 (a/value (eval '(optional-point {:x 3 :y 6})))))
     (is (= 0 (a/value (eval '(optional-point nil)))))
     (eval '(a/defconst Choice (a/union {:attrs #{k/enum}}
-                                [[:point Point] [:empty :void]])))
+                                       [[:point Point] [:empty :void]])))
     (eval '(a/defn switch-point :i32 [[choice Choice]]
              (k/switch choice
-               (case [:.point] [{:keys [x y]}] (k/+ x y))
-               (case [:.empty] 0))))
+               :point (a/with-block :_ [{:keys [x y]}] (k/+ x y))
+               :empty 0)))
     (is (= 9 (a/value (eval '(switch-point (Choice {:point {:x 3 :y 6}}))))))
     (eval '(a/defn while-point :i32 []
              (let [point (k/var (k/as (Point {:x 3 :y 6}) [:optional Point]))
                    total (k/var 0 :i32)]
                (a/while-loop {:payload [{:keys [x y]}]} point
-                 (k/+= total (k/+ x y))
-                 (k/= point nil))
+                             (k/+= total (k/+ x y))
+                             (k/= point nil))
                total)))
     (is (= 9 (a/value (eval '(while-point)))))
     (eval '(a/defstruct Operations
@@ -79,6 +79,6 @@
     (is (= 3 (a/value (eval '(snapshot)))))
     (is (= [3 6] (mapv a/value (eval '(let [{:keys [x y]} (make-point)] [x y])))))
     (is (= 9 (eval '(let [total (k/var 0 :i32)
-                         points (a/array [(Point {:x 3 :y 6})] Point)]
-                     (k/for [{:keys [x y]} points] (k/+= total (k/+ x y)))
-                     (a/value total)))))))
+                          points (a/array [(Point {:x 3 :y 6})] Point)]
+                      (k/for [{:keys [x y]} points] (k/+= total (k/+ x y)))
+                      (a/value total)))))))

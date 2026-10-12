@@ -83,35 +83,35 @@
   :note "C pointer-member access corresponds to a/field; Zig automatically dereferences a single-item pointer when accessing its field."}
 
  ".Add"
- {:clojure-source ":.Add" :kind :expr
+ {:clojure-source ":Add" :kind :expr
   :note "The Add reduction-operation enum literal, inferred from the parameter type."}
 
  ".And"
- {:clojure-source ":.And" :kind :expr
+ {:clojure-source ":And" :kind :expr
   :note "The And reduction-operation enum literal."}
 
  ".Max"
- {:clojure-source ":.Max" :kind :expr
+ {:clojure-source ":Max" :kind :expr
   :note "The Max reduction-operation enum literal."}
 
  ".Min"
- {:clojure-source ":.Min" :kind :expr
+ {:clojure-source ":Min" :kind :expr
   :note "The Min reduction-operation enum literal."}
 
  ".Mul"
- {:clojure-source ":.Mul" :kind :expr
+ {:clojure-source ":Mul" :kind :expr
   :note "The Mul reduction-operation enum literal."}
 
  ".Or"
- {:clojure-source ":.Or" :kind :expr
+ {:clojure-source ":Or" :kind :expr
   :note "The Or reduction-operation enum literal."}
 
  ".Xor"
- {:clojure-source ":.Xor" :kind :expr
+ {:clojure-source ":Xor" :kind :expr
   :note "The Xor reduction-operation enum literal."}
 
  ".strong"
- {:clojure-source ":.strong" :kind :expr
+ {:clojure-source ":strong" :kind :expr
   :note "Strong symbol linkage in the surrounding export options."}
 
  "?*T"
@@ -139,7 +139,7 @@
   :note "An explicitly quoted Zig identifier, not a string value."}
 
  "@Int(.unsigned, 18)"
- {:clojure-source "(k/Int :.unsigned 18)" :kind :expr :standalone? true
+ {:clojure-source "(k/Int :unsigned 18)" :kind :expr :standalone? true
   :note "Construct the unsigned 18-bit integer type."}
 
  "@This()"
@@ -235,7 +235,7 @@
   :note "The period ends the sentence, not an expression. Compare the preceding alignment with (>= alignment (k/sizeOf T))."}
 
  "@typeInfo(DestType) != .pointer"
- {:clojure-source "(k/!= (k/typeInfo DestType) :.pointer)" :kind :expr
+ {:clojure-source "(k/!= (k/typeInfo DestType) :pointer)" :kind :expr
   :note "Reject pointer destination types; pointer casts have dedicated builtins."}
 
  "@typeInfo(T).int.bits"
@@ -247,7 +247,7 @@
   :note "GPU work-group size for the selected dimension; requires a GPU execution context."}
 
  "!(@typeInfo(T) == .int and T.is_signed and numerator == std.math.minInt(T) and denominator == -1)"
- {:clojure-source "(not (and (k/== (k/typeInfo T) :.int)\n          (:is_signed T)\n          (k/== numerator (aguafria.std.math/minInt T))\n          (k/== denominator -1)))" :kind :expr
+ {:clojure-source "(not (and (k/== (k/typeInfo T) :int)\n          (:is_signed T)\n          (k/== numerator (aguafria.std.math/minInt T))\n          (k/== denominator -1)))" :kind :expr
   :note "The upstream division-overflow condition, preserved as written. T.is_signed is historical prose syntax, not a valid field on current integer types; current code reads signedness through k/typeInfo. This contextual fragment is not claimed to execute."}
 
  "a * b"

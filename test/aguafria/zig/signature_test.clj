@@ -128,10 +128,10 @@
               (with-redefs [runtime/invoke! fail!]
                 (jvm/precompile-call!
                  '{:function aguafria.std.c/clock_gettime
-                   :args [{:comptime :.MONOTONIC} [:* aguafria.std.c/timespec]]}))))))
+                   :args [{:comptime :MONOTONIC} [:* aguafria.std.c/timespec]]}))))))
     (with-open [timestamp (k/var (mem/zeroes (a/type c/timespec)))
                 pointer (k/& timestamp)]
-      (is (zero? (a/value (c/clock_gettime :.MONOTONIC pointer))))
+      (is (zero? (a/value (c/clock_gettime :MONOTONIC pointer))))
       (is (pos? (a/value (:sec timestamp)))))))
 
 (defn- import-cache-process [cache prepare? fixture invocation]
@@ -240,7 +240,7 @@
               (assert (zero? (aguafria.zig/value
                               (aguafria.std.c/nanosleep pointer nil))))
               (assert (zero? (aguafria.zig/value
-                              (aguafria.std.c/clock_gettime :.MONOTONIC pointer)))))))]
+                              (aguafria.std.c/clock_gettime :MONOTONIC pointer)))))))]
     (is (zero? (get-in prepared [:coverage :runtime-candidates :not-fully-prepared] 0))
         (pr-str (:coverage prepared)))))
 
@@ -256,8 +256,8 @@
                            (aguafria.keyword/fromBackingInt (aguafria.keyword/intCast other)) type)]
         (assert (= 8 (aguafria.zig/value (aguafria.keyword/intFromEnum code))))
         (assert (= 13 (aguafria.zig/value (aguafria.keyword/intFromEnum changed))))
-        (assert (true? (aguafria.keyword/!= code :.zero)))
-        (assert (true? (aguafria.keyword/== code :.eight)))))))
+        (assert (true? (aguafria.keyword/!= code :zero)))
+        (assert (true? (aguafria.keyword/== code :eight)))))))
 
 (deftest owner-local-layout-adapters-reuse-aot-in-a-fresh-ordinary-jvm
   (verify-import-cache!

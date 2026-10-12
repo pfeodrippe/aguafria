@@ -199,9 +199,13 @@
     (.-state value)))
 
 (defn info
-  "Return a small, printable view without forcing native compilation."
+  "Return metadata without realizing storage. Virtual-thread tooling may inspect
+  TLS descriptors, but cannot observe or materialize a platform thread's state."
   [^ZigValue value]
-  (let [state-map @(value-state value)]
+  (let [state-map (if (and (:thread-states (.-descriptor value))
+                           (.isVirtual (Thread/currentThread)))
+                    {:status :pending}
+                    @(value-state value))]
     (merge
      (select-keys (.-descriptor value)
                   [:module :name :kind :type :inspection-type
@@ -256,7 +260,8 @@
 (defn segment
   "Return the value's exact native bytes as a MemorySegment."
   ^MemorySegment [^ZigValue zig-value]
-  (let [{:keys [representation segment] :as realized} (realize! zig-value)]
+  (let [{:keys [representation segment refresh!] :as realized} (realize! zig-value)]
+    (when refresh! (refresh!))
     (when-not (= :native representation)
       (throw (ex-info "Zig value has an exact JVM scalar representation"
                       (dissoc realized :close!))))
@@ -517,6 +522,32 @@
                      index
                      (aget native-bytes index)))))
   native-segment)
+
+(defn packed-view-storage
+  "Create a by-value mirror for a compiler-described packed field. Refresh it
+  before reads/ABI transport; address-taking still uses the original backing."
+  [address size alignment bit-start host-size bit-size]
+  (let [arena (Arena/ofShared)]
+    (try
+      (let [backing (.reinterpret (MemorySegment/ofAddress address) host-size)
+            mirror (.allocate arena (long size) (long alignment))
+            mask (.subtract (.shiftLeft java.math.BigInteger/ONE bit-size)
+                            java.math.BigInteger/ONE)
+            shifted-mask (.shiftLeft mask bit-start)
+            mirror-type (keyword (str "u" (* 8 size)))
+            backing-type (keyword (str "u" (* 8 host-size)))]
+        {:segment mirror :address-segment backing
+         :refresh! #(write-native-integer!
+                     mirror mirror-type
+                     (.and (.shiftRight (unsigned-native-integer backing) bit-start) mask) {})
+         :write-back! #(write-native-integer!
+                        backing backing-type
+                        (.or (.andNot (unsigned-native-integer backing) shifted-mask)
+                             (.shiftLeft (.and (unsigned-native-integer mirror) mask) bit-start)) {})
+         :close! #(.close arena)})
+      (catch Throwable error
+        (.close arena)
+        (throw error)))))
 
 (defn- decode-native-field
   [^MemorySegment field-segment {:keys [type] :as field}]
@@ -817,6 +848,16 @@
           (zig-pointer? value) (pointer-address value)
           (instance? MemorySegment value) (.address ^MemorySegment value)
           (and nullable? (nil? value)) 0
+          (and (string? value) (= [:sentinel-const :u8 0] zig-type))
+          (do
+            (when-not *allocation-arena*
+              (throw (ex-info "String pointer construction requires an owning allocation arena"
+                              {:type zig-type})))
+            ;; Arena.allocateFrom encodes UTF-8 and appends a zero byte. The
+            ;; enclosing aggregate owns this arena, so its pointer never refers
+            ;; to a temporary call buffer. Do not admit writable/other-sentinel
+            ;; pointers through this immutable-string construction path.
+            (.address (.allocateFrom ^Arena *allocation-arena* ^String value)))
           (integer? value) value
           :else
           (throw (ex-info
@@ -1021,9 +1062,10 @@
   backing value for round trips. Arbitrary-width integers are exact."
   [^ZigValue zig-value]
   (try
-    (let [{:keys [representation value segment schema decoded-fn]}
+    (let [{:keys [representation value segment schema decoded-fn refresh!]}
           (realize! zig-value)
           zig-type (type zig-value)]
+      (when refresh! (refresh!))
       (if (= :scalar representation)
         value
         (cond
@@ -1161,7 +1203,7 @@
     (when-not (= :var (:kind descriptor))
       (throw (ex-info "Only an a/defvar Zig value is mutable"
                       (merge (info zig-value) {:value new-value}))))
-    (let [{:keys [representation segment schema native-image]} (realize! zig-value)]
+    (let [{:keys [representation segment schema native-image write-back!]} (realize! zig-value)]
       (when-not (= :native representation)
         (throw (ex-info "Mutable Zig state has no native storage"
                         (info zig-value))))
@@ -1180,6 +1222,7 @@
           (write-value-segment! segment (:type descriptor) schema new-value
                                 {:module (:module descriptor)
                                  :name (:name descriptor)})))
+      (when write-back! (write-back!))
       (when (and (= :union (:kind schema))
                  (not (:tagged? schema))
                  (map? new-value)
@@ -1234,6 +1277,22 @@
                             (proxy [ThreadLocal] []
                               (initialValue [] (atom {:status :pending})))))]
     (ZigValue. descriptor (atom {:status :pending}) materialize)))
+
+(defn owned-c-string-pointer
+  "Own UTF-8 plus NUL storage for an immutable C-string argument. Both the pointer
+  cell and bytes share an automatic arena retained by the native value and any
+  result borrowing it; this is not a temporary call-buffer address."
+  [^String text]
+  (native-value
+   {:kind :const :type [:sentinel-const :u8 0]}
+   (fn []
+     (let [arena (Arena/ofAuto)
+           bytes (.allocateFrom arena text)
+           cell (.allocate arena java.lang.foreign.ValueLayout/ADDRESS)]
+       (.set cell java.lang.foreign.ValueLayout/ADDRESS 0 bytes)
+       {:representation :native :segment cell
+        :size (.byteSize cell) :alignment (.byteAlignment java.lang.foreign.ValueLayout/ADDRESS)
+        :schema {:kind :pointer} :owners [bytes]}))))
 
 (defn array-element-view
   "Borrow one array element as an immutable native value, retaining its owner."
@@ -1310,10 +1369,13 @@
   ([owner mutable?]
    (address-value owner mutable? (storage-type owner)))
   ([owner mutable? child]
-   (let [{:keys [segment pointer-alignment]} (realize! owner)
+   (let [{:keys [segment address-segment pointer-alignment pointer-bit-start pointer-bit-end]} (realize! owner)
+         segment (or address-segment segment)
          type (if-let [alignment (or pointer-alignment (:align (info owner)))]
                 [:* (cond-> {:align alignment}
-                      (not mutable?) (assoc :const? true)) child]
+                      (not mutable?) (assoc :const? true)
+                      (some? pointer-bit-start) (assoc :bit-start pointer-bit-start
+                                                       :bit-end pointer-bit-end)) child]
                 [(if mutable? :* :*const) child])
          arena (Arena/ofShared)]
      (try

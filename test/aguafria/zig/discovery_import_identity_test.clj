@@ -133,7 +133,7 @@
         (is (empty? (:probe-failures report)))
         (is (= :observed (:status operation)))
         (is (= '[[{:contextual-argument
-                  [:c_int {:contextual-call [aguafria.keyword/intCast [:i64]]}]}]]
+                   [:c_int {:contextual-call [aguafria.keyword/intCast [:i64]]}]}]]
                (:signatures operation)))
         (is (= [:prepared] (mapv :status (:handlers operation))))
         (is (= 42 (aguafria.zig/value ((ns-resolve context 'abs) -42))))
@@ -508,7 +508,7 @@
                  (k/as (if (k/== choice 0) 0.5 (if (k/== choice 1) 0.75 0.0)) :f32)))
         (eval '(a/defn width :usize [[choice :bool]] (k/as (if choice 4 1) :usize)))
         (eval '(a/defn store :void [[ptr [:* :u32]] [number :f64]]
-                 (k/atomicStore :u32 ptr (k/intFromFloat number) :.release)))
+                 (k/atomicStore :u32 ptr (k/intFromFloat number) :release)))
         (eval '(a/defn convert :c_uint [[number :i64]]
                  ((:inspection_format_value api) (k/intCast number)))))
       (let [report (binding [runtime/*compile-only?* true]
@@ -518,9 +518,9 @@
             Pair (var-get (ns-resolve context 'Pair))
             api (var-get (ns-resolve context 'api))
             calls (filter #(or (= 'aguafria.keyword/as (:function %))
-                                (= 'aguafria.keyword/atomicStore (:function %))
-                                (and (:method-call? %)
-                                     (= :inspection_format_value (:member %))))
+                               (= 'aguafria.keyword/atomicStore (:function %))
+                               (and (:method-call? %)
+                                    (= :inspection_format_value (:member %))))
                           (:operations report))
             events (atom [])]
         (is (zero? (get-in report [:baseline :exit])) (get-in report [:baseline :diagnostics]))
@@ -544,7 +544,7 @@
             (doseq [literal [4 1]]
               (with-open [result (aguafria.keyword/as literal :usize)]
                 (is (= literal (aguafria.zig/value result)))))
-            (aguafria.keyword/atomicStore :u32 ptr (aguafria.keyword/intFromFloat floating) :.release)
+            (aguafria.keyword/atomicStore :u32 ptr (aguafria.keyword/intFromFloat floating) :release)
             (is (= 23 (aguafria.zig/value cell)))
             (with-open [result ((:inspection_format_value api) (aguafria.keyword/intCast number))]
               (is (= 7 (aguafria.zig/value result))))))
@@ -558,9 +558,9 @@
         configuration (runtime/configuration)]
     (try
       (runtime/configure!
-        {:module-zig-args
-         (assoc (:module-zig-args configuration) (str (ns-name context))
-                [(str "-I" (.getAbsolutePath (io/file "test/aguafria/zig/fixtures")))])})
+       {:module-zig-args
+        (assoc (:module-zig-args configuration) (str (ns-name context))
+               [(str "-I" (.getAbsolutePath (io/file "test/aguafria/zig/fixtures")))])})
       (binding [*ns* context runtime/*source-only-registration?* true]
         (refer 'clojure.core)
         (alias 'a 'aguafria.zig)
@@ -574,7 +574,7 @@
                                    (fn [& _] (throw (ex-info "Executed a body" {})))]
                        (discovery/prepare! (ns-name context))))
             call (first (filter #(and (:method-call? %)
-                                     (= :inspection_format_value (:member %))) (:operations report)))
+                                      (= :inspection_format_value (:member %))) (:operations report)))
             api (var-get (ns-resolve context 'api))
             events (atom [])]
         (is (zero? (get-in report [:baseline :exit])))
@@ -613,7 +613,7 @@
         (doseq [number [-1 256]]
           (with-open [input (aguafria.keyword/i64 number)]
             (is (thrown-with-msg? clojure.lang.ExceptionInfo #"out of range"
-                                 ((:integer target) input)))))
+                                  ((:integer target) input)))))
         (with-open [input (aguafria.keyword/i64 9)
                     result ((:integer target) input)]
           (is (= 9 (aguafria.zig/value result)) "A subsequent valid call still succeeds")))
@@ -733,7 +733,7 @@
       (binding [*ns* consumer runtime/*source-only-registration?* true]
         (alias 'provider (ns-name provider))
         (eval '(a/defconst Callback
-                 (a/type [:*const [:fn {:callconv :.c}
+                 (a/type [:*const [:fn {:callconv :c}
                                    [{:name :point :type [:*const provider/Point]}] :i32]])))
         (eval '(a/defn read-point :i32 {:zig/qualifiers "callconv(.c)"}
                  [[point [:*const provider/Point]]]
@@ -773,7 +773,7 @@
         (is (empty? (:probe-failures report)))
         (is (= :observed (:status operation)))
         (is (= '[[{:contextual-argument
-                  [:usize {:contextual-call [aguafria.keyword/intCast [:u32]]}]}]]
+                   [:usize {:contextual-call [aguafria.keyword/intCast [:u32]]}]}]]
                (:signatures operation)))
         (is (= [:prepared] (mapv :status (:handlers operation)))))
       (let [source (aguafria.keyword/u32 37)
@@ -791,9 +791,9 @@
                    (value/pointer-address (value/decoded returned)))))
           (let [results (atom [])]
             (is (= 37 (runtime/invoke-with-result!
-                        (ns-resolve context 'take-index)
-                        [(aguafria.keyword/intCast source)]
-                        (fn [result _] (swap! results conj result) result))))
+                       (ns-resolve context 'take-index)
+                       [(aguafria.keyword/intCast source)]
+                       (fn [result _] (swap! results conj result) result))))
             (is (= [37] @results))))
         (is (empty? (filter #(= :compiled (:event %)) @events)) (pr-str @events)))
       (finally

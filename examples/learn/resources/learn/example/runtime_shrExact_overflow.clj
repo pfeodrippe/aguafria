@@ -12,8 +12,8 @@
     (when (and (or ((:isPowerPC (:arch builtin/cpu)))
                    ((:isRISCV (:arch builtin/cpu)))
                    ((:isLoongArch (:arch builtin/cpu)))
-                   (k/== (:arch builtin/cpu) :.s390x))
-               (k/== builtin/zig_backend :.stage2_llvm))
+                   (k/== (:arch builtin/cpu) :s390x))
+               (k/== builtin/zig_backend :stage2_llvm))
       (k/panic "https://github.com/ziglang/zig/issues/24304"))))
 
 (comment

@@ -11,10 +11,10 @@
     (k/switch field-index
       ;; This prong is analyzed twice with `idx` being a
       ;; comptime-known value each time.
-              (a/inline-case [0 1] [idx]
-                             (k/== (k/typeInfo (a/get field-types idx)) :.optional))
-              (a/case-else
-               (k/return (a/error-value :IndexOutOfBounds))))))
+      (0 1)
+      (k/inline (a/with-block :_ [idx] (k/== (k/typeInfo (a/get field-types idx)) :optional)))
+
+      (k/return (a/error-value :IndexOutOfBounds)))))
 
 (a/defstruct Struct1
   [[:a :u32]
@@ -34,10 +34,10 @@
 (a/defn- isFieldOptionalUnrolled :!bool
   [[field-index :usize]]
   (k/switch field-index
-            (case [0] false)
-            (case [1] true)
-            (a/case-else
-             (k/return (a/error-value :IndexOutOfBounds)))))
+    0 false
+    1 true
+
+    (k/return (a/error-value :IndexOutOfBounds))))
 
 (comment
   (using-typeInfo-with-runtime-values))

@@ -19,14 +19,14 @@
       sum)))
 
 (a/deftest defining-a-variadic-function
-  (when (and (k/== (cpu/-arch builtin/cpu) :.aarch64) (k/!= (os/-tag builtin/os) :.macos))
-      ;; https://github.com/ziglang/zig/issues/14096
+  (when (and (k/== (cpu/-arch builtin/cpu) :aarch64) (k/!= (os/-tag builtin/os) :macos))
+    ;; https://github.com/ziglang/zig/issues/14096
     (k/return (a/error-value :SkipZigTest)))
-  (when (and (k/== (cpu/-arch builtin/cpu) :.x86_64) (k/== (os/-tag builtin/os) :.windows))
-      ;; https://github.com/ziglang/zig/issues/16961
+  (when (and (k/== (cpu/-arch builtin/cpu) :x86_64) (k/== (os/-tag builtin/os) :windows))
+    ;; https://github.com/ziglang/zig/issues/16961
     (k/return (a/error-value :SkipZigTest)))
-  (when (k/== (cpu/-arch builtin/cpu) :.s390x)
-      ;; https://github.com/ziglang/zig/issues/21350#issuecomment-3543006475
+  (when (k/== (cpu/-arch builtin/cpu) :s390x)
+    ;; https://github.com/ziglang/zig/issues/21350#issuecomment-3543006475
     (k/return (a/error-value :SkipZigTest)))
 
   (try (testing/expectEqual (k/as 0 :c_int) (add 0)))

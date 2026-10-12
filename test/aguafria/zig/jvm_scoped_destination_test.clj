@@ -28,7 +28,7 @@
 
 (deftest native-result-arms-carry-the-real-destination-without-changing-source
   (let [result (emitted-contexts
-                :u32 '(a/switch input (case [0] (k/intFromFloat 42.0)) (case-else 7)))
+                :u32 '(k/switch input 0 (k/intFromFloat 42.0) 7))
         scopes (filter #(= 'switch (some-> % :form first)) (:observations result))]
     (is (= (:source result) (:observed-source result)))
     (is (seq scopes))
@@ -42,7 +42,7 @@
 (deftest peer-result-arms-use-the-original-native-envelope
   (let [parent '(a/if-capture {:payload [value] :error [err]} input
                               (k/+ value 3)
-                              (k/switch err (case [(a/error-value :Rejected)] nil)))
+                              (k/switch err (a/error-value :Rejected) nil))
         result (emitted-contexts :void (list 'let ['choice parent] '(k/= :_ choice)))
         inner (filter #(= 'switch (some-> % :form first)) (:observations result))]
     (is (= (:source result) (:observed-source result)))
@@ -51,7 +51,7 @@
     (is (every? #(symbol? (:result-context %)) inner))
     (is (every? #(= 'if-capture (first (:result-context-envelope %))) inner)))
   (let [parent '(a/catch-capture [err] input
-                                 (k/switch err (case [(a/error-value :Rejected)] nil)))
+                                 (k/switch err (a/error-value :Rejected) nil))
         result (emitted-contexts :void (list 'let ['choice parent] '(k/= :_ choice)))
         inner (filter #(= 'switch (some-> % :form first)) (:observations result))]
     (is (seq inner))
@@ -59,13 +59,13 @@
     (is (every? #(= 'catch-capture (first (:result-context-envelope %))) inner))))
 
 (deftest external-exits-and-ordinary-operands-do-not-acquire-a-return-contract
-  (let [exit '(a/switch input (case [0] (k/return 7)) (case-else 2))
+  (let [exit '(k/switch input 0 (k/return 7) 2)
         result (emitted-contexts :u32 exit)
         scopes (filter #(= 'switch (some-> % :form first)) (:observations result))]
     (is (seq scopes))
     (is (every? #(nil? (:result-context-origin %)) scopes)))
   (let [result (emitted-contexts
-                :u64 '(k/+ (a/switch input (case [0] 1) (case-else 2)) 3))
+                :u64 '(k/+ (k/switch input 0 1 2) 3))
         scopes (filter #(= 'switch (some-> % :form first)) (:observations result))]
     (is (seq scopes))
     (is (every? #(nil? (:result-context-origin %)) scopes))))
@@ -104,9 +104,9 @@
                                          {:result decoded#})))
                        result#))
                    forms# (with-open [reader# (java.io.PushbackReader.
-                                              (clojure.java.io/reader
-                                               (clojure.java.io/resource
-                                                "aguafria/zig/jvm_scoped_destination_fixture.clj")))]
+                                               (clojure.java.io/reader
+                                                (clojure.java.io/resource
+                                                 "aguafria/zig/jvm_scoped_destination_fixture.clj")))]
                             (binding [*read-eval* false]
                               (into [] (take-while some?)
                                     (repeatedly #(read {:eof nil} reader#)))))

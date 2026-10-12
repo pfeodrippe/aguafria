@@ -74,7 +74,7 @@
 
 (a/defn request-race-reset! :void
   "Queue a reset for the simulation thread; safe to call from the nREPL." []
-  (ak/atomicStore :u8 (ak/& reset-request) 1 :.release))
+  (ak/atomicStore :u8 (ak/& reset-request) 1 :release))
 
 (a/defn request-stop! :void
   []
@@ -97,7 +97,7 @@
   ;; between rendered frames. This also applies to F2 in the monitor.
   (glfw/glfwSetInputMode window glfw/GLFW_STICKY_KEYS glfw/GLFW_TRUE)
   (install-scroll!)
-  (when (ak/!= (ak/atomicRmw :u8 (ak/& reset-request) :.Xchg 0 :.acq_rel) 0)
+  (when (ak/!= (ak/atomicRmw :u8 (ak/& reset-request) :Xchg 0 :acq_rel) 0)
     (simulation/reset!)
     (render3d/reset-presentation!)
     (render3d/reset-camera!))
@@ -120,9 +120,9 @@
     (when (ak/== (glfw/glfwGetKey window (+ glfw/GLFW_KEY_1 (ak/as (ak/intCast racer) :i32))) glfw/GLFW_PRESS)
       (render3d/select-camera! (ak/intCast racer) true)))
   (let [pause-down (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_P)
-                           glfw/GLFW_PRESS)
+                          glfw/GLFW_PRESS)
         reset-down (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_R)
-                           glfw/GLFW_PRESS)
+                          glfw/GLFW_PRESS)
         debug-down (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_F1)
                           glfw/GLFW_PRESS)
         human-toggle-down
@@ -162,38 +162,38 @@
         gamepad-throttle
         (if gamepad-connected
           (* (+ (a/index (a/field gamepad axes)
-                          glfw/GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER)
+                         glfw/GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER)
                 1.0)
              0.5)
           0.0)
         gamepad-brake
         (if gamepad-connected
           (* (+ (a/index (a/field gamepad axes)
-                          glfw/GLFW_GAMEPAD_AXIS_LEFT_TRIGGER)
+                         glfw/GLFW_GAMEPAD_AXIS_LEFT_TRIGGER)
                 1.0)
              0.5)
           0.0)
         gamepad-use
         (and gamepad-connected
              (ak/== (a/index (a/field gamepad buttons)
-                              glfw/GLFW_GAMEPAD_BUTTON_A)
+                             glfw/GLFW_GAMEPAD_BUTTON_A)
                     glfw/GLFW_PRESS))
         item-use (or keyboard-use gamepad-use)
         keyboard-steering
         (ak/f32 (cond
-          (and left-down (ak/! right-down)) -1.0
-          (and right-down (ak/! left-down)) 1.0
-          :else 0.0))
+                  (and left-down (ak/! right-down)) -1.0
+                  (and right-down (ak/! left-down)) 1.0
+                  :else 0.0))
         steering
         (ak/f32 (if (> (ak/abs gamepad-steering) 0.15)
-          gamepad-steering
-          keyboard-steering))
+                  gamepad-steering
+                  keyboard-steering))
         throttle
         (ak/f32 (ak/max (if throttle-down (ak/as 1.0 :f32) (ak/as 0.0 :f32))
-                gamepad-throttle))
+                        gamepad-throttle))
         brake
         (ak/f32 (ak/max (if brake-down (ak/as 1.0 :f32) (ak/as 0.0 :f32))
-                gamepad-brake))]
+                        gamepad-brake))]
     (when (and pause-down (ak/! previous-pause))
       (ak/= :_ (simulation/toggle-paused!)))
     (when (and reset-down (ak/! previous-reset))

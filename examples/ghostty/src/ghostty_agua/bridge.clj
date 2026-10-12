@@ -15,7 +15,7 @@
         written (k/var 0 :usize)]
     (k/= :_
          (ghostty-focus/encode
-          (if gained? :.gained :.lost)
+          (if gained? :gained :lost)
           (k/& bytes)
           (:len bytes)
           (k/& written)))

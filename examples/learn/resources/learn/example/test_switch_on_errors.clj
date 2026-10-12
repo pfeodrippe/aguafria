@@ -9,14 +9,14 @@
   (a/error-value :OutOfMemory))
 
 (a/deftest unreachable-else-prong
-  (a/switch-stmt (open-file-0)
-                 (case [(a/error-value :AccessDenied) (a/error-value :FileNotFound)] [e]
-                       (k/return e))
-                 (case [(a/error-value :OutOfMemory)] (a/block))
+  (k/switch (open-file-0)
+    ((a/error-value :AccessDenied) (a/error-value :FileNotFound))
+    (a/with-block :_ [e] (k/return e))
+    (a/error-value :OutOfMemory) (a/block)
     ;; 'openFile0' cannot return any more errors, so an 'else' prong would be
     ;; statically known to be unreachable. Nonetheless, in this case, adding
     ;; one does not raise an "unreachable else prong" compile error:
-                 (a/case-else (k/unreachable)))
+    (k/unreachable))
   ;; Allowed unreachable else prongs are:
   ;;    `else => unreachable,`
   ;;    `else => return,`
@@ -30,16 +30,16 @@
   (a/error-value :SystemResources))
 
 (a/defn- open-file-generic
-  (switch kind (case [0] FileOpenError0) (case [1] FileOpenError1))
+  (k/switch kind 0 FileOpenError0 1 FileOpenError1)
   [[kind {:attrs #{k/comptime}} :u1]]
-  (switch kind (case [0] (open-file-0)) (case [1] (open-file-1))))
+  (k/switch kind 0 (open-file-0) 1 (open-file-1)))
 
 (a/deftest comptime-unreachable-errors-not-in-error-set
-  (a/switch-stmt (open-file-generic 1)
-                 (case [(a/error-value :AccessDenied) (a/error-value :FileNotFound)] [e]
-                       (k/return e))
-                 (case [(a/error-value :OutOfMemory)] (k/comptime (k/unreachable))) ; not in `FileOpenError1`!
-                 (case [(a/error-value :SystemResources)] (a/block))))
+  (k/switch (open-file-generic 1)
+    ((a/error-value :AccessDenied) (a/error-value :FileNotFound))
+    (a/with-block :_ [e] (k/return e))
+    (a/error-value :OutOfMemory) (k/comptime (k/unreachable)) ; not in `FileOpenError1`!
+    (a/error-value :SystemResources) (a/block)))
 
 (comment
   (unreachable-else-prong)

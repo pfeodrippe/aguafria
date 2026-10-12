@@ -6,9 +6,9 @@
   (a/type [:*const [:fn {} [{:name :value :type :i32}] :i32]]))
 
 (a/defconst CCallback
-  (a/type [:*const [:fn {:callconv :.c} [{:name :value :type :i32}] :i32]]))
+  (a/type [:*const [:fn {:callconv :c} [{:name :value :type :i32}] :i32]]))
 
-(a/defextern abs :i32 {:callconv :.c} [[value :i32]])
+(a/defextern abs :i32 {:callconv :c} [[value :i32]])
 
 (a/defn- increment :i32 [[value :i32]]
   (k/+ value 1))

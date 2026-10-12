@@ -127,7 +127,9 @@
 (defn syntax-operators
   "Return Aguafria's structural form names for tooling and generated Vars."
   []
-  structural-operators)
+  ;; Switch arms are private normalized IR, never public DSL forms.
+  (apply disj structural-operators '[case inline-case case-else inline-case-else
+                                     switch switch-stmt labeled-switch labeled-switch-stmt]))
 
 (def ^:dynamic *keyword-context*
   "Namespace used to resolve aliases such as `ak/intCast` during emission."
@@ -564,7 +566,7 @@
   (when-not (and (vector? bindings) (even? (count bindings)))
     (fail! "let expects an even Clojure binding vector" bindings))
   (vec (mapcat (fn [[pattern value]]
-                ;; Preserve Zig's native multiple-assignment form for flat tuples.
+                 ;; Preserve Zig's native multiple-assignment form for flat tuples.
                  (if (and (vector? pattern) (seq pattern)
                           (every? #(and (symbol? %) (not= '& %)) pattern))
                    [pattern value]
@@ -836,36 +838,76 @@
       (with-meta (apply list operator arguments) (meta form)))))
 
 (defn- switch-clauses [context clauses]
-  (let [clause? (fn [form]
-                  (and (seq? form)
-                       (contains? #{'case 'inline-case 'case-else 'inline-case-else}
-                                  (resolved-syntax-operator context (first form)))))
-        selector (fn [value]
-                   (if (and (keyword? value) (nil? (namespace value)))
-                     (list 'enum-literal
-                           (if (str/starts-with? (name value) ".")
-                             (name value)
-                             (str "." (identifier value))))
-                     value))]
-    (if (clause? (first clauses))
-      (do
-        (when-not (every? clause? clauses)
-          (fail! "Do not mix explicit switch clauses with selector/result pairs" clauses))
-        (map (fn [clause]
-               (with-meta (cons (resolved-syntax-operator context (first clause)) (rest clause))
-                 (meta clause))) clauses))
-      (let [pairs (partition 2 clauses)
-            default (when (odd? (count clauses)) (last clauses))]
-        (concat
-         (map (fn [[pattern target]]
-                (list 'case (mapv selector (if (vector? pattern) pattern [pattern])) target)) pairs)
-         (when (odd? (count clauses)) [(list 'case-else default)]))))))
+  (let [internal? #(and (seq? %) (:aguafria/switch-arm (meta %)))
+        legacy? #(and (seq? %) (symbol? (first %))
+                      (contains? #{"case" "inline-case" "case-else" "inline-case-else"}
+                                 (name (first %))))
+        selector #(if (and (keyword? %) (nil? (namespace %)))
+                    (list 'enum-literal (str "." (identifier %))) %)
+        grouped? #(or (vector? %)
+                      (and (seq? %)
+                           (or (seq? (first %))
+                               (number? (first %)) (char? (first %))
+                               (every? keyword? %))))
+        arm (fn [pattern target default?]
+              (let [_ (when (some #(contains? (meta target) %) [:capture :inline])
+                        (fail! "Switch capture/inline metadata is not supported" target))
+                    inline (and (seq? target)
+                                (= "inline" (:zig-token (keyword/resolve-token context (first target)))))
+                    _ (when (and inline (not= 2 (count target)))
+                        (fail! "Inline switch branch expects one result expression" target))
+                    target (if inline (second target) target)
+                    _ (when (and (seq? target) (#{'fn 'clojure.core/fn} (first target)))
+                        (fail! "Native switch captures use with-block, not fn" target))
+                    block? (and (seq? target)
+                                (= 'with-block (resolved-syntax-operator context (first target))))
+                    capture? (and block? (vector? (nth target 2 nil)))
+                    capture (when capture?
+                              (mapv (fn [binding]
+                                      (if (and (seq? binding)
+                                               (= "*" (:zig-token (keyword/resolve-token context (first binding)))))
+                                        (do
+                                          (when-not (= 2 (count binding))
+                                            (fail! "Pointer capture expects one binding" binding))
+                                          (with-meta (list 'pointer-capture (second binding)) (meta binding)))
+                                        binding))
+                                    (nth target 2)))
+                    _ (when (and capture? (or (not (keyword? (second target))) (< (count target) 4)))
+                        (fail! "Switch capture block expects a keyword label, binding vector, and body" target))
+                    target (if capture?
+                             (with-meta (list* (first target) (second target) (drop 3 target)) (meta target))
+                             target)
+                    operator (cond
+                               (and default? inline) 'inline-case-else
+                               default? 'case-else
+                               inline 'inline-case
+                               :else 'case)]
+                (with-meta
+                  (apply list operator
+                         (concat (when-not default?
+                                   [(mapv selector (if (grouped? pattern) pattern [pattern]))])
+                                 (when (seq capture) [capture]) [target]))
+                  {:aguafria/switch-arm true})))]
+    (cond
+      (every? internal? clauses) clauses
+      (some internal? clauses) (fail! "Invalid mixed internal switch representation" clauses)
+      (some legacy? clauses)
+      (fail! "Legacy switch clauses are not supported; use selector/result pairs and an optional final default" clauses)
+      :else
+      (concat (map (fn [[pattern target]] (arm pattern target false)) (partition 2 clauses))
+              (when (odd? (count clauses)) [(arm nil (last clauses) true)])))))
 
 (defn- normalize-switch-form [context operator form]
   (if (contains? #{'switch 'switch-stmt 'labeled-switch 'labeled-switch-stmt} operator)
-    (let [prefix (if (contains? #{'labeled-switch 'labeled-switch-stmt} operator) 3 2)]
+    (let [metadata (meta form)
+          labeled? (and (= 'switch operator) (vector? (second form)))
+          _ (when (and labeled? (not (and (= 2 (count (second form)))
+                                          (symbol? (first (second form))))))
+              (fail! "Labeled switch expects [label initial-value]" form))
+          form (if labeled? (list* 'labeled-switch (concat (second form) (drop 2 form))) form)
+          prefix (if (or labeled? (contains? #{'labeled-switch 'labeled-switch-stmt} operator)) 3 2)]
       (with-meta (apply list (concat (take prefix form)
-                                     (switch-clauses context (drop prefix form)))) (meta form)))
+                                     (switch-clauses context (drop prefix form)))) metadata))
     form))
 
 (defn- scoped-native-token? [token]
@@ -914,12 +956,12 @@
 
                  (and structural? (= 'field structural-op)
                       (= 2 (count raw-args)))
-               ;; A field name is Zig syntax, not a Var reference. Qualifying
-               ;; it would incorrectly capture a same-named top-level Var.
+                 ;; A field name is Zig syntax, not a Var reference. Qualifying
+                 ;; it would incorrectly capture a same-named top-level Var.
                  [(qualify-form context-ns (first raw-args))
                   (let [field-name (second raw-args)]
-                  ;; Quoted names use Aguafria's explicit identifier-literal
-                  ;; form, which still needs syntax normalization.
+                    ;; Quoted names use Aguafria's explicit identifier-literal
+                    ;; form, which still needs syntax normalization.
                     (if (seq? field-name)
                       (qualify-form context-ns field-name)
                       field-name))]
@@ -1039,9 +1081,9 @@
                                        (into *lexical-bindings* (keys *local-type-bindings*))))))
                  form)
           captured (when (seq? form) (lower-capture-form operator form))]
-   ;; Type-bearing binding metadata is source code too. Capture its defining
-   ;; namespace before declaration emission happens in a different context.
-   ;; Other metadata (docs, source spans, arbitrary user values) stays intact.
+      ;; Type-bearing binding metadata is source code too. Capture its defining
+      ;; namespace before declaration emission happens in a different context.
+      ;; Other metadata (docs, source spans, arbitrary user values) stays intact.
       (cond
         captured
         (qualify-form context-ns (with-meta captured (meta form)))
@@ -1061,8 +1103,8 @@
                                              (resolved-syntax-operator context-ns op))
                               name))
                           members)]
-        ;; A container's own declarations take precedence over namespace aliases.
-        ;; Reference validation separately enforces authored declaration order.
+          ;; A container's own declarations take precedence over namespace aliases.
+          ;; Reference validation separately enforces authored declaration order.
           (with-meta
             (list 'container (qualify-form context-ns options)
                   (binding [*lexical-bindings* (into *lexical-bindings* names)]
@@ -1107,10 +1149,10 @@
 
         (seq? form) (if-let [expansion (expand-clojure-macro-once context-ns form)]
                       (let [expanded (:expanded expansion)]
-                    ;; `cond` expands its conventional `:else` clause to
-                    ;; `(if :else value (cond))`. In Clojure the keyword is
-                    ;; unconditionally truthy; simplify it before Zig sees an
-                    ;; `else` keyword in expression position or the nil tail.
+                        ;; `cond` expands its conventional `:else` clause to
+                        ;; `(if :else value (cond))`. In Clojure the keyword is
+                        ;; unconditionally truthy; simplify it before Zig sees an
+                        ;; `else` keyword in expression position or the nil tail.
                         (if (and (seq? expanded)
                                  (= 'if (first expanded))
                                  (= :else (second expanded)))
@@ -1167,10 +1209,10 @@
         (reference-symbol context-ns form
                           (namespace-root-reference context-ns form))
 
-    ;; Preserve schema identity on ordinary same-namespace type/state
-    ;; references. This lets implementation fingerprints notice a new
-    ;; defstruct and lets development emission route a defvar through its
-    ;; stable state-reference cell.
+        ;; Preserve schema identity on ordinary same-namespace type/state
+        ;; references. This lets implementation fingerprints notice a new
+        ;; defstruct and lets development emission route a defvar through its
+        ;; stable state-reference cell.
         (and (symbol? form) (nil? (namespace form))
              (not (contains? *lexical-bindings* form)))
         (if-let [reference
@@ -1253,6 +1295,7 @@
               (when (seq? form)
                 (let [head (first form)]
                   (or (and (keyword? head) (str/starts-with? (name head) "."))
+                      (and (seq? head) (= 'enum-literal (operator head)))
                       (keyword/result-context-required?
                        (:zig-name (keyword/resolve-token context-ns head)))
                       (case (operator form)
@@ -1846,7 +1889,22 @@
     [:error-union (qualify-type context-ns (inferred-error-payload type))]
 
     :else
-    (qualify-form context-ns type)))
+    (letfn [(normalize [part]
+              (let [token (when (symbol? part) (keyword/resolve-token context-ns part))]
+                (cond
+                  (or (= :primitive (:kind token)) (= "anytype" (:zig-token token)))
+                  (keyword (:zig-token token))
+                  ;; A computed type is an expression, not a type schema. Its
+                  ;; primitive call heads must remain callable, and its metadata
+                  ;; retains owner/source proofs and scoped templates.
+                  (seq? part) part
+                  (and (coll? part) (not (record? part)))
+                  (let [normalized (walk/walk normalize identity part)]
+                    (if (instance? clojure.lang.IObj normalized)
+                      (with-meta normalized (meta part))
+                      normalized))
+                  :else part)))]
+      (normalize (qualify-form context-ns type)))))
 
 (defn- emit-type*
   "Emit a Zig type from a keyword/symbol/string or a compositional vector.
@@ -1861,9 +1919,12 @@
   [t]
   (cond
     (symbol? t)
-    (if-let [reference (current-zig-reference t)]
-      (:zig-name reference)
-      (identifier t))
+    (let [token (keyword/resolve-token (or *keyword-context* *ns*) t)]
+      (if (or (= :primitive (:kind token)) (= "anytype" (:zig-token token)))
+        (:zig-token token)
+        (if-let [reference (current-zig-reference t)]
+          (:zig-name reference)
+          (identifier t))))
 
     ;; Type-position keywords include grammar words such as anytype. Quoting
     ;; them would turn a type specifier into a reference to a named declaration.
@@ -2220,9 +2281,10 @@
 (defn- emit-switch-case
   [clause]
   (when-not (and (seq? clause)
+                 (:aguafria/switch-arm (meta clause))
                  (contains? #{'case 'inline-case 'case-else 'inline-case-else}
                             (first clause)))
-    (fail! "switch expects case, inline-case, case-else, or inline-case-else clauses"
+    (fail! "Switch arms are internal; use selector/result pairs"
            clause))
   (let [[operator & args] clause
         else? (contains? #{'case-else 'inline-case-else} operator)
@@ -2258,7 +2320,12 @@
           (let [[label condition & clauses] args]
             [label condition clauses])
           (let [[condition & clauses] args]
-            [nil condition clauses]))
+            (if (vector? condition)
+              (do
+                (when-not (and (= 2 (count condition)) (symbol? (first condition)))
+                  (fail! "Labeled switch expects [label initial-value]" form))
+                [(first condition) (second condition) clauses])
+              [nil condition clauses])))
         clauses (switch-clauses (or *keyword-context* *ns*) clauses)]
     (when-not (and condition (seq clauses)
                    (or (nil? label)
@@ -2511,11 +2578,11 @@
       (if-let [reference (current-zig-reference form)]
         (if (and *reloadable-state-references?*
                  (:state-accessor reference)
-               ;; The local accessor set only describes state declared by the
-               ;; module currently being emitted. A qualified dependency Var
-               ;; owns its accessor in the imported module, so rejecting it
-               ;; here silently emitted `dependency.var` and created a second
-               ;; native state capsule in every caller image.
+                 ;; The local accessor set only describes state declared by the
+                 ;; module currently being emitted. A qualified dependency Var
+                 ;; owns its accessor in the imported module, so rejecting it
+                 ;; here silently emitted `dependency.var` and created a second
+                 ;; native state capsule in every caller image.
                  (or (:import-alias reference)
                      (nil? *reloadable-state-accessors*)
                      (contains? *reloadable-state-accessors*
@@ -2626,7 +2693,10 @@
         (let [[label & forms] args]
           (when-not (keyword? label)
             (fail! "with-block expects a keyword label followed by statements" form))
-          (emit-block-expr label forms))
+          (if (= :_ label)
+            (if (= 1 (count forms)) (emit-expr (first forms))
+                (emit-let-expr (cons [] forms) form))
+            (emit-block-expr label forms)))
 
         (= op 'init)
         (let [[fields type] args]
@@ -3276,7 +3346,7 @@
   [form]
   (let [source (emit-expr form)
         direct-postfix? (and (seq? form)
-                             (contains? #{"field" "index" "slice"
+                             (contains? #{"field" "index" "slice" "enum-literal"
                                           "slice-sentinel" "deref" "unwrap"}
                                         (operator-name (first form))))]
     (if (or (map? form)
@@ -3543,13 +3613,10 @@
                                      value)) ";"))
                        (str (emit-expr target) " = " (emit-expr value) ";")))
                    (fail! "set! expects a target and value" form))
-                 (contains? #{'switch-stmt 'labeled-switch-stmt} op)
+                 (contains? #{'switch 'labeled-switch 'switch-stmt 'labeled-switch-stmt} op)
+                 ;; Statement position determines the mode, not a public wrapper.
+                 ;; Do not fabricate a value observation for non-returning arms.
                  (emit-expr* form)
-                 (contains? #{'switch 'labeled-switch} op)
-               ;; A value-producing switch used only for side effects must be
-               ;; parenthesized before its semicolon. Without the grouping Zig
-               ;; parses it as a switch statement, where `};` is invalid.
-                 (str "(" (emit-expr form) ");")
                  (= op 'assign)
                  (let [[operator target value :as assignment] args]
                    (when-not (and (= 3 (count assignment))
@@ -3614,7 +3681,7 @@
                  (let [[label & forms] args]
                    (when-not (keyword? label)
                      (fail! "with-block expects a keyword label followed by statements" form))
-                   (str (identifier label) ": " (braced forms level)))
+                   (str (when-not (= :_ label) (str (identifier label) ": ")) (braced forms level)))
                  (= op 'defer) (if (= 1 (count args))
                                  (let [nested (first args)]
                                    (str "defer "
@@ -3704,6 +3771,7 @@
                           (contains? assignment-operators (operator-name op))
                           (get assignment-operators (operator-name op)))
              scoped-statement? (contains? #{'block 'with-block 'if-capture-stmt
+                                            'switch 'labeled-switch
                                             'switch-stmt 'labeled-switch-stmt 'while-loop
                                             'for 'inline-for 'for-loop 'while}
                                           (or structural-op op))
@@ -4415,10 +4483,10 @@
          "var " dispatch ": usize = 0;\n\n"
          (when emit-getter?
            (str ;; The compiler's tiny root imports this generated module and
-                ;; retains the getter by address. `export` gives it a native
-                ;; symbol but does not make it visible through Zig's module
-                ;; namespace; `pub export` is required for both forms of
-                ;; linkage.
+            ;; retains the getter by address. `export` gives it a native
+            ;; symbol but does not make it visible through Zig's module
+            ;; namespace; `pub export` is required for both forms of
+            ;; linkage.
             "pub export fn " getter "() callconv(.c) usize {\n"
             "    return @intFromPtr(&" implementation ");\n"
             "}\n\n"))
@@ -4436,14 +4504,14 @@
     (let [name (if-let [path (:state-path declaration)]
                  (str/join "." (map identifier path))
                  (identifier (or (:zig-name declaration) (:name declaration))))
-        ;; Zig deliberately analyzes many declarations lazily. A typed global
-        ;; may therefore use an initializer which is valid only for the
-        ;; non-void arm of a comptime-selected type, while remaining perfectly
-        ;; valid in the original program because the void storage is unused.
-        ;; Development state hooks necessarily take the variable's address and
-        ;; make Zig analyze it. Preserve the original initializer for every
-        ;; material type, but give a comptime-selected void state its canonical
-        ;; empty value so instrumentation does not change what compiles.
+          ;; Zig deliberately analyzes many declarations lazily. A typed global
+          ;; may therefore use an initializer which is valid only for the
+          ;; non-void arm of a comptime-selected type, while remaining perfectly
+          ;; valid in the original program because the void storage is unused.
+          ;; Development state hooks necessarily take the variable's address and
+          ;; make Zig analyze it. Preserve the original initializer for every
+          ;; material type, but give a comptime-selected void state its canonical
+          ;; empty value so instrumentation does not change what compiles.
           declaration
           (if-let [type (:type declaration)]
             (assoc declaration
@@ -4532,7 +4600,9 @@
              (some-> dispatch-specs first val)
              track-depth? (some #(and (contains? dispatch-specs (:declaration-key %))
                                       (not (per-invocation-tracking? %)))
-                                declarations)
+                                ;; Dispatch can inject accessors (notably TLS)
+                                ;; after the authored declaration list is built.
+                                (concat declarations (keep :declaration (vals dispatch-specs))))
              linkable? (boolean (seq linkable-declaration-keys))
              imports-source
              (->> imports

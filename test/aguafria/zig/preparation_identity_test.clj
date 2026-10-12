@@ -111,10 +111,13 @@
   (let [context (the-ns 'aguafria.zig.preparation-identity-test)
         source (with-redefs [value/realize! (fn [& _] (throw (Exception. "Must not read a value")))]
                  (#'discovery/declared-enum-tag-source context 'ReflectedTags :some-tag))]
+    ;; Calls retain the constant expression; field/method lookup still needs
+    ;; its exact storage type. The observer distinguishes those two demands.
     (is (= '(aguafria.keyword/TypeOf
              (aguafria.zig/field aguafria.zig.preparation-identity-test/ReflectedTags "some_tag"))
            (:root-type source)))
-    (is (:retain-native-observation? source))
+    (is (:comptime-member? source))
+    (is (some? (#'jvm/comptime-expression (:some-tag ReflectedTags))))
     (is (= '(aguafria.keyword/TypeOf
              (aguafria.zig/field aguafria.zig.preparation-identity-test/ReflectedUnion "a"))
            (:root-type (#'discovery/declared-enum-tag-source context 'ReflectedUnion :a))))

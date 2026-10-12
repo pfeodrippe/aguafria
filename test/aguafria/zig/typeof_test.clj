@@ -9,6 +9,19 @@
   (k/+= (a/deref counter) 1)
   (a/deref counter))
 
+(a/defn aligned-zero :i32 {:align 16} [] 7)
+(a/defn c-zero :i32 {:callconv :c} [] 7)
+
+(deftest function-types-retain-their-owner-alignment-and-calling-convention
+  (is (k/== (a/type [:fn {} [] :i32]) (k/TypeOf aligned-zero)))
+  (is (k/== (a/type [:* {:const? true :align 16} [:fn {} [] :i32]])
+            (k/TypeOf (k/& aligned-zero))))
+  ;; Parameterized functions still use their original source identity. Sending
+  ;; the resulting type to another adapter must qualify the owning declaration.
+  (is (k/== (a/type [:fn {} [{:type [:* :i32]}] :i32]) (k/TypeOf bump)))
+  (is (k/== (a/type [:fn {:callconv :c} [] :i32]) (k/TypeOf c-zero)))
+  (is (k/!= (k/TypeOf aligned-zero) (k/TypeOf c-zero))))
+
 (deftest typeof-is-unevaluated-but-still-checked-by-zig
   (is (:macro (meta #'k/TypeOf)))
   (with-open [counter (k/var 0 :i32)]

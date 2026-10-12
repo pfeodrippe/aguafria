@@ -13,10 +13,10 @@
     (is (= '(aguafria.keyword/as :u16 :type)
            (source :type {:comptime-type :u16})))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"no closed native value"
-                         (source :u1 nil)))
+                          (source :u1 nil)))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"detached lexical source"
-                         (source :u1 {:comptime-expression
-                                      (with-meta 'kind {:aguafria/local? true})})))))
+                          (source :u1 {:comptime-expression
+                                       (with-meta 'kind {:aguafria/local? true})})))))
 
 (deftest comptime-capture-storage-contract-fails-before-registration
   (doseq [address [[:* :u1] [:*const :u8]]]
@@ -28,7 +28,7 @@
               clojure.lang.ExceptionInfo #"disagrees with its native address"
               (jvm/precompile-scoped!
                {:caller 'aguafria.zig.jvm-scoped-phase-test
-                :form '(aguafria.zig/switch kind (case [0] 1) (case [1] 2))
+                :form '(aguafria.keyword/switch kind 0 1 1 2)
                 :captures ['kind] :types [{:comptime-capture [:u1 {:comptime 1}]} address]
                 :result? true}))))
       (is (zero? @calls)))))
@@ -76,8 +76,8 @@
                    commands# (atom [])
                    shell# clojure.java.shell/sh
                    forms# (with-open [r# (java.io.PushbackReader.
-                                         (clojure.java.io/reader
-                                          (clojure.java.io/resource "aguafria/zig/jvm_scoped_phase_fixture.clj")))]
+                                          (clojure.java.io/reader
+                                           (clojure.java.io/resource "aguafria/zig/jvm_scoped_phase_fixture.clj")))]
                             (binding [*read-eval* false]
                               (into [] (take-while some?) (repeatedly #(read {:eof nil} r#)))))
                    body# (first (filter #(and (seq? %) (= (symbol "phase-results") (second %))) forms#))
@@ -107,8 +107,8 @@
                               direct#
                               (vec (for [op# phases# signature# (:signatures op#)
                                          :let [form# (vary-meta (:scoped-form op#) assoc
-                                                               :aguafria/scoped-capture-contracts
-                                                               (:scope-capture-contracts op#))
+                                                                :aguafria/scoped-capture-contracts
+                                                                (:scope-capture-contracts op#))
                                                kind# (get-in signature# [0 :comptime-capture 1 :comptime])
                                                value# (aguafria.zig.jvm/invoke-scoped!
                                                        'aguafria.zig.jvm-scoped-phase-fixture
@@ -147,7 +147,7 @@
                                                (try
                                                  (aguafria.zig.jvm/invoke-scoped!
                                                   'aguafria.zig.jvm-scoped-phase-fixture
-                                                  (with-meta '(aguafria.zig/switch kind (case [0] 0) (case [1] 1))
+                                                  (with-meta '(aguafria.keyword/switch kind 0 0 1 1)
                                                     {:aguafria/scoped-capture-contracts
                                                      {(symbol "kind") {:phase :comptime :type :u1}}})
                                                   {(symbol "kind") v#} true :u1)
@@ -168,8 +168,8 @@
 
 (deftest typed-comptime-specializations-reuse-a-fresh-producer-pack
   (let [cache (str (java.nio.file.Files/createTempDirectory
-                   (.toPath (doto (io/file ".aguafria/precompile-tests") .mkdirs))
-                   "scoped-phase-" (make-array java.nio.file.attribute.FileAttribute 0)))
+                    (.toPath (doto (io/file ".aguafria/precompile-tests") .mkdirs))
+                    "scoped-phase-" (make-array java.nio.file.attribute.FileAttribute 0)))
         producer (phase-jvm cache true)
         _ (spit (io/file cache "producer.edn") (pr-str producer))
         _ (when-not (and (= 0 (get-in producer [:coverage :namespaces :baseline-failures]))
@@ -188,8 +188,8 @@
            (set (:direct consumer))))
     (is (= 6 (count (:direct consumer))))
     (is (every? #(and (= :const (:kind %)) (= 0 (:current %))
-                     (= :comptime-capture-source-unavailable (:reason %))
-                     (zero? (:new-events %))) (:rejected consumer)))
+                      (= :comptime-capture-source-unavailable (:reason %))
+                      (zero? (:new-events %))) (:rejected consumer)))
     (is (= #{:segment :address} (set (map :method (:rejected consumer)))))
     (is (seq hits))
     (is (= 1 (count loads)))

@@ -389,7 +389,7 @@
                          (aguafria.zig.jvm/precompile-call!
                           {:function 'aguafria.keyword/==
                            :args ['aguafria.zig.precompile-lazy-reference-leaf-fixture/Command
-                                  {:comptime :.version}]})))))
+                                  {:comptime :version}]})))))
                   (shutdown-agents))
           result (shell/sh (str (System/getProperty "java.home") "/bin/java")
                            "--enable-native-access=ALL-UNNAMED"

@@ -81,9 +81,9 @@
 (a/deftest enum-switch
   (let [p (:number Foo)
         what-is-it (k/switch p
-                             (case [(:string Foo)] "this is a string")
-                             (case [(:number Foo)] "this is a number")
-                             (case [(:none Foo)] "this is a none"))]
+                     (:string Foo) "this is a string"
+                     (:number Foo) "this is a number"
+                     (:none Foo) "this is a none")]
     (try (testing/expectEqualStrings what-is-it "this is a number"))))
 
 ;; @typeInfo can be used to access the integer tag type of an enum.

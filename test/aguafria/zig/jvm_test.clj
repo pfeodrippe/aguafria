@@ -716,11 +716,11 @@
         read-value (requiring-resolve 'aguafria.zig.discovery-scoped-context-fixture/read-value)]
     (with-open [input (ak/i32 9)
                 choice (ak/as (a/with-block :result
-                                (ak/break :result (:.first input))) choice-type)]
+                                (ak/break :result ((a/enum-literal ".first") input))) choice-type)]
       (is (values= {:value 9} choice))
       (is (values= 9 (read-value choice)))
       (is (values= 9 (read-value (a/with-block :result
-                                   (ak/break :result (:.first input)))))))
+                                   (ak/break :result ((a/enum-literal ".first") input)))))))
     (is (values= 17 ((requiring-resolve 'aguafria.zig.discovery-scoped-context-fixture/typed-local) 17)))
     (is (values= 19 ((requiring-resolve 'aguafria.zig.discovery-scoped-context-fixture/typed-cast) 19)))
     (is (values= {:ok {:value 23}}
@@ -974,7 +974,7 @@
                    (ak/defer ((a/field list :deinit) heap/page_allocator))
                    (try ((a/field list :append) heap/page_allocator \☔))
                    (a/index (a/field list :items) 0)))))
-      (with-open [list (ak/var :.empty list-type)
+      (with-open [list (ak/var :empty list-type)
                   appended ((ns-resolve namespace 'append-and-read) list)]
         (is (values= :var (:kind (value/info list))))
         (is (values= 0 (a/field list :capacity)))
@@ -982,24 +982,24 @@
         (is (values= {:ok (int \☔)} @appended)))
       (let [threshold-type @(ns-resolve namespace 'Threshold)
             mode-type @(ns-resolve namespace 'Mode)]
-        (with-open [threshold (threshold-type :.default)
-                    mutable-threshold (ak/var :.default threshold-type)
-                    mode (ak/var :.active mode-type)]
+        (with-open [threshold (threshold-type :default)
+                    mutable-threshold (ak/var :default threshold-type)
+                    mode (ak/var :active mode-type)]
           (is (values= {:minimum 0.25 :maximum 0.75} @threshold))
           (is (values= @threshold @mutable-threshold))
-          (is (true? (ak/== mode :.active)))
-          (ak/= mode :.inactive)
-          (is (true? (ak/== mode :.inactive)))))
+          (is (true? (ak/== mode :active)))
+          (ak/= mode :inactive)
+          (is (true? (ak/== mode :inactive)))))
       (finally (remove-ns (ns-name namespace))))))
 
 (deftest test-allocator-resource-survives-separate-jvm-calls-and-threads
   (let [allocator zig-testing/allocator]
-    (with-open [list (ak/var :.empty (std/ArrayList :u21))]
+    (with-open [list (ak/var :empty (std/ArrayList :u21))]
       (try
         (array-list/append list allocator 42)
         @(future (array-list/append list allocator 43))
         (is (values= [42 43] (array-list/-items list)))
-        (with-open [other (ak/var :.empty (std/ArrayList :u21))]
+        (with-open [other (ak/var :empty (std/ArrayList :u21))]
           (try
             (array-list/append other allocator 44)
             (is (values= [44] (array-list/-items other)))
@@ -1008,7 +1008,7 @@
         (finally (array-list/deinit list allocator))))))
 
 (deftest bound-container-methods-preserve-native-receivers
-  (with-open [list (ak/var :.empty (std/ArrayList :u21))]
+  (with-open [list (ak/var :empty (std/ArrayList :u21))]
     (let [append (a/field list :append)
           allocator zig-testing/allocator]
       (try
@@ -1188,7 +1188,7 @@
                   [:payload Payload]
                   [:empty :void]]))
         (eval '(a/defn is-empty :bool [[command Command]]
-                 (ak/== command :.empty)))
+                 (ak/== command :empty)))
         (eval '(a/defn read-payload :u32 [[command Command]]
                  (:value (:payload command))))
         (eval '(a/defn payload-value :u32 [[n :u32]]
@@ -1262,7 +1262,7 @@
                  '[aguafria.std.ArrayList :as array-list]
                  '[aguafria.std.testing :as testing])
         (eval '(a/deftest method-vars-work-in-native-code
-                 (let [list (ak/var :.empty (std/ArrayList :u21))]
+                 (let [list (ak/var :empty (std/ArrayList :u21))]
                    (ak/defer (array-list/deinit list testing/allocator))
                    (try (array-list/append list testing/allocator \☔))
                    (try (testing/expectEqual 1 (a/field (a/field list :items) :len)))))))
@@ -1292,7 +1292,7 @@
     (is (values= [1 2 3] [(semantic-version/-major version)
                           (semantic-version/-minor version)
                           (semantic-version/-patch version)])))
-  (with-open [list (ak/var :.empty (std/ArrayList :u21))]
+  (with-open [list (ak/var :empty (std/ArrayList :u21))]
     (try
       (is (values= [] (array-list/-items list)))
       (is (values= 0 (array-list/-capacity list)))
@@ -1309,7 +1309,7 @@
                  '[aguafria.std.ArrayList.Slice :as array-list-slice]
                  '[aguafria.std.testing :as testing])
         (eval '(a/deftest field-vars-work-in-native-code
-                 (let [list (ak/var :.empty (std/ArrayList :u21))]
+                 (let [list (ak/var :empty (std/ArrayList :u21))]
                    (ak/defer (array-list/deinit list testing/allocator))
                    (try (array-list/append list testing/allocator \☔))
                    (try (testing/expectEqual 1 (-> list array-list/-items array-list-slice/-len)))
@@ -1590,31 +1590,31 @@
       (ak/= choice flag)
       (is (values= expected
                    (ak/switch choice
-                              (case [true] (a/with-block :selected
-                                             (ak/+= calls 1)
-                                             (ak/break :selected (ak/i32 21))))
-                              (case [false] (a/with-block :selected
-                                              (ak/+= calls 10)
-                                              (ak/break :selected (ak/i32 42))))))))
+                     true (a/with-block :selected
+                            (ak/+= calls 1)
+                            (ak/break :selected (ak/i32 21)))
+                     false (a/with-block :selected
+                             (ak/+= calls 10)
+                             (ak/break :selected (ak/i32 42)))))))
     (is (values= 11 calls)))
   (is (values= {:ok nil}
                (ak/switch true
-                          (case [true] (try (zig-testing/expectEqual 1 1)))
-                          (case [false] (try (zig-testing/expectEqual 1 2))))))
+                 true (try (zig-testing/expectEqual 1 1))
+                 false (try (zig-testing/expectEqual 1 2)))))
   (with-open [choice (ak/var true :bool)
               calls (ak/var 0 :i32)]
     (doseq [flag [true false]]
       (ak/= choice flag)
       (let [result (a/value
                     (ak/switch choice
-                               (case [true]
-                                 (a/with-block :selected
-                                   (ak/+= calls 1)
-                                   (ak/break :selected
-                                             (try (ak/as 7 [:error-union :anyerror :i32])))))
-                               (case [false]
-                                 (try (ak/as (a/error-value :SwitchFailure)
-                                             [:error-union :anyerror :i32])))))]
+                      true
+                      (a/with-block :selected
+                        (ak/+= calls 1)
+                        (ak/break :selected
+                                  (try (ak/as 7 [:error-union :anyerror :i32]))))
+                      false
+                      (try (ak/as (a/error-value :SwitchFailure)
+                                  [:error-union :anyerror :i32]))))]
         (if flag
           (is (= 7 (:ok result)))
           (is (some? (:error result))))))
@@ -1819,7 +1819,7 @@
                  (a/container {:kind :enum :type :c_int}
                               [(a/enum-field-decl :idle)
                                (a/enum-field-decl :running)])))
-        (eval '(a/defn running? :bool [[mode Mode]] (== mode :.running))))
+        (eval '(a/defn running? :bool [[mode Mode]] (== mode :running))))
       (let [running? (ns-resolve namespace 'running?)]
         (is (false? (running? :idle)))
         (is (true? (running? :running)))
@@ -1837,7 +1837,7 @@
                   [:_]]))
         (eval '(a/defenum NamedUnderscore {:type :u8}
                  [[:underscore {:zig/name "@\"_\""} 7]]))
-        (eval '(a/defn running? :bool [[mode Mode]] (ak/== mode :.running))))
+        (eval '(a/defn running? :bool [[mode Mode]] (ak/== mode :running))))
       (let [mode (var-get (ns-resolve namespace 'Mode))
             named-underscore (var-get (ns-resolve namespace 'NamedUnderscore))
             running? (ns-resolve namespace 'running?)]

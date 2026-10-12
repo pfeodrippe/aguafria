@@ -29,6 +29,7 @@
 (defonce ^:private scoped-plan-proofs (atom {}))
 (defonce ^:private test-resources (atom {}))
 (def ^:dynamic ^:private *capturing-output?* false)
+(def ^:dynamic ^:private *planning-inputs?* false)
 
 (def ^:private posix-output
   (delay
@@ -143,7 +144,7 @@
              descriptor)))))
 
 (declare coerce! call-inputs prepared-operand canonical-comptime-object canonical-comptime-source-operands
-         call-parameters invoke-scoped! invoke-syntax!
+         call-parameters invoke-scoped! invoke-syntax! qualify-native-type
          precompile-tuple-sequence! tuple-profile-key)
 
 (def ^:dynamic ^:private *retain-result-generation* nil)
@@ -192,9 +193,9 @@
      namespace
      (if (empty? parameters)
        (or (:aguafria/jvm-value-expression (meta expression)) expression)
-     ;; @TypeOf must analyze unknown runtime operands, not evaluate a known
-     ;; undefined pointer. Runtime locals preserve that distinction, including
-     ;; pointer dereferences and slices. This block is used only for type queries.
+       ;; @TypeOf must analyze unknown runtime operands, not evaluate a known
+       ;; undefined pointer. Runtime locals preserve that distinction, including
+       ;; pointer dereferences and slices. This block is used only for type queries.
        (let [id (token [expression parameters])
              label (keyword (str "jvm_type_" id))
              names (into {} (map (fn [{:keys [name]}]
@@ -232,7 +233,13 @@
                                            (update :bytes (partial mapv unchecked-byte)))) %)))
         root-type (list 'aguafria.keyword/TypeOf
                         (expression-without-runtime-inputs namespace expression parameters))
-        type (or native-type scalar-type
+        ;; An explicit construction is certified by @as itself. Retain its
+        ;; declared type instead of replacing a named tuple with @Tuple merely
+        ;; because the transport can serialize that structural layout.
+        constructed-type (when (and (empty? path) (seq? expression)
+                                    (= 'aguafria.keyword/as (first expression)))
+                           (:aguafria/jvm-result-type (meta expression)))
+        type (or constructed-type native-type scalar-type
                  (reduce (fn [type [kind member]]
                            (list 'aguafria.zig/field
                                  (list 'aguafria.zig/field
@@ -290,7 +297,8 @@
                         :decoded-fn (fn [_] snapshot)})))))
 
     (and (map? result) (= #{:aguafria.jvm/borrowed} (set (keys result))))
-    (let [{:keys [address size alignment pointer-alignment mutable? scalar-type native-kind native-type tuple-length]} (:aguafria.jvm/borrowed result)
+    (let [{:keys [address size alignment pointer-alignment pointer-bit-start pointer-bit-end bit-size
+                  mutable? scalar-type native-kind native-type tuple-length]} (:aguafria.jvm/borrowed result)
           pointer (list 'aguafria.zig/field
                         (expression-without-runtime-inputs namespace expression parameters)
                         :pointer)
@@ -300,20 +308,28 @@
                     namespace
                     (list 'aguafria.keyword/TypeOf (list 'aguafria.zig/deref pointer))))
           release-generation! (*retain-result-generation*)
+          packed-storage (when (some? pointer-bit-start)
+                           (value/packed-view-storage address size alignment
+                                                      pointer-bit-start pointer-bit-end bit-size))
           view (expression-value
                 {:module (str (ns-name namespace))
                  :kind (if mutable? :var :const) :type type}
-                (constantly {:representation :native
-                             :segment (.reinterpret (MemorySegment/ofAddress address) size)
-                             :size size :alignment alignment :owners arguments
-                             :pointer-alignment pointer-alignment
-                             :native-kind native-kind
-                             :tuple-length tuple-length
-                             :schema (when (and scalar-type
-                                                (or (#{:usize :isize :f32 :f64} scalar-type)
-                                                    (re-matches #"[iu][0-9]+" (name scalar-type))))
-                                       {:kind :scalar :type scalar-type})
-                             :close! release-generation!}))]
+                (constantly (merge {:representation :native
+                                    :segment (.reinterpret (MemorySegment/ofAddress address) size)
+                                    :size size :alignment alignment :owners arguments
+                                    :pointer-alignment pointer-alignment
+                                    :pointer-bit-start pointer-bit-start :pointer-bit-end pointer-bit-end
+                                    :native-kind native-kind
+                                    :tuple-length tuple-length
+                                    :schema (when (and scalar-type
+                                                       (or (#{:usize :isize :f32 :f64} scalar-type)
+                                                           (re-matches #"[iu][0-9]+" (name scalar-type))))
+                                              {:kind :scalar :type scalar-type})
+                                    :close! release-generation!}
+                                   (when packed-storage
+                                     (assoc packed-storage :close!
+                                            #(try ((:close! packed-storage))
+                                                  (finally (release-generation!))))))))]
       (value/realize! view)
       (value/retain-storage-provenance! view arguments))
 
@@ -342,7 +358,9 @@
     ;; the native expression for nominal/qualified types; never infer a type
     ;; from the display name or erase its identity to match another adapter.
     (let [{:keys [name schema]} (:aguafria.jvm/type result)
-          type (or schema (expression-without-runtime-inputs namespace expression parameters))]
+          type (or schema
+                   (qualify-native-type namespace
+                                        (expression-without-runtime-inputs namespace expression parameters)))]
       (value/zig-type {:kind :type :type type :zig-name name}
                       #(coerce! % type)))
 
@@ -479,7 +497,7 @@
           helper-source (slurp (io/resource (if (= 'layoutResult result-writer)
                                               "aguafria/jvm_layout.zig"
                                               "aguafria/jvm_result.zig")))
-            ;; A declaration lookup reads one receiver schema generation.
+          ;; A declaration lookup reads one receiver schema generation.
           field-schemas
           (when (and (vector? result-writer)
                      (= 'declarationFieldResult (first result-writer)))
@@ -636,14 +654,29 @@
         :aguafria/jvm-value-expression reference})
      [] ['constantResult (boolean type)])))
 
-(declare precompile-inspection!)
+(declare precompile-inspection! precompile-reflected-inspection!)
 
 (defn precompile-constant-reader!
   "Prepare the ordinary lazy constant reader, inspection and cleanup without reading it."
-  [{:keys [module name type] :as declaration}]
+  [{:keys [module name type value] :as declaration}]
   (precompile-expression! (constant-reader-plan declaration))
   (precompile-inspection! (the-ns (symbol module))
                           (or type (list 'aguafria.keyword/TypeOf (symbol module (str name)))))
+  (when (and (nil? type) (not (string? value)))
+    ;; Computed initializers may transport an exact structural schema too.
+    ;; Ask only the compiler about their type; never materialize the constant
+    ;; or replace its retained storage identity with a live owner reference.
+    (precompile-reflected-inspection!
+     (the-ns (symbol module))
+     (list 'aguafria.keyword/TypeOf (symbol module (str name)))))
+  (when (and (nil? type) (string? value))
+    ;; constantResult reports the compiler's structural string-literal pointer
+    ;; type. Its ordinary printer needs that reader as well as TypeOf(owner).
+    ;; Restrict this to authored, inferred literals; typed slices gain no
+    ;; sentinel or constness evidence from their initializer text.
+    (precompile-inspection! (the-ns (symbol module))
+                            [:*const [:array (alength (.getBytes ^String value java.nio.charset.StandardCharsets/UTF_8))
+                                      {:sentinel 0} :u8]]))
   {:constant (symbol (:module declaration) (str (:name declaration)))
    :status :prepared})
 
@@ -771,7 +804,7 @@
 (defn- precompile-inspection! [context type]
   (let [type (emitter/qualify-type context type)]
     ;; These compiler-declared result types have no addressable value storage.
-    (when-not (#{:comptime_int :comptime_float :type :null :undefined} type)
+    (when-not (#{:comptime_int :comptime_float :type :null :undefined :noreturn} type)
       (let [adapter (prepare-expression! (inspection-context context type) (inspection-expression type)
                                          [{:name 'address :type :usize}] 'inspectResult)]
         (precompile-expression! adapter)
@@ -953,8 +986,8 @@
                (with-meta
                  (apply list (first form)
                         (map (fn [argument parameter]
-                             ;; The native signature, not the argument's shape,
-                             ;; determines which operands are types.
+                               ;; The native signature, not the argument's shape,
+                               ;; determines which operands are types.
                                (if (#{:type 'type} (:type parameter))
                                  (constructor-type argument)
                                  argument))
@@ -1071,25 +1104,25 @@
          '(or ((field __aguafria_jvm :enumCoercionRequiresConstant) Target Input)
               (let [target-info (aguafria.keyword/typeInfo Target)
                     input-info (aguafria.keyword/typeInfo Input)]
-                (if (and (aguafria.keyword/== target-info :.int)
-                         (aguafria.keyword/== input-info :.int))
+                (if (and (aguafria.keyword/== target-info :int)
+                         (aguafria.keyword/== input-info :int))
                   (let [target (aguafria.zig/field target-info :int)
                         input (aguafria.zig/field input-info :int)]
                     (if (aguafria.keyword/== (aguafria.zig/field target :signedness)
                                              (aguafria.zig/field input :signedness))
                       (aguafria.keyword/< (aguafria.zig/field target :bits)
                                           (aguafria.zig/field input :bits))
-                      (or (aguafria.keyword/== (aguafria.zig/field target :signedness) :.unsigned)
+                      (or (aguafria.keyword/== (aguafria.zig/field target :signedness) :unsigned)
                           (aguafria.keyword/<= (aguafria.zig/field target :bits)
                                                (aguafria.zig/field input :bits)))))
-                  (if (and (aguafria.keyword/== target-info :.float)
-                           (aguafria.keyword/== input-info :.float))
+                  (if (and (aguafria.keyword/== target-info :float)
+                           (aguafria.keyword/== input-info :float))
                     (aguafria.keyword/< (aguafria.zig/field (aguafria.zig/field target-info :float) :bits)
                                         (aguafria.zig/field (aguafria.zig/field input-info :float) :bits))
-                    (and (or (aguafria.keyword/== target-info :.int)
-                             (aguafria.keyword/== target-info :.float))
-                         (or (aguafria.keyword/== input-info :.int)
-                             (aguafria.keyword/== input-info :.float))))))))
+                    (and (or (aguafria.keyword/== target-info :int)
+                             (aguafria.keyword/== target-info :float))
+                         (or (aguafria.keyword/== input-info :int)
+                             (aguafria.keyword/== input-info :float))))))))
         module (symbol (str "aguafria.jvm.coercion-profile-" (token [type input-type])))
         default (or (find-ns module) (create-ns module))
         context (private-adapter-context default [type input-type expression])]
@@ -1321,6 +1354,9 @@
   [argument]
   (boolean
    (some #(or (value/zig-value? %)
+              ;; `undefined` is compiler syntax, including inside aggregates;
+              ;; it must never reach a JVM numeric/field encoder.
+              (primitive-literal? %)
               (instance? ContextualCall %) (instance? ContextualScope %)
               (instance? ContextualAddress %))
          (tree-seq coll? seq argument))))
@@ -1338,7 +1374,7 @@
         child (list 'aguafria.zig/field pointer :child)]
     (constructor-type
      (list 'if
-           (list 'aguafria.keyword/== (list 'aguafria.zig/field pointer :size) :.one)
+           (list 'aguafria.keyword/== (list 'aguafria.zig/field pointer :size) :one)
            child
            (list 'aguafria.zig/type [:array element-count child])))))
 
@@ -1374,6 +1410,16 @@
            (or (and (= :optional (first type)) (= 2 (count type)))
                (and (= :error-union (first type)) (= 3 (count type))))
            (owned-string-target? (peek type)))))
+
+(defn literal-integer-vector?
+  "True only for plain integer/character data and a resolved integer-vector
+  destination. Native lane values are never read back to invent literals."
+  [argument type]
+  (let [type (constructor-type type)]
+    (and (vector? argument) (vector? type) (= :vector (first type))
+         (= (count argument) (second type))
+         (integer-transport-type? (nth type 2 nil))
+         (every? #(or (integer? %) (char? %)) argument))))
 
 (defn- coerce-raw!
   "Internal coercion; the public boundary below owns numeric scalar results."
@@ -1425,6 +1471,7 @@
         native? (value/zig-value? argument)
         error? (value/zig-error? argument)
         literal? (or (native-literal? argument)
+                     (literal-integer-vector? argument type)
                      ;; A computed type has no JVM ABI until Zig resolves it.
                      ;; Supply ordinary data in its native result context instead
                      ;; of claiming the JVM operand already has that type.
@@ -1512,6 +1559,7 @@
   Use a/value for explicit conversion back to a plain JVM value."
   [argument type]
   (let [source (or (coercion-expression argument) (comptime-expression argument)
+                   (when (literal-integer-vector? argument type) argument)
                    (when (or (number? argument) (string? argument)
                              (and (keyword? argument) (native-literal? argument)))
                      argument))
@@ -1598,7 +1646,7 @@
         converted (coerce! argument (if literal? [:array 1 type] type))]
     (if (and (value/zig-value? converted) (not literal?))
       (value/mutable-copy converted type (:schema (value/realize! converted)) options)
-       ;; One-element arrays force owned native storage even for ABI scalars.
+      ;; One-element arrays force owned native storage even for ABI scalars.
       (let [storage (if literal? converted (coerce! [converted] [:array 1 type]))]
         (value/mutable-copy storage type
                             (:element-schema (:schema (value/realize! storage))) options)))))
@@ -1794,6 +1842,15 @@
                              [(if (symbol? field) (clojure.core/keyword (name field)) field) item])
                            fields))]
        (cond
+         (and (seq? form) (= 3 (count form))
+              (#{'vector 'aguafria.zig/vector} (first form))
+              (vector? (second form))
+              (literal-integer-vector? (second form)
+                                       (emitter/vector-initializer-type (rest form))))
+         (with-meta (list 'aguafria.keyword/as (second form)
+                          (type-expression (emitter/vector-initializer-type (rest form))))
+           (meta form))
+
          named-constructor?
          (with-meta (list 'aguafria.keyword/as (second form) (first form))
            (meta form))
@@ -1861,7 +1918,14 @@
                                         (if (instance? PreparedType argument) (:schema argument) argument)])))
                              (map vector argument-declarations arguments))]
     (letfn [(lift [argument expected literal?]
-              (let [argument
+              (let [expected (get type-arguments expected expected)
+                    argument (if (and (string? argument) (not literal?)
+                                      (= [:sentinel-const :u8 0] expected))
+                               (if *planning-inputs?*
+                                 (->PreparedOperand expected)
+                                 (value/owned-c-string-pointer argument))
+                               argument)
+                    argument
                     (if-let [type (:aguafria/native-error-union-type (meta argument))]
                       (value/retain-owners!
                        (coerce! (if (contains? argument :error)
@@ -1874,7 +1938,6 @@
                       argument)
                     original argument
                     argument (if (value/zig-value? argument) (value/value argument) argument)
-                    expected (get type-arguments expected expected)
                     inferred (cond
                                (instance? PreparedOperand original) (:type original)
                                (value/zig-value? original)
@@ -2010,7 +2073,8 @@
                                    (lift (str argument) [:slice-const :u8] false))) type)
                  (or (= "comptime" (:zig/prefix properties))
                      (#{:type 'type :comptime_int :comptime_float} type))
-                 (let [literal (value/declared-comptime-literal argument)
+                 (let [literal (or (value/declared-comptime-literal argument)
+                                   (coercion-expression argument))
                        argument (if (some? literal)
                                   (do
                                     ;; Validate/materialize the declared value first. The
@@ -2363,7 +2427,7 @@
                     (:context plan) (:expression plan) (:parameters plan)
                     (cond (seq (:mutation-captures plan)) 'encodedResult
                           (seq (:result-preconditions plan)) 'scopedResult
-                          :else 'result)
+                          :else 'scopedValueResult)
                     {:preconditions (:result-preconditions plan)}))
             plan))
         validate!
@@ -2388,8 +2452,8 @@
         (try
           (validate! candidate)
           (catch clojure.lang.ExceptionInfo failure
-              ;; Only a failed ordinary compiler contract can acquire an
-              ;; optional proven profile. Failed candidates remain unpublished.
+            ;; Only a failed ordinary compiler contract can acquire an
+            ;; optional proven profile. Failed candidates remain unpublished.
             (if (and (:unpublished? (ex-data failure)) (not (:proven? saved))
                      (some #(not (or (:mutable? %) (:comptime? %))) entries))
               (let [proof (scoped-constant-profile! caller form entries inputs :ephemeral)]
@@ -2549,6 +2613,17 @@
       (list 'aguafria.zig/string-literal (subs spelling 1))
       spelling)))
 
+(defn- type-source-data [type]
+  ;; This is reader metadata, not an initializer or a declaration: map order
+  ;; must not change the adapter source for equal compiler-confirmed schemas.
+  (artifact/print-data
+   (walk/postwalk #(if (map? %)
+                     (into (sorted-map-by (fn [a b]
+                                            (compare (artifact/print-data a)
+                                                     (artifact/print-data b)))) %)
+                     %)
+                  type)))
+
 (defn- field-view-plan [receiver member address]
   (let [receiver (constructor-type receiver)
         {:keys [context container]} (member-owner receiver)
@@ -2570,26 +2645,23 @@
           ;; @field(T, "len") about this compiler-defined tuple property.
           (list 'if
                 (list 'aguafria.keyword/switch (list 'aguafria.keyword/typeInfo type)
-                      (list 'case ['(aguafria.zig/enum-literal ".@\"struct\"")]
-                            (list 'aguafria.zig/field
-                                  (list 'aguafria.zig/field (list 'aguafria.keyword/typeInfo type) :struct)
-                                  :is_tuple))
-                      (list 'aguafria.zig/case-else false))
+                      :struct
+                      (list 'aguafria.zig/field
+                            (list 'aguafria.zig/field (list 'aguafria.keyword/typeInfo type) :struct)
+                            :is_tuple)
+                      false)
                 false declaration-method?)
           declaration-method?)
         method? (when context
                   (list 'aguafria.keyword/switch
                         (list 'aguafria.keyword/typeInfo type)
-                        (list 'case
-                              (mapv #(list 'aguafria.zig/enum-literal (str ".@\"" % "\""))
-                                    ["struct" "union" "enum"])
-                              (list 'if
-                                    (list 'aguafria.keyword/hasField type member-name)
-                                    false
-                                    declaration-method?))
-                        (list 'case ['(aguafria.zig/enum-literal ".@\"opaque\"")]
+                        [:struct :union :enum]
+                        (list 'if
+                              (list 'aguafria.keyword/hasField type member-name)
+                              false
                               declaration-method?)
-                        (list 'aguafria.zig/case-else false)))]
+                        :opaque declaration-method?
+                        false))]
     {:module (if context (ns-name context) 'aguafria.jvm.field-storage)
      ;; Zig 0.17 hides private declarations from @hasDecl even in their owner.
      ;; Query the member's actual type in the owner after excluding fields.
@@ -2600,7 +2672,7 @@
                          ordinary)
                    ordinary)
      :writer ['borrowedFieldResult (list 'type receiver)
-              (artifact/print-data receiver) (artifact/print-data member-name)]
+              (type-source-data receiver) (artifact/print-data member-name)]
      :types [address]}))
 
 (defn- field-inspection-type! [context receiver member]
@@ -2661,9 +2733,9 @@
         receiver-info (list 'aguafria.keyword/typeInfo receiver-schema)
         pointer-info (list 'aguafria.zig/field receiver-info :pointer)
         container (when native?
-                    (list 'if (list 'aguafria.keyword/== receiver-info :.pointer)
+                    (list 'if (list 'aguafria.keyword/== receiver-info :pointer)
                           (list 'if (list 'aguafria.keyword/==
-                                          (list 'aguafria.zig/field pointer-info :size) :.one)
+                                          (list 'aguafria.zig/field pointer-info :size) :one)
                                 (list 'aguafria.zig/field pointer-info :child) receiver-schema)
                           receiver-schema))
         function-reference (if native? (list 'aguafria.zig/field container member) callable)
@@ -2714,7 +2786,7 @@
                   (find-ns module) (create-ns module))
      :expression (apply list callable arguments)
      :writer (if (and (not native?) (qualified-symbol? receiver-type))
-               ['nominalResult receiver-schema (artifact/print-data receiver-type)]
+               ['nominalResult receiver-schema (type-source-data receiver-type)]
                'result)
      :parameters (if native? (into [{:name address-name :type :usize}] parameters) parameters)}))
 
@@ -2904,14 +2976,14 @@
           field (fn [value member] (list 'aguafria.zig/field value member))
           child (fn [tag] (field (field info tag) :child))
           pointer-child (child :pointer)]
-      (list 'if (list 'aguafria.keyword/== info :.pointer)
+      (list 'if (list 'aguafria.keyword/== info :pointer)
             (list 'if
-                  (list 'and (list 'aguafria.keyword/== (field (field info :pointer) :size) :.one)
-                        (list 'aguafria.keyword/== (list 'aguafria.keyword/typeInfo pointer-child) :.array))
+                  (list 'and (list 'aguafria.keyword/== (field (field info :pointer) :size) :one)
+                        (list 'aguafria.keyword/== (list 'aguafria.keyword/typeInfo pointer-child) :array))
                   (field (field (list 'aguafria.keyword/typeInfo pointer-child) :array) :child)
                   pointer-child)
-            (list 'if (list 'aguafria.keyword/== info :.array) (child :array)
-                  (list 'if (list 'aguafria.keyword/== info :.vector) (child :vector)
+            (list 'if (list 'aguafria.keyword/== info :array) (child :array)
+                  (list 'if (list 'aguafria.keyword/== info :vector) (child :vector)
                         (list 'aguafria.keyword/compileError "Expected runtime-indexable storage")))))))
 
 (defn- index-plan [type storage index comptime-index?]
@@ -3024,7 +3096,7 @@
                      "        var elements: []const u8 = \"[\";\n"
                      "        for (info.field_types) |Field| elements = elements ++ " inspector ".schema(Field) ++ \" \";\n"
                      "        " inspector ".log(\"aguafria.tuple-profile:0:\" ++ @import(\"std\").fmt.comptimePrint(\"{{:length {d} :type {s} :elements {s}]}}\", .{info.field_types.len, " inspector ".schema(T), elements}));\n"
-                     "    } else " inspector ".log(\"aguafria.tuple-profile:0:nil\");\n"
+                     "    } else " inspector ".log(\"aguafria.tuple-profile:0:{:type \" ++ " inspector ".schema(T) ++ \"}\");\n"
                      "}\n")
                 :files {"operation_probe.zig" (slurp (io/resource "aguafria/operation_probe.zig"))
                         "jvm_result.zig" (slurp (io/resource "aguafria/jvm_result.zig"))}})))
@@ -3082,13 +3154,25 @@
             (swap! tuple-profiles #(assoc (if (< (count %) 256) % {}) key profile))
             profile))))))
 
+(defn- precompile-reflected-inspection! [context type]
+  (let [profile (compiler-tuple-profile! context type)
+        schema (:type profile)]
+    ;; Only a complete structural compiler witness is shareable. Nominal or
+    ;; unresolved parts retain the owner-specific reader already prepared.
+    (when (and schema (structural-schema? schema)
+               (not-any? nil? (tree-seq coll? seq schema)))
+      (precompile-inspection! context schema))
+    profile))
+
 (defn precompile-tuple-sequence!
   "Prepare ordinary tuple iteration from compiler-owned result metadata.
   Direct callable ABI values retain their reflected result identity. Expression
   envelopes use Zig's structural schema only when the compiler certifies it."
   ([context type] (precompile-tuple-sequence! context type false))
   ([context type callable-result?]
-   (when-let [{:keys [length elements] native-type :type} (compiler-tuple-profile! context type)]
+   (when-let [{:keys [length elements] native-type :type}
+              (let [profile (precompile-reflected-inspection! context type)]
+                (when (some? (:length profile)) profile))]
      (let [receiver (constructor-type
                      (if callable-result? (emitter/qualify-type context type)
                          (or native-type (emitter/qualify-type context type))))]
@@ -3369,8 +3453,8 @@
     profile source]))
 
 (defn- confirmed-peer-type [types]
-     ;; Compile a type check without loading a library or running a function.
-     ;; Zero stands for the literal's type; the call still checks its real value.
+  ;; Compile a type check without loading a library or running a function.
+  ;; Zero stands for the literal's type; the call still checks its real value.
   (let [module (symbol (str "aguafria.jvm.peer-type-" (token types)))
         context (or (find-ns module) (create-ns module))
         expected (first (remove #{:comptime_int :comptime_float} types))
@@ -3876,7 +3960,14 @@
     (and (map? argument) (contains? argument :comptime))
     (if (#{:type 'type} (:type declaration))
       (->PreparedType (:comptime argument))
-      (:comptime argument))
+      (let [literal (:comptime argument)
+            plain (when (and (clojure.core/keyword? literal) (nil? (namespace literal))
+                             (str/starts-with? (name literal) "."))
+                    (clojure.core/keyword (subs (name literal) 1)))]
+        ;; The compiler probe serializes enum literals using dotted spelling.
+        ;; The public/JVM value is the plain keyword; use the same call identity.
+        ;; Primitive-name collisions still require explicit literal syntax.
+        (if (and plain (keyword/enum-literal-keyword? plain)) plain literal)))
     :else
     (let [type (constructor-type argument)]
       (emitter/emit-type type)
@@ -3896,7 +3987,8 @@
      ;; Use the actual call planner, including contextual primitive parameters,
      ;; comptime arguments and lossless unsigned/integer carriers. These are
      ;; type-only placeholders, never allocated or passed to native code.
-     (cond-> (assoc (select-keys (call-inputs declarations operands) [:parameters :expression-arguments])
+     (cond-> (assoc (select-keys (binding [*planning-inputs?* true]
+                                   (call-inputs declarations operands)) [:parameters :expression-arguments])
                     :operands operands)
        (some #(get-in % [:properties :jvm/peer-float?]) declarations)
        (assoc :inspection-types
@@ -4104,11 +4196,14 @@
         (when result?
           (let [runtime-type (or inspection-type
                                  (list 'aguafria.keyword/TypeOf
-                                       (expression-without-runtime-inputs context expression parameters)))]
+                                       (expression-without-runtime-inputs context expression parameters)))
+                profile (precompile-reflected-inspection! context runtime-type)]
             ;; Ordinary native result envelopes retain this exact reflected
             ;; type. Decoding a nominal payload must not depend on a later
             ;; body or accessor incidentally preparing its value reader.
-            (when-not inspection-type
+            ;; A compiler-proven noreturn specialization has no value to decode;
+            ;; creating a pointer to it would reject an otherwise valid scope.
+            (when (and (not inspection-type) (not= :noreturn (:type profile)))
               (precompile-inspection! context runtime-type))
             (precompile-tuple-sequence! context runtime-type)))
         (assoc signature :status :prepared)))))
@@ -4327,8 +4422,8 @@
         (when-let [type (:aguafria/jvm-result-type (meta expression))]
           (let [return-type (:return declaration)]
             (when (and (vector? return-type) (= :error-union (first return-type)))
-            ;; Result transport reflects a nominal payload through its producer,
-            ;; so prepare that exact reader as well as the whole error union.
+              ;; Result transport reflects a nominal payload through its producer,
+              ;; so prepare that exact reader as well as the whole error union.
               (let [payload (list 'aguafria.zig/field
                                   (list 'aguafria.zig/field
                                         (list 'aguafria.keyword/typeInfo type) "error_union")
@@ -4345,9 +4440,9 @@
         (let [return-type (or (:return declaration)
                               (when imported?
                                 (:return (signature/callable-declaration zig-reference))))]
-        ;; Native C integer aliases retain their compiler identity (c_int is
-        ;; not renamed to a guessed host integer). Their JVM value reader uses
-        ;; the existing compiler reflection adapter instead of a scalar codec.
+          ;; Native C integer aliases retain their compiler identity (c_int is
+          ;; not renamed to a guessed host integer). Their JVM value reader uses
+          ;; the existing compiler reflection adapter instead of a scalar codec.
           (when (and (keyword? return-type) (str/starts-with? (name return-type) "c_"))
             (precompile-inspection! context return-type)))
         {:function function :args args :status :prepared}))))

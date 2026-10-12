@@ -99,7 +99,7 @@
     (is (= "u21" (get-in append [:parameters 2 :type])))
     (is (seq (:doc append)))
     (is (= :type (:declaration-kind (named (:types description) :Slice))))
-    (with-open [list (k/var :.empty type)]
+    (with-open [list (k/var :empty type)]
       (is (= (:fields description) (:fields (a/describe list))))
       (is (= 0 (a/field ((requiring-resolve (:accessor items)) list) :len))))))
 

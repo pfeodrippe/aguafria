@@ -54,26 +54,26 @@
         status (k/var 0 :u32)]
     (cond
       (k/== (:import_phase state) 1)
-      (if (k/== tag :.l_paren)
+      (if (k/== tag :l_paren)
         (k/= (:import_phase state) 2)
         (k/= status (append_import facts state false)))
 
       (k/== (:import_phase state) 2)
-      (if (k/== tag :.builtin)
+      (if (k/== tag :builtin)
         (k/= status (append_import facts state false))
         (a/merge! state {:argument_start (k/intCast (:start (:loc token)))
                          :argument_end (k/intCast (:end (:loc token)))
                          :import_phase 3}))
 
       (k/== (:import_phase state) 3)
-      (if (k/== tag :.comma)
+      (if (k/== tag :comma)
         (k/= (:import_phase state) 4)
-        (k/= status (append_import facts state (k/== tag :.r_paren))))
+        (k/= status (append_import facts state (k/== tag :r_paren))))
 
       (k/== (:import_phase state) 4)
-      (k/= status (append_import facts state (k/== tag :.r_paren))))
+      (k/= status (append_import facts state (k/== tag :r_paren))))
     (when (k/!= status 0) (k/return status))
-    (when (k/== tag :.builtin)
+    (when (k/== tag :builtin)
       (when (or (mem/eql :u8 text "@import") (mem/eql :u8 text "@embedFile"))
         (a/merge! state {:import_phase 1
                          :import_kind (if (mem/eql :u8 text "@import") 1 2)}))))
@@ -84,7 +84,7 @@
   (let [tag (:tag token)]
     (cond
       (k/== (:export_phase state) 1)
-      (if (k/== tag :.keyword_fn)
+      (if (k/== tag :keyword_fn)
         (k/= (:export_phase state) 2)
         (do (k/= (:external_exports facts) 1)
             (k/= (:export_phase state) 0)))
@@ -96,19 +96,19 @@
              (Span {:start (k/intCast (:start (:loc token)))
                     :end (k/intCast (:end (:loc token)))}))
         (k/+= (:export_count facts) 1)
-        (when (or (k/!= tag :.identifier) (k/<= (:len text) 11)
+        (when (or (k/!= tag :identifier) (k/<= (:len text) 11)
                   (k/! (mem/startsWith :u8 text "__aguafria_")))
           (k/= (:external_exports facts) 1))
         (k/= (:export_phase state) 0)))
-    (when (k/== tag :.keyword_export) (k/= (:export_phase state) 1))
-    (when (k/== tag :.keyword_extern) (k/= (:external_syntax facts) 1))
-    (when (and (k/== tag :.builtin) (mem/eql :u8 text "@export"))
+    (when (k/== tag :keyword_export) (k/= (:export_phase state) 1))
+    (when (k/== tag :keyword_extern) (k/= (:external_syntax facts) 1))
+    (when (and (k/== tag :builtin) (mem/eql :u8 text "@export"))
       (k/= (:dynamic_exports facts) 1)))
   0)
 
 (a/defn- collect_identifier :u32
   [[text [:slice-const :u8]] [token :anytype] [facts [:* Facts]]]
-  (when (and (k/== (:tag token) :.identifier)
+  (when (and (k/== (:tag token) :identifier)
              (mem/startsWith :u8 text "__aguafria_"))
     (let [index (:identifier_count facts)]
       (when (k/>= index max_identifiers) (k/return 7))
@@ -138,12 +138,12 @@
       (let [token (tokenizer/next (k/& lexer))
             tag (:tag token)
             text (a/slice source (:start (:loc token)) (:end (:loc token)))]
-        (when (k/== tag :.eof)
+        (when (k/== tag :eof)
           (if (k/!= (:import_phase state) 0)
             (k/return (append_import facts (k/& state) false))
             (k/return 0)))
-        (when (k/== tag :.invalid) (k/return 4))
-        (when (and (k/!= tag :.doc_comment) (k/!= tag :.container_doc_comment))
+        (when (k/== tag :invalid) (k/return 4))
+        (when (and (k/!= tag :doc_comment) (k/!= tag :container_doc_comment))
           (let [export_status (collect_export text token facts (k/& state))
                 import_status (collect_import text token facts (k/& state))
                 identifier_status (collect_identifier text token facts)]

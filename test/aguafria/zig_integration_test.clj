@@ -16,14 +16,14 @@
   "Compare explicit JVM snapshots; native identity is asserted separately."
   [& values]
   (apply = (map #(walk/postwalk (fn [item]
-                                (if (value/zig-value? item) (a/value item) item))
-                              %)
+                                  (if (value/zig-value? item) (a/value item) item))
+                                %)
                 values)))
 
 ;; Requiring this namespace exercises the opt-in parallel compiler. Each macro
 ;; queues a complete immutable snapshot; the first invocation awaits the newest.
 (a/configure! {:async? true
-                :modules {"extra_math" "test/fixtures/extra_math.zig"}})
+               :modules {"extra_math" "test/fixtures/extra_math.zig"}})
 
 ;; The command-line test alias supplies a stable suffix so an unchanged suite
 ;; in a fresh JVM can reuse exact content-addressed native artifacts. An nREPL
@@ -62,7 +62,7 @@
 
 (a/defn ^{:export false :public true} simd-lane-sum :i32
   [values :- (ak/Vector 4 :i32)]
-  (ak/reduce :.Add values))
+  (ak/reduce :Add values))
 
 (a/defn keyword-int-cast :i32
   [value :- :i64]
@@ -153,7 +153,7 @@
               private (get by-name 'increment-private)
               exported (get by-name 'exported)
               standalone-source (a/emit-module (str module-symbol)
-                                                (vals by-name))]
+                                               (vals by-name))]
           (is (true? (:public? public)))
           (is (false? (:export? public)))
           (is (true? (:implicit-return? public)))
@@ -161,7 +161,7 @@
           (is (false? (:export? private)))
           (is (true? (:implicit-return? private)))
           (is (true? (:private (meta (ns-resolve module-ns
-                                                  'increment-private)))))
+                                                 'increment-private)))))
           (is (true? (:public? exported)))
           (is (true? (:export? exported)))
           (is (str/includes? standalone-source "pub fn increment("))
@@ -188,10 +188,10 @@
                  [[T {:zig/prefix "comptime"} :type]
                   [length {:zig/prefix "comptime"} :usize]]
                  (a/struct
-                   [[:items [:array length T]]
-                    (a/fn-decl first-item T {:attrs #{:public}}
-                      [[self (ak/This)]]
-                      (a/index (a/field self :items) 0))])))
+                  [[:items [:array length T]]
+                   (a/fn-decl first-item T {:attrs #{:public}}
+                              [[self (ak/This)]]
+                              (a/index (a/field self :items) 0))])))
         (eval '(a/defconst ThreeItems (ShortList :u32 3)))
         (eval '(a/defenum Color {:type :u8}
                  [:red [:blue {:doc "Blue"} 7]]))
@@ -273,7 +273,7 @@
             (is (values= (inc before) after-first))
             (is (values= 42 (twice 21)))
             (is (values= after-first
-                   (:requested-generation (a/module-info test-symbol))))))
+                         (:requested-generation (a/module-info test-symbol))))))
         (finally
           (a/configure! old-config)
           (remove-ns test-symbol))))))
@@ -340,15 +340,15 @@
         (is (a/zig-value? @output))
         (is (values= "#aguafria.zig.value.ZigValue[283686952306183]" (pr-str @input)))
         (is (values= "#aguafria.zig.value.ZigValue[283686952306183]\n"
-               (with-out-str (pprint/pprint @output))))
+                     (with-out-str (pprint/pprint @output))))
         (is (values= [7 6 5 4 3 2 1 0] (a/native-bytes @input)))
         (is (values= (a/native-bytes @input) (a/native-bytes @output)))
         (is (values= {:size 8 :alignment 8 :type :u56}
-               (select-keys (a/value-info @output)
-                            [:size :alignment :type])))
+                     (select-keys (a/value-info @output)
+                                  [:size :alignment :type])))
         (is (values= 18446744073709551615N
-               ((ns-resolve test-ns 'identity-u64)
-                18446744073709551615N)))
+                     ((ns-resolve test-ns 'identity-u64)
+                      18446744073709551615N)))
         (is (thrown-with-msg?
              clojure.lang.ExceptionInfo
              #"out of range"
@@ -430,9 +430,9 @@
           (is (values= [1 2] (a/value recent-values)))
           (is (values= 16777215 (a/set-value! maybe-count 16777215)))
           (is (values= {:ok 66051}
-                 (a/set-value! last-result {:ok 66051})))
+                       (a/set-value! last-result {:ok 66051})))
           (is (values= [3 16777215]
-                 (a/set-value! recent-values [3 16777215])))
+                       (a/set-value! recent-values [3 16777215])))
           (is (values= missing-value (a/set-value! last-result missing-value)))
           ;; Publish another compatible module generation. Existing state
           ;; handles retain both the canonical addresses and their helper ABI.
@@ -473,12 +473,12 @@
                    [items :- [:optional [:slice-const [:optional :u24]]]]
                    items))
           (eval '(a/defn maybe-nested-result [:error-union [:error-set [:NoValue]]
-                                               [:optional :u24]]
+                                              [:optional :u24]]
                    [fail :- :bool]
                    (if fail (a/error-value :NoValue) nil)))
           (eval '(a/defn echo-nested-results [:array 2
-                                               [:error-union [:error-set [:NoValue]]
-                                                [:optional :u24]]]
+                                              [:error-union [:error-set [:NoValue]]
+                                               [:optional :u24]]]
                    [results :- [:array 2
                                 [:error-union [:error-set [:NoValue]]
                                  [:optional :u24]]]]
@@ -507,8 +507,8 @@
           (is (values= :NoValue (get-in error-value [:error :name])))
           (is (values= [error-value {:ok nil}] (a/value result-array)))
           (is (values= {:items [1 nil 66051]
-                  :counts [nil 16777215]}
-                 (a/value holder))))
+                        :counts [nil 16777215]}
+                       (a/value holder))))
         (finally
           (doseq [value @native-values :when (a/zig-value? value)]
             (a/close! value))
@@ -553,16 +553,16 @@
                 ((ns-resolve test-ns 'identity-flags)
                  {:enabled true :opcode 3 :reserved 10}))
         (is (values= "#aguafria.zig.value.ZigValue[{:enabled true, :opcode 5, :reserved 9}]"
-               (pr-str @constant)))
+                     (pr-str @constant)))
         (is (values= {:enabled false :opcode 6 :reserved 2}
-               (a/value @constructed)))
+                     (a/value @constructed)))
         (is (values= {:enabled true :opcode 3 :reserved 10}
-               (a/value @returned)))
+                     (a/value @returned)))
         (is (values= {:enabled true :opcode 2 :reserved 4}
-               (a/set-value! @state-value
-                              {:enabled true :opcode 2 :reserved 4})))
+                     (a/set-value! @state-value
+                                   {:enabled true :opcode 2 :reserved 4})))
         (is (values= "#aguafria.zig.value.ZigValue[{:enabled true, :opcode 3, :reserved 10}]\n"
-               (with-out-str (pprint/pprint @returned))))
+                     (with-out-str (pprint/pprint @returned))))
         (is (values= [(unchecked-byte 0xa7)] (a/native-bytes @returned)))
         (finally
           (doseq [value [@returned @constructed @state-value @constant]
@@ -614,7 +614,7 @@
         (is (values= {:x 4 :y 1.25 :enabled 0} (a/value @apply-constructed)))
         (is (values= {:x 12 :y -3.25 :enabled 0} (a/value @returned)))
         (is (values= "#aguafria.zig.value.ZigValue[{:x 12, :y -3.25, :enabled 0}]\n"
-               (with-out-str (pprint/pprint @returned))))
+                     (with-out-str (pprint/pprint @returned))))
         (finally
           (doseq [value [@returned @constructed @apply-constructed @constant]
                   :when (a/zig-value? value)]
@@ -649,7 +649,7 @@
         (is (values= [1 16777215 66051] (a/value @array-value)))
         (is (values= [-32768 -1 0 32767] (a/value @vector-value)))
         (is (values= "#aguafria.zig.value.ZigValue[[1 16777215 66051]]\n"
-               (with-out-str (pprint/pprint @array-value))))
+                     (with-out-str (pprint/pprint @array-value))))
         (is (values= 12 (count (a/native-bytes @array-value))))
         (finally
           (doseq [value [@array-value @vector-value]
@@ -688,9 +688,9 @@
                 ((ns-resolve test-ns 'identity-outer)
                  @constructed))
         (is (values= {:inner {:low 5 :high true} :tail 10}
-               (a/value @constructed)))
+                     (a/value @constructed)))
         (is (values= {:inner {:low 5 :high true} :tail 10}
-               (a/value @returned)))
+                     (a/value @returned)))
         (is (values= [(unchecked-byte 0xad)] (a/native-bytes @returned)))
         (finally
           (doseq [value [@returned @constructed]
@@ -715,11 +715,11 @@
           (eval '(a/defconst Mode
                    {:attrs #{:public}}
                    (a/container
-                     {:kind :enum :layout :normal :type :u8}
-                     [(a/enum-field-decl idle)
-                      (a/enum-field-decl running 7)
-                      (a/enum-field-decl stopped)])))
-          (eval '(a/defconst default-mode Mode :.running))
+                    {:kind :enum :layout :normal :type :u8}
+                    [(a/enum-field-decl idle)
+                     (a/enum-field-decl running 7)
+                     (a/enum-field-decl stopped)])))
+          (eval '(a/defconst default-mode Mode :running))
           (eval '(a/defn identity-mode Mode
                    [mode :- Mode]
                    mode)))
@@ -733,7 +733,7 @@
         (is (values= :stopped (a/value @constructed)))
         (is (values= :stopped (a/value @returned)))
         (is (values= :idle
-               (a/value ((ns-resolve test-ns 'identity-mode) :idle))))
+                     (a/value ((ns-resolve test-ns 'identity-mode) :idle))))
         (finally
           (doseq [value [@returned @constructed @constant]
                   :when (a/zig-value? value)]
@@ -756,9 +756,9 @@
           (eval '(a/defconst Point
                    {:attrs #{:public}}
                    (a/container
-                     {:kind :struct :layout :extern}
-                     [(a/field-decl x :i32)
-                      (a/field-decl y :f64)])))
+                    {:kind :struct :layout :extern}
+                    [(a/field-decl x :i32)
+                     (a/field-decl y :f64)])))
           (eval '(a/defn identity-point Point
                    [point :- Point]
                    point)))
@@ -792,11 +792,11 @@
           (eval '(a/defconst Value
                    {:attrs #{:public}}
                    (a/container
-                     {:kind :union :layout :normal
-                      :enum? true :type :u8}
-                     [(a/field-decl integer :i32)
-                      (a/field-decl floating :f64)
-                      (a/field-decl none :void)])))
+                    {:kind :union :layout :normal
+                     :enum? true :type :u8}
+                    [(a/field-decl integer :i32)
+                     (a/field-decl floating :f64)
+                     (a/field-decl none :void)])))
           (eval '(a/defn identity-value Value
                    [value :- Value]
                    value)))
@@ -845,7 +845,7 @@
                   (MaybeValues {:count 4294967295 :ratio nil})))
         (is (values= {:count nil :ratio 2.5} (a/value @returned)))
         (is (values= {:count 4294967295 :ratio nil}
-               (a/value @constructed)))
+                     (a/value @constructed)))
         (finally
           (doseq [value [@returned @constructed]
                   :when (a/zig-value? value)]
@@ -1275,8 +1275,8 @@
         (is (values= 4 ((ns-resolve test-ns 'observed-value))))
         (is (:dispatch-frozen? (host/info @handle)))
         (is (values= [:retained :breaking]
-               (mapv :status
-                     (a/type-versions (ns-resolve test-ns 'Item)))))
+                     (mapv :status
+                           (a/type-versions (ns-resolve test-ns 'Item)))))
 
         ((ns-resolve test-ns 'stop))
         (let [old-handle @handle]
@@ -1340,7 +1340,7 @@
       (is (var? (ns-resolve test-ns 'std)))
       (is (var? member))
       (is (values= "extra_math.quadruple"
-             (get-in (meta member) [:aguafria/zig-reference :zig-name])))))
+                   (get-in (meta member) [:aguafria/zig-reference :zig-name])))))
 
   (testing "newest generation has been published"
     (let [{:keys [generation requested-generation pending? error source-path
@@ -1356,19 +1356,19 @@
   (is (values= '([[x :i32]]) (:arglists (meta #'base))))
   (is (values= :fn (get-in (meta #'base) [:aguafria/declaration :kind])))
   (is (values= ["aguafria.zig-integration-test" :fn "base"]
-         (get-in (meta #'base) [:aguafria/declaration :logical-id])))
+               (get-in (meta #'base) [:aguafria/declaration :logical-id])))
   (is (values= 64 (count (get-in (meta #'base)
-                           [:aguafria/declaration :abi-fingerprint]))))
+                                 [:aguafria/declaration :abi-fingerprint]))))
   (is (values= 64 (count (get-in (meta #'Point)
-                           [:aguafria/declaration :schema-fingerprint]))))
+                                 [:aguafria/declaration :schema-fingerprint]))))
   (is (values= '[(aguafria.keyword/intCast value)]
-         (get-in (meta #'keyword-int-cast) [:aguafria/declaration :body])))
+               (get-in (meta #'keyword-int-cast) [:aguafria/declaration :body])))
   (is (values= '(aguafria.keyword/Vector 4 :i32)
-         (get-in (meta #'simd-lane-sum)
-                 [:aguafria/declaration :args 0 :type])))
+               (get-in (meta #'simd-lane-sum)
+                       [:aguafria/declaration :args 0 :type])))
   (is (values= {:doc "Horizontal coordinate"}
-         (get-in (meta #'Point)
-                 [:aguafria/declaration :fields 0 :properties]))))
+               (get-in (meta #'Point)
+                       [:aguafria/declaration :fields 0 :properties]))))
 
 (deftest explicit-recompile-test
   (a/await! 'aguafria.zig-integration-test)
@@ -1377,8 +1377,8 @@
     (a/recompile! 'aguafria.zig-integration-test)
     (a/await! 'aguafria.zig-integration-test)
     (is (values= (inc before)
-           (:published-generation
-            (a/stats 'aguafria.zig-integration-test))))
+                 (:published-generation
+                  (a/stats 'aguafria.zig-integration-test))))
     (is (values= 10 (simd-sum4 1 2 3 4)))))
 
 (deftest content-addressed-development-modules-use-native-cache-test
@@ -1517,7 +1517,7 @@
           (is (< (:implementation-generation base-before)
                  (:implementation-generation base-after)))
           (is (values= (:implementation-generation composed-before)
-                 (:implementation-generation composed-after)))
+                       (:implementation-generation composed-after)))
           (is (contains? retained-generations
                          (:implementation-generation base-after)))
           (is (contains? retained-generations
@@ -1545,8 +1545,8 @@
             [x :- :i32]
             (+ x 17))))
       (is (values= 20 ((ns-resolve (the-ns 'aguafria.zig-integration-test)
-                             'zig-only-partial-primer)
-                 3)))
+                                   'zig-only-partial-primer)
+                       3)))
       (let [callee-before (declaration-stat "zig-only-base")
             caller-before (declaration-stat "zig-only-composed")]
         (binding [*ns* (the-ns 'aguafria.zig-integration-test)]
@@ -1560,7 +1560,7 @@
           (is (< (:implementation-generation callee-before)
                  (:implementation-generation callee-after)))
           (is (values= (:implementation-generation caller-before)
-                 (:implementation-generation caller-after)))))
+                       (:implementation-generation caller-after)))))
       (finally
         (binding [*ns* (the-ns 'aguafria.zig-integration-test)]
           (eval
@@ -1577,8 +1577,8 @@
           [x :- :i32]
           (+ x 2))))
     (is (values= 5 ((ns-resolve (the-ns 'aguafria.zig-integration-test)
-                          'live-existing-b)
-              3)))
+                                'live-existing-b)
+                    3)))
     (binding [*ns* (the-ns 'aguafria.zig-integration-test)]
       (eval
        '(a/defn live-new-a :i32
@@ -1589,8 +1589,8 @@
           [x :- :i32]
           (+ (live-new-a x) 2))))
     (is (values= 32 ((ns-resolve (the-ns 'aguafria.zig-integration-test)
-                           'live-existing-b)
-               3)))
+                                 'live-existing-b)
+                     3)))
     (is (values= pid (.pid (java.lang.ProcessHandle/current))))))
 
 (deftest add-cross-namespace-function-and-hot-rewire-caller-test
@@ -1678,9 +1678,9 @@
           (is (values= 62 ((ns-resolve b-ns 'existing-b) 3)))
           (is (values= 65 ((ns-resolve b-ns 'new-b) 3)))
           (is (values= 60 (a/invoke-version! (symbol (str a-symbol) "new-a")
-                                        a-v1-abi [3])))
+                                             a-v1-abi [3])))
           (is (values= 2 (count (a/function-versions
-                           (ns-resolve a-ns 'new-a)))))
+                                 (ns-resolve a-ns 'new-a)))))
 
           ;; Both stale callers are reevaluated before the async quiet point;
           ;; their newest complete B snapshot binds to A@v2 atomically.
@@ -1697,9 +1697,9 @@
           (is (values= 69 ((ns-resolve b-ns 'existing-b) 3)))
           (is (values= 72 ((ns-resolve b-ns 'new-b) 3)))
           (let [artifact (a/build! b-symbol
-                                    {:kind :dynamic-lib
-                                     :name (str "cross-namespace-" suffix)
-                                     :optimize "fast"})
+                                   {:kind :dynamic-lib
+                                    :name (str "cross-namespace-" suffix)
+                                    :optimize "fast"})
                 dependency-prefix (str "-M" a-symbol "=")
                 dependency-argument
                 (some #(when (str/starts-with? % dependency-prefix) %)
@@ -1760,9 +1760,9 @@
                 (+ x 2))))
           (is (values= 7 ((ns-resolve module-ns 'inline-caller) 5)))
           (is (not= caller-generation-before
-                 (->> (:declarations (a/stats module-symbol))
-                      (some #(when (= "inline-caller" (:name %))
-                               (:implementation-generation %))))))
+                    (->> (:declarations (a/stats module-symbol))
+                         (some #(when (= "inline-caller" (:name %))
+                                  (:implementation-generation %))))))
           (is (str/includes? (a/source module-symbol)
                              "pub inline fn inline_base")))
         (finally
@@ -1873,10 +1873,10 @@
           (is (true? (:partial-publication? publication)))
           (is (values= 1 (:compiled-declaration-count publication)))
           (is (values= 1
-                 (get-in (a/stats a-symbol)
-                         [:last-build :compiled-declaration-count])))
+                       (get-in (a/stats a-symbol)
+                               [:last-build :compiled-declaration-count])))
           (is (values= b-generation
-                 (:published-generation (a/module-info b-symbol)))))
+                       (:published-generation (a/module-info b-symbol)))))
         (finally
           (a/configure! old-config)
           (remove-ns b-symbol)
@@ -1940,14 +1940,14 @@
           (is (values= 1 (:parallel-frontier-count affected)))
           (is (values= 2 (:parallel-component-count affected)))
           (is (values= #{(str left-symbol) (str right-symbol) (str join-symbol)}
-                 (->> (:publications affected)
-                      (mapcat :modules)
-                      set)))
+                       (->> (:publications affected)
+                            (mapcat :modules)
+                            set)))
           (is (values= #{(str left-symbol) (str right-symbol)}
-                 (->> (:publications affected)
-                      (filter :parallel-prepared?)
-                      (mapcat :modules)
-                      set))))
+                       (->> (:publications affected)
+                            (filter :parallel-prepared?)
+                            (mapcat :modules)
+                            set))))
         (finally
           (a/configure! old-config)
           (remove-ns join-symbol)
@@ -2027,9 +2027,9 @@
             (is (values= 34 pair-result) (pr-str publication))
             (is (values= 13 fallible-result) (pr-str publication)))
           (is (values= b-generation
-                 (->> (:declarations (a/stats b-symbol))
-                      (some #(when (= "call-pair" (:name %))
-                               (:implementation-generation %)))))))
+                       (->> (:declarations (a/stats b-symbol))
+                            (some #(when (= "call-pair" (:name %))
+                                     (:implementation-generation %)))))))
         (is (some #(= "sum_pair" (last (:logical-id %)))
                   (:dispatch-versions (a/stats a-symbol))))
         (finally
@@ -2128,7 +2128,7 @@
             (is (:cyclic-dependency-component? a-stats))
             (is (:cyclic-dependency-component? b-stats))
             (is (values= #{(str a-symbol) (str b-symbol)}
-                   (set (:dependency-component-modules a-stats))))))
+                         (set (:dependency-component-modules a-stats))))))
         (finally
           (a/configure! old-config)
           (remove-ns b-symbol)
@@ -2184,14 +2184,14 @@
               (some #(when-not (:current? %) %)
                     (a/function-versions (ns-resolve b-ns 'item-size)))]
           (is (values= 4 (a/invoke-version! (ns-resolve b-ns 'item-size)
-                                       (:abi-fingerprint old-version) []))))
+                                            (:abi-fingerprint old-version) []))))
         (binding [*ns* a-ns]
           (eval '(a/defn entry :usize [] (b/item-size))))
         (a/await! a-symbol)
         (is (values= 8 ((ns-resolve a-ns 'entry))))
         (is (values= [:retained :breaking]
-               (mapv :status
-                     (a/type-versions (ns-resolve a-ns 'Item)))))
+                     (mapv :status
+                           (a/type-versions (ns-resolve a-ns 'Item)))))
         (finally
           (a/configure! old-config)
           (remove-ns b-symbol)
@@ -2214,10 +2214,10 @@
                 '(a/defn OptionsType :type {:attrs #{:public}} []
                    (ak/return
                     (a/container
-                      {:kind :struct :layout :normal}
-                      [(a/field-decl value :u32)
-                       (a/fn-decl answer :u32 {:attrs #{:public}}  []
-                         (ak/return aguafria-test/answer))])))))))]
+                     {:kind :struct :layout :normal}
+                     [(a/field-decl value :u32)
+                      (a/fn-decl answer :u32 {:attrs #{:public}} []
+                                 (ak/return aguafria-test/answer))])))))))]
       (try
         (a/configure! {:async? false :modules {}})
         (doseq [target [a-ns b-ns]]
@@ -2247,8 +2247,8 @@
         (is (values= 2 ((ns-resolve b-ns 'option-answer))))
         (is (values= 2 ((ns-resolve a-ns 'entry))))
         (is (values= [:compatible]
-               (mapv :status
-                     (a/type-versions (ns-resolve a-ns 'OptionsType)))))
+                     (mapv :status
+                           (a/type-versions (ns-resolve a-ns 'OptionsType)))))
         (finally
           (a/configure! old-config)
           (remove-ns b-symbol)
@@ -2269,9 +2269,9 @@
                 '(a/defn Policy :type {:attrs #{:public}} []
                    (ak/return
                     (a/container
-                      {:kind :struct}
-                      [(a/fn-decl answer :u32 {:attrs #{:public}}  []
-                         (ak/return aguafria-test/answer))])))))))]
+                     {:kind :struct}
+                     [(a/fn-decl answer :u32 {:attrs #{:public}} []
+                                 (ak/return aguafria-test/answer))])))))))]
       (try
         (a/configure! {:async? false :modules {}})
         (binding [*ns* module-ns]
@@ -2357,9 +2357,9 @@
            '(a/defn ColorType :type
               []
               (a/container
-                {:kind :struct :layout :extern}
-                [(a/field-decl r :f32)
-                 (a/field-decl g :f32)])))
+               {:kind :struct :layout :extern}
+               [(a/field-decl r :f32)
+                (a/field-decl g :f32)])))
           (eval '(a/defconst Color {:attrs #{:public}} (ColorType)))
           (eval
            '(a/defn sum-color :f32
@@ -2504,17 +2504,17 @@
                 b-stats (a/stats b-symbol)
                 publication-id (:component publication)]
             (is (values= #{(str a-symbol) (str b-symbol)}
-                   (set (:modules publication))))
+                         (set (:modules publication))))
             (is (nat-int? (:duration-ms publication)))
             (is (values= (:duration-ms publication)
-                   (:critical-path-ms publication)))
+                         (:critical-path-ms publication)))
             (is (values= 20 ((ns-resolve a-ns 'entry) 5)))
             (is (values= publication-id
-                   (get-in a-stats [:last-component-publication :id])))
+                         (get-in a-stats [:last-component-publication :id])))
             (is (values= publication-id
-                   (get-in b-stats [:last-component-publication :id])))
+                         (get-in b-stats [:last-component-publication :id])))
             (is (values= (:modules publication)
-                   (get-in a-stats [:last-component-publication :modules])))
+                         (get-in a-stats [:last-component-publication :modules])))
 
             (let [published-before
                   {a-symbol (:published-generation a-stats)
@@ -2546,16 +2546,16 @@
                     b-failed (a/stats b-symbol)]
                 (is (instance? clojure.lang.Compiler$CompilerException failure))
                 (is (values= published-before
-                       {a-symbol (:published-generation a-failed)
-                        b-symbol (:published-generation b-failed)}))
+                             {a-symbol (:published-generation a-failed)
+                              b-symbol (:published-generation b-failed)}))
                 (is (values= 20 ((ns-resolve a-ns 'entry) 5)))
                 (is (string? (get-in a-failed
                                      [:last-component-publication-failure
                                       :error])))
                 (is (values= (get-in a-failed
-                               [:last-component-publication-failure :component])
-                       (get-in b-failed
-                               [:last-component-publication-failure :component]))))
+                                     [:last-component-publication-failure :component])
+                             (get-in b-failed
+                                     [:last-component-publication-failure :component]))))
 
               ;; Restore the last valid descriptors through the same component
               ;; recovery path so this test leaves no failed native state.
@@ -2637,12 +2637,12 @@
           (is (values= 5000000000 (deref @worker 30000 ::timed-out)))
           (is (values= 11 ((ns-resolve b-ns 'call-spin) 10)))
           (is (pos? (:retired-generation-count (a/stats a-symbol)))))
-          (finally
-            (when (and @worker (not (realized? @worker)))
-              (deref @worker 30000 ::timed-out))
-            (a/configure! old-config)
-            (remove-ns b-symbol)
-            (remove-ns a-symbol))))))
+        (finally
+          (when (and @worker (not (realized? @worker)))
+            (deref @worker 30000 ::timed-out))
+          (a/configure! old-config)
+          (remove-ns b-symbol)
+          (remove-ns a-symbol))))))
 
 (deftest quiescent-native-generation-retirement-test
   (testing "an obsolete shared library is unloaded after its calls and implementations quiesce"
@@ -2788,7 +2788,7 @@
         (runtime/register-declaration! v2)
         (is (values= 12 (runtime/invoke! qualified-name [5 7])))
         (is (values= 8 (a/invoke-version! qualified-name
-                                     (:abi-fingerprint v1) [7])))
+                                          (:abi-fingerprint v1) [7])))
         (let [versions (a/function-versions qualified-name)
               by-abi (into {} (map (juxt :abi-fingerprint identity)) versions)
               module-stats (a/stats module)]
@@ -2856,7 +2856,7 @@
           (is (values= 12 (runtime/invoke! a-name [5 7])))
           (is (values= 106 (runtime/invoke! b-name [5])))
           (is (values= 6 (a/invoke-version! a-name
-                                      (:abi-fingerprint a-v1) [5])))
+                                            (:abi-fingerprint a-v1) [5])))
 
           (runtime/register-declaration! b-v2)
           (is (values= 115 (runtime/invoke! b-name [5])))
@@ -2924,7 +2924,7 @@
           (is (values= 16 ((ns-resolve callee-ns 'old-local-caller) 5)))
           (is (values= 116 ((ns-resolve caller-ns 'remote-caller) 5)))
           (is (values= 6 (a/invoke-version! (ns-resolve callee-ns 'a)
-                                       a-v1-abi [5])))
+                                            a-v1-abi [5])))
           (let [partial-stats (a/stats callee-symbol)]
             (is (:partial-publication? partial-stats))
             (is (string? (:full-compile-error partial-stats)))
@@ -2941,11 +2941,11 @@
                 (+ (a x 4) 10))))
           (is (values= 142 ((ns-resolve caller-ns 'remote-caller) 5)))
           (is (values= remote-generation-before
-                 (->> (:declarations (a/stats caller-symbol))
-                      (some #(when (= "remote-caller" (:name %))
-                               (:implementation-generation %))))))
+                       (->> (:declarations (a/stats caller-symbol))
+                            (some #(when (= "remote-caller" (:name %))
+                                     (:implementation-generation %))))))
           (is (values= 2 (count (a/function-versions
-                           (ns-resolve callee-ns 'a)))))
+                                 (ns-resolve callee-ns 'a)))))
           (is (false? (:partial-publication? (a/stats callee-symbol)))))
         (finally
           (a/configure! old-config)
@@ -2973,11 +2973,11 @@
           (eval '(a/defn migrate-counter :void {:attrs #{:export}}
                    [old-address :- :usize new-address :- :usize]
                    (ak/const old-value [:*const :i32]
-                     (ak/ptrFromInt old-address))
+                             (ak/ptrFromInt old-address))
                    (ak/const new-value [:* :i64]
-                     (ak/ptrFromInt new-address))
+                             (ak/ptrFromInt new-address))
                    (a/assign "=" (a/deref new-value)
-                     (ak/intCast (a/deref old-value))))))
+                             (ak/intCast (a/deref old-value))))))
         ((ns-resolve test-ns 'write-counter) 37)
         (is (values= 37 ((ns-resolve test-ns 'read-counter))))
 
@@ -2985,7 +2985,7 @@
           (eval '(a/defn read-counter :i32 [] (+ counter 1))))
         (is (values= 38 ((ns-resolve test-ns 'read-counter))))
         (is (values= :preserved (:status (last (a/state-versions
-                                          (ns-resolve test-ns 'counter))))))
+                                                (ns-resolve test-ns 'counter))))))
 
         (let [layout-error
               (binding [*ns* test-ns]
@@ -2994,7 +2994,7 @@
                   nil
                   (catch clojure.lang.ExceptionInfo error error)))]
           (is (values= :zig-state-migration-required
-                 (:aguafria/phase (ex-data layout-error))))
+                       (:aguafria/phase (ex-data layout-error))))
           (is (values= 38 ((ns-resolve test-ns 'read-counter)))))
 
         (binding [*ns* test-ns]
@@ -3004,7 +3004,7 @@
                   nil
                   (catch clojure.lang.ExceptionInfo error error))]
             (is (values= :zig-state-migration-required
-                   (:aguafria/phase (ex-data reader-error))))))
+                         (:aguafria/phase (ex-data reader-error))))))
 
         (let [publication
               (a/migrate-state!
@@ -3018,11 +3018,11 @@
           (is (values= 37 ((ns-resolve test-ns 'read-counter))))
           (is (values= :migrated (:status active)))
           (is (values= :i64
-                 (:type (some #(when (= 'counter (:name %)) %)
-                              (:definitions (a/module-info test-symbol))))))
+                       (:type (some #(when (= 'counter (:name %)) %)
+                                    (:definitions (a/module-info test-symbol))))))
           (is (seq retained))
           (is (values= (:migration-function active)
-                 (get-in publication [:migration :function]))))
+                       (get-in publication [:migration :function]))))
         (is (some #(= :migration-required (:status %))
                   (:builds (a/stats test-symbol))))
         (is (not (str/includes? (a/source test-symbol)
@@ -3093,12 +3093,12 @@
                 '(a/defn OptionsType :type {:attrs #{:public}} []
                    (ak/return
                     (a/container
-                      {:kind :struct :layout :normal}
-                      [(a/field-decl value aguafria-test/field-type)
-                       (a/fn-decl answer :u32
-                         {:attrs #{:public}}
-                         []
-                         (ak/return aguafria-test/answer-value))])))))))]
+                     {:kind :struct :layout :normal}
+                     [(a/field-decl value aguafria-test/field-type)
+                      (a/fn-decl answer :u32
+                                 {:attrs #{:public}}
+                                 []
+                                 (ak/return aguafria-test/answer-value))])))))))]
       (try
         (a/configure! {:async? true :modules {}})
         (doseq [target [type-ns caller-ns irrelevant-ns downstream-ns
@@ -3161,12 +3161,12 @@
           (is (< before-generation
                  (:published-generation (a/module-info caller-symbol))))
           (is (values= irrelevant-generation
-                 (:published-generation (a/module-info irrelevant-symbol))))
+                       (:published-generation (a/module-info irrelevant-symbol))))
           (is (values= 7 ((ns-resolve irrelevant-ns 'ping-caller))))
           ;; The direct caller was republished, but its stable dispatch slot
           ;; means callers one hop farther out require no native rebuild.
           (is (values= downstream-generation
-                 (:published-generation (a/module-info downstream-symbol))))
+                       (:published-generation (a/module-info downstream-symbol))))
           (is (values= 2 ((ns-resolve downstream-ns 'stable-dispatch-caller))))
           (let [dependent-builds
                 (->> (:builds (a/stats))
@@ -3197,14 +3197,14 @@
           (is (values= 4 ((ns-resolve caller-ns 'option-size))))
           (is (values= 2 ((ns-resolve caller-ns 'option-answer))))
           (is (values= 2 (a/invoke-version!
-                    (ns-resolve caller-ns 'option-answer)
-                    @pre-break-answer-abi [])))
+                          (ns-resolve caller-ns 'option-answer)
+                          @pre-break-answer-abi [])))
           (is (values= before-generation
-                 (:published-generation (a/module-info caller-symbol))))
+                       (:published-generation (a/module-info caller-symbol))))
           (is (values= [:retained :breaking]
-                 (mapv :status
-                       (a/type-versions
-                        (ns-resolve type-ns 'OptionsType)))))
+                       (mapv :status
+                             (a/type-versions
+                              (ns-resolve type-ns 'OptionsType)))))
 
           (binding [*ns* caller-ns]
             (eval
@@ -3223,9 +3223,9 @@
         (a/await! type-symbol)
         (is (values= 4 ((ns-resolve caller-ns 'option-answer))))
         (is (values= [:retained :breaking]
-               (mapv :status
-                     (a/type-versions
-                      (ns-resolve type-ns 'OptionsType)))))
+                     (mapv :status
+                           (a/type-versions
+                            (ns-resolve type-ns 'OptionsType)))))
         (finally
           (a/configure! old-config)
           (remove-ns dormant-symbol)
@@ -3254,8 +3254,8 @@
                 '(a/defn OptionsType :type {:attrs #{:public}} []
                    (ak/return
                     (a/container
-                      {:kind :struct :layout :normal}
-                      [(a/field-decl value aguafria-test/field-type)])))))))]
+                     {:kind :struct :layout :normal}
+                     [(a/field-decl value aguafria-test/field-type)])))))))]
       (try
         (a/configure! {:async? true :modules {}})
         (doseq [target [type-ns state-ns]]
@@ -3293,9 +3293,9 @@
         (is (map? (a/await! type-symbol)))
         (is (values= 11 ((ns-resolve state-ns 'read-option))))
         (is (values= [:retained :breaking]
-               (mapv :status
-                     (a/type-versions
-                      (symbol (str type-symbol) "OptionsType")))))
+                     (mapv :status
+                           (a/type-versions
+                            (symbol (str type-symbol) "OptionsType")))))
 
         (binding [*ns* state-ns]
           (eval
@@ -3317,18 +3317,18 @@
                 nil
                 (catch clojure.lang.ExceptionInfo error error))]
           (is (values= :zig-state-migration-required
-                 (:aguafria/phase (ex-data migration-required))))
+                       (:aguafria/phase (ex-data migration-required))))
           (is (false? (:pending? (a/module-info state-symbol))))
           ;; A late await still reports the completed state generation's
           ;; migration requirement; the previously published capsule remains
           ;; callable throughout.
           (is (values= :zig-state-migration-required
-                 (:aguafria/phase
-                  (ex-data
-                   (try
-                     (a/await! state-symbol)
-                     nil
-                     (catch clojure.lang.ExceptionInfo error error))))))
+                       (:aguafria/phase
+                        (ex-data
+                         (try
+                           (a/await! state-symbol)
+                           nil
+                           (catch clojure.lang.ExceptionInfo error error))))))
           (is (values= 11 ((ns-resolve state-ns 'read-option)))))
 
         (a/migrate-state!
@@ -3337,9 +3337,9 @@
         (is (map? (a/await! state-symbol)))
         (is (values= 11 ((ns-resolve state-ns 'read-option))))
         (is (values= [:retained :migrated]
-               (mapv :status
-                     (a/state-versions
-                      (symbol (str state-symbol) "options")))))
+                     (mapv :status
+                           (a/state-versions
+                            (symbol (str state-symbol) "options")))))
         (finally
           (a/configure! old-config)
           (remove-ns state-symbol)
@@ -3374,8 +3374,8 @@
                    [[:value :i32] [:extra :i32]])))
         (is (values= 41 ((ns-resolve test-ns 'read-value))))
         (is (values= [:retained :breaking]
-               (mapv :status
-                     (a/type-versions (ns-resolve test-ns 'CounterState)))))
+                     (mapv :status
+                           (a/type-versions (ns-resolve test-ns 'CounterState)))))
 
         (let [state-error
               (binding [*ns* test-ns]
@@ -3385,7 +3385,7 @@
                   nil
                   (catch clojure.lang.ExceptionInfo error error)))]
           (is (values= :zig-state-migration-required
-                 (:aguafria/phase (ex-data state-error))))
+                       (:aguafria/phase (ex-data state-error))))
           (is (values= 41 ((ns-resolve test-ns 'read-value)))))
 
         ;; The migration function is an independent declaration unit. It can
@@ -3399,11 +3399,11 @@
                    (ak/const new-state [:* CounterState]
                              (ak/ptrFromInt new-address))
                    (a/assign "="
-                              (a/field (a/deref new-state) value)
-                              (a/field (a/deref old-state) value))
+                             (a/field (a/deref new-state) value)
+                             (a/field (a/deref old-state) value))
                    (a/assign "="
-                              (a/field (a/deref new-state) extra)
-                              99))))
+                             (a/field (a/deref new-state) extra)
+                             99))))
 
         (a/migrate-state!
          (symbol (str test-symbol) "state")
@@ -3545,9 +3545,9 @@
 
 (deftest standalone-build-and-stats-test
   (let [artifact (a/build! 'aguafria.zig-integration-test
-                            {:kind :exe
-                             :name "aguafria-integration"
-                             :optimize "fast"})
+                           {:kind :exe
+                            :name "aguafria-integration"
+                            :optimize "fast"})
         execution (shell/sh (:output-path artifact))
         module-stats (a/stats 'aguafria.zig-integration-test)
         all-stats (a/stats)]
@@ -3621,9 +3621,9 @@
              (mapcat #(get-in (a/stats %) [:native-generations])
                      [leaf-symbol middle-symbol root-symbol])))
         (let [artifact (a/build! root-symbol
-                                  {:kind :exe
-                                   :name (str "aguafria-static-" suffix)
-                                   :optimize "fast"})
+                                 {:kind :exe
+                                  :name (str "aguafria-static-" suffix)
+                                  :optimize "fast"})
               execution (shell/sh (:output-path artifact))]
           (is (zero? (:exit execution)))
           (is (some #(str/starts-with? % (str "-M" middle-symbol "="))

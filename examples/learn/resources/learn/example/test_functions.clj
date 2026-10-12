@@ -37,7 +37,7 @@
 ;; The @branchHint builtin can be used to tell the optimizer that a function is rarely called ("cold").
 (a/defn- abort :noreturn
   []
-  (k/branchHint :.cold)
+  (k/branchHint :cold)
   (a/while-loop {} true))
 
 ;; The naked calling convention makes a function not have any function prologue or epilogue.

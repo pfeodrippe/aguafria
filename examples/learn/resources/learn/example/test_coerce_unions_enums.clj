@@ -17,9 +17,9 @@
   [[:a :void]
    [:b :f32]
    (a/fn- tag :usize [[self U2]]
-          (switch self
-                  (case [:.a] 1)
-                  (case [:.b] 2)))])
+          (k/switch self
+            :a 1
+            :b 2))])
 
 (a/deftest coercion-between-unions-and-enums
   (let [u (U {:two 12.34})
@@ -28,9 +28,9 @@
   (let [three (:three E)
         u-2 (k/as three U)] ; coerce enum to union
     (try (testing/expectEqual (:three E) u-2)))
-  (let [u-3 (k/as :.three U)] ; coerce enum literal to union
+  (let [u-3 (k/as :three U)] ; coerce enum literal to union
     (try (testing/expectEqual (:three E) u-3)))
-  (let [u-4 (k/as :.a U2)] ; coerce enum literal to union with inferred enum tag type.
+  (let [u-4 (k/as :a U2)] ; coerce enum literal to union with inferred enum tag type.
     (try (testing/expectEqual 1 ((:tag u-4)))))
 
   ;; The following example is invalid.

@@ -8,11 +8,11 @@
 (a/defn evaluate :i32
   [[stack [:slice-const :i32]] [code [:slice-const Instruction]]]
   (k/switch (a/get code 0)
-            (case [:.mul]
-              (k/switch (a/get code 1)
-                        (case [:.add] (k/+ (a/get stack 0) (k/* (a/get stack 1) (a/get stack 2))))
-                        (a/case-else -999)))
-            (a/case-else -999)))
+    :mul
+    (k/switch (a/get code 1)
+      :add (k/+ (a/get stack 0) (k/* (a/get stack 1) (a/get stack 2)))
+      -999)
+    -999))
 
 (a/defn length :usize [[values [:slice-const :u16]]]
   (:len values))
@@ -27,8 +27,8 @@
   (k/+ (:left (a/deref pair)) (:right (a/deref pair))))
 
 (a/deftest observe-addresses
-  (k/= :_ (evaluate (k/& [7 2 -3]) (k/& [:.mul :.add :.end])))
-  (k/= :_ (evaluate (k/& [(k/i32 7) 2 -3]) (k/& [:.mul :.add :.end])))
+  (k/= :_ (evaluate (k/& [7 2 -3]) (k/& [:mul :add :end])))
+  (k/= :_ (evaluate (k/& [(k/i32 7) 2 -3]) (k/& [:mul :add :end])))
   (k/= :_ (length (k/& [])))
   (k/= :_ (retain-slice (k/& [4 5])))
   (k/= :_ (array-first (k/& [9 8 7])))

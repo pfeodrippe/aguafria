@@ -24,7 +24,7 @@
                  (a/merge! config {:format format-value})
                  (:format config))))
       (eval '(a/defstruct CallbackConfig
-               [[:callback [:optional [:*const [:fn {:callconv :.c} [{:type :i32}] :i32]]]]]))
+               [[:callback [:optional [:*const [:fn {:callconv :c} [{:type :i32}] :i32]]]]]))
       (eval '(a/defn callback :i32 {:zig/qualifiers "callconv(.c)"} [[x :i32]]
                (k/+ x 1)))
       (eval '(a/defn call-config :i32 [[config CallbackConfig]]
@@ -73,11 +73,11 @@
       (a/assoc! config :pointer (k/& scalar))
       (is (= 42 (a/value @(:pointer config)))))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"mutable native storage"
-                         (a/assoc! immutable :x 3)))
+                          (a/assoc! immutable :x 3)))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"key/value pairs"
-                         (a/assoc! p :x)))
+                          (a/assoc! p :x)))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"map of updates"
-                         (a/merge! p [:x 3])))
+                          (a/merge! p [:x 3])))
     (is (thrown? Exception (a/assoc! p :x 99 :missing 2)))
     (is (= 2 (a/value (:x p))))
     (is (thrown? Exception (a/assoc! p :x 99 :enabled "not a boolean")))
@@ -95,9 +95,9 @@
 
 (deftest mutation-emission-validates-shape
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"key/value pairs"
-                       (emitter/emit-expr '(assoc! target :x))))
+                        (emitter/emit-expr '(assoc! target :x))))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"literal map"
-                       (emitter/emit-expr '(merge! target updates)))))
+                        (emitter/emit-expr '(merge! target updates)))))
 
 (deftest native-storage-crosses-optimization-profiles-through-c-abi
   (let [configuration (runtime/configuration)]

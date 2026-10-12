@@ -9,14 +9,14 @@
 (a/defn right-error RightError [] (a/error-value :Right))
 
 (a/defn phase-error
-  (switch kind (case [0] LeftError) (case [1] RightError))
+  (aguafria.keyword/switch kind 0 LeftError 1 RightError)
   [[kind {:attrs #{k/comptime}} :u1]]
-  (switch kind (case [0] (left-error)) (case [1] (right-error))))
+  (aguafria.keyword/switch kind 0 (left-error) 1 (right-error)))
 
 (a/defn phase-width :usize [[kind {:attrs #{k/comptime}} :u1]]
-  (switch kind
-    (case [0] (k/bitSizeOf (k/TypeOf kind)))
-    (case [1] (k/bitSizeOf (k/TypeOf kind)))))
+  (aguafria.keyword/switch kind
+    0 (k/bitSizeOf (k/TypeOf kind))
+    1 (k/bitSizeOf (k/TypeOf kind))))
 
 (a/deftest phase-results
   (try (testing/expectEqual (a/error-value :Left) (phase-error 0)))

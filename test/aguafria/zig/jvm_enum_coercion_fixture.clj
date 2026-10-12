@@ -19,8 +19,8 @@
    [:waiting :void]])
 
 (a/defstruct Constants
-  [[:ready {:const :.ready_now} Tag]
-   [:changing {:var :.ready_now} Tag]])
+  [[:ready {:const :ready_now} Tag]
+   [:changing {:var :ready_now} Tag]])
 
 (a/defn echo-tag Tag [[tag Tag]]
   tag)
@@ -29,7 +29,7 @@
   (let [tag (:ready-now Tag)
         payload (k/as tag Payload)]
     (try (testing/expectEqual (:ready-now Tag) payload)))
-  (let [payload (k/as :.ready_now Payload)]
+  (let [payload (k/as :ready_now Payload)]
     (try (testing/expectEqual (:ready-now Tag) payload)))
   (let [payload (k/as (:ready Constants) Payload)]
     (try (testing/expectEqual (:ready-now Tag) payload)))

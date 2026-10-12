@@ -25,9 +25,9 @@
         wide (k/u64 73)]
     (try (testing/expectEqual
           73
-          (k/as (a/switch selector
-                          (case [0] (k/intCast wide))
-                          (case-else (k/intCast wide)))
+          (k/as (k/switch selector
+                  0 (k/intCast wide)
+                  (k/intCast wide))
                 :u8)))))
 
 (a/defn label-value-collision :!void []
@@ -36,10 +36,10 @@
     (k/= :_ (k/& vm))
     (try (testing/expectEqual
           7
-          (a/labeled-switch vm selector
-                            (case [0] (k/continue vm 1))
-                            (case [1] vm)
-                            (case-else 0))))))
+          (k/switch [vm selector]
+            0 (k/continue vm 1)
+            1 vm
+            0)))))
 
 (a/defn while-error-capture :!void []
   (try (testing/expectEqual

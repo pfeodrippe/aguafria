@@ -978,8 +978,12 @@
 
 (defn- translate-call
   [context node-index]
-  (let [[_ function-node argument-nodes] (get (:call-index context) node-index)]
-    (apply list (translate-expr context function-node)
+  (let [[_ function-node argument-nodes] (get (:call-index context) node-index)
+        callee (translate-expr context function-node)
+        ;; An inferred member function is not keyword field access.
+        callee (if (= :enum_literal (:tag (node context function-node)))
+                 (list 'enum-literal (node-source context function-node)) callee)]
+    (apply list callee
            (map #(translate-expr context %) argument-nodes))))
 
 (defn- translate-builtin
@@ -1243,8 +1247,9 @@
 
       (= :enum_literal tag)
       (let [source (node-source context node-index)]
-        (if (re-matches #"\.[A-Za-z_][A-Za-z0-9_]*" source)
-          (keyword source)
+        (if (and (re-matches #"\.[A-Za-z_][A-Za-z0-9_]*" source)
+                 (keyword/enum-literal-keyword? (keyword (subs source 1))))
+          (keyword (subs source 1))
           (list 'enum-literal source)))
 
       (= :error_value tag)
@@ -1589,40 +1594,37 @@
   (let [[_ value-nodes target-node payload-token inline-token]
         (get (:switch-case-index context) node-index)
         values (mapv #(translate-expr context %) value-nodes)
-        captures (capture-forms context payload-token)
+        captures (mapv #(if (and (seq? %) (= 'pointer-capture (first %)))
+                          (list 'k/* (second %)) %)
+                       (capture-forms context payload-token))
         target (translate-switch-target context target-node)
-        operator (cond
-                   (and (empty? values) inline-token) 'inline-case-else
-                   (empty? values) 'case-else
-                   inline-token 'inline-case
-                   :else 'case)]
+        target (cond-> target
+                 (seq captures) (#(if (and (seq? %) (= 'with-block (first %)))
+                                    (list* 'with-block (second %) captures (drop 2 %))
+                                    (list 'with-block :_ captures %)))
+                 inline-token (#(list 'k/inline %)))]
     (if (empty? values)
-      (if (seq captures)
-        (list operator captures target)
-        (list operator target))
-      (if (seq captures)
-        (list operator values captures target)
-        (list operator values target)))))
+      [target]
+      [(cond (= 1 (count values)) (first values)
+             (or (seq? (first values)) (number? (first values)) (char? (first values))
+                 (every? keyword? values)) (apply list values)
+             :else values) target])))
 
 (defn- translate-switch
   ([context node-index] (translate-switch context node-index false))
-  ([context node-index statement?]
+  ([context node-index _statement?]
    (let [[_ condition-node case-nodes label-token]
          (get (:switch-index context) node-index)
          label (when label-token
                  (clojure-identifier (token-text context label-token)))
-         clauses (map #(translate-switch-case context %) case-nodes)]
+         ;; Zig permits else anywhere; the flat DSL keeps it last.
+         arms (map #(translate-switch-case context %) case-nodes)
+         clauses (mapcat identity (concat (filter #(= 2 (count %)) arms)
+                                          (filter #(= 1 (count %)) arms)))]
      (if (and label-token (nil? label))
        (record-fallback! context node-index :expression :quoted-switch-label)
-       (apply list
-              (cond
-                (and label statement?) 'labeled-switch-stmt
-                label 'labeled-switch
-                statement? 'switch-stmt
-                :else 'switch)
-              (concat (when label [label])
-                      [(translate-expr context condition-node)]
-                      clauses))))))
+       (let [condition (translate-expr context condition-node)]
+         (apply list 'k/switch (if label [label condition] condition) clauses))))))
 
 (def ^:private nested-declaration-operators
   {'a/defn 'a/fn

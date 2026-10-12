@@ -226,15 +226,17 @@
 (defn generated-source-identity
   "Ignore generated Clojure diagnostic locations, not executable Zig inputs.
   Keep ordinary comments, strings, declarations and whitespace significant.
-  @src makes the generated source's location observable, so retain exact text
-  in that case (conservatively, even if @src appears in a string/comment)."
+  With @src, preserve each diagnostic line's terminator: changing a Clojure
+  diagnostic filename is not a change to the generated Zig line/column layout.
+  Reused artifacts still return their real, immutable compiler source location."
   [source]
-  (if (or (not (str/includes? source "// Aguafria "))
-          (re-find #"@src\s*\(" source))
+  (if-not (str/includes? source "// Aguafria ")
     source
     ;; Zig strings cannot contain unescaped physical newlines. Multiline string
     ;; lines start with \\, not //, so this cannot erase string contents.
-    (str/replace source #"(?m)^[\t ]*// Aguafria (?:source|form):[^\r\n]*(?:\r?\n|$)" "")))
+    (let [located? (re-find #"@src\s*\(" source)]
+      (str/replace source #"(?m)^[\t ]*// Aguafria (?:source|form):[^\r\n]*(\r?\n|$)"
+                   (if located? (fn [[_ newline]] newline) "")))))
 
 (defn- file-digest [file]
   ;; Do not trust (size, mtime) as content identity: editors/build tools can

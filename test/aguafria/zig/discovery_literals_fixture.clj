@@ -8,8 +8,8 @@
 
 (a/deftest never-run
   (try (testing/expectEqual :comptime_int (k/TypeOf (k/+ 1 2))))
-  (k/= :_ (k/== :.ready :.ready))
-  (debug/print "literal={any}\n" [:.ready])
+  (k/= :_ (k/== :ready :ready))
+  (debug/print "literal={any}\n" [:ready])
   (k/= :_ (a/number-literal "0o755"))
   (k/= :_ (a/char-literal "'\\x65'"))
   (k/= :_ (a/string-literal "\"h\\x65llo\""))

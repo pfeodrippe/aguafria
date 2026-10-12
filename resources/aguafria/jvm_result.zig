@@ -128,6 +128,10 @@ pub const __aguafria_jvm = struct {
             .array => |a| hasStructuralType(a.child) and
                 (a.sentinel_ptr == null or sentinelRepresentable(a.child)),
             .vector => |v| hasStructuralType(v.child),
+            .@"fn" => |f| if (f.is_generic or f.param_types.len != 0 or f.return_type == null)
+                false
+            else
+                hasStructuralType(f.return_type.?) and T == fn () f.return_type.?,
             .optional => |o| hasStructuralType(o.child),
             .error_union => |e| hasStructuralType(e.error_set) and hasStructuralType(e.payload),
             .error_set => |errors| errors: {
@@ -185,6 +189,13 @@ pub const __aguafria_jvm = struct {
                 }
                 try writeStructuralType(writer, a.child);
                 try writer.writeAll("]");
+            },
+            .@"fn" => |f| {
+                // hasStructuralType proved exact equality with this spelling;
+                // generic, variadic and other calling conventions retain source.
+                try writer.writeAll("[:fn {} [] ");
+                try writeStructuralType(writer, f.return_type.?);
+                try writer.writeByte(']');
             },
             .optional => |o| {
                 try writer.writeAll("[:optional ");
@@ -245,6 +256,9 @@ pub const __aguafria_jvm = struct {
                     if (p.attrs.@"allowzero" and p.size != .c) try writer.writeAll(" :allowzero? true");
                     if (p.attrs.@"align") |alignment| {
                         try writer.print(" :align {d}", .{alignment});
+                    }
+                    if (comptime pointerBitRange(T)) |bits| {
+                        try writer.print(" :bit-start {d} :bit-end {d}", .{ bits.start, bits.host_bytes });
                     }
                     if ((p.attrs.@"addrspace" != null and p.attrs.@"addrspace" != .generic))
                         try writer.print(" :addrspace :.{s}", .{@tagName(p.attrs.@"addrspace".?)});
@@ -363,6 +377,10 @@ pub const __aguafria_jvm = struct {
         if (P.attrs.@"align") |alignment| {
             writer.print(" :pointer-alignment {d}", .{alignment}) catch @panic("Cannot encode native pointer alignment");
         }
+        if (comptime pointerBitRange(@TypeOf(value.pointer))) |bits| {
+            writer.print(" :pointer-bit-start {d} :pointer-bit-end {d} :bit-size {d}", .{ bits.start, bits.host_bytes, @bitSizeOf(P.child) }) catch
+                @panic("Cannot encode packed native view");
+        }
         writeTupleLength(writer, P.child) catch @panic("Cannot encode native tuple length");
         if (@typeInfo(P.child) == .int or @typeInfo(P.child) == .float) {
             writer.print(" :scalar-type :{s}", .{@typeName(P.child)}) catch @panic("Cannot encode native view type");
@@ -426,6 +444,32 @@ pub const __aguafria_jvm = struct {
         return T != bool and @typeInfo(T) != .optional;
     }
 
+    pub fn pointerBitRange(comptime T: type) ?struct { start: usize, host_bytes: usize } {
+        const p = @typeInfo(T).pointer;
+        if (T == @Pointer(p.size, p.attrs, p.child, p.sentinel())) return null;
+        // Zig's pointer reflection omits packed bit ranges. Read only that
+        // qualifier from the compiler's own spelling, never the child type.
+        // Unknown non-round-tripping pointer forms must fail closed.
+        const spelling = @typeName(T);
+        if (p.size != .one or !std.mem.startsWith(u8, spelling, "*align("))
+            @compileError("Unrepresentable native pointer qualifiers");
+        const end = std.mem.indexOfScalar(u8, spelling, ')') orelse
+            @compileError("Missing compiler pointer alignment terminator");
+        var parts = std.mem.splitScalar(u8, spelling[7..end], ':');
+        const alignment = std.fmt.parseInt(usize, parts.next().?, 10) catch
+            @compileError("Invalid compiler pointer alignment");
+        const start = std.fmt.parseInt(usize, parts.next() orelse
+            @compileError("Missing compiler pointer bit offset"), 10) catch
+            @compileError("Invalid compiler pointer bit offset");
+        const host_bytes = std.fmt.parseInt(usize, parts.next() orelse
+            @compileError("Missing compiler pointer host size"), 10) catch
+            @compileError("Invalid compiler pointer host size");
+        if (parts.next() != null or alignment != p.attrs.@"align".? or
+            host_bytes == 0 or start + @bitSizeOf(p.child) > host_bytes * 8)
+            @compileError("Inconsistent compiler pointer bit range");
+        return .{ .start = start, .host_bytes = host_bytes };
+    }
+
     pub fn hasAddressableField(comptime T: type, comptime name: []const u8) bool {
         const Container = switch (@typeInfo(T)) {
             .pointer => |p| if (p.size == .one) p.child else T,
@@ -433,10 +477,10 @@ pub const __aguafria_jvm = struct {
         };
         return switch (@typeInfo(Container)) {
             .@"struct" => |info| blk: {
-                if (info.layout == .@"packed") break :blk false;
                 inline for (info.field_names, info.field_types, info.field_attrs) |field_name, field_type, field_attrs| {
                     if (std.mem.eql(u8, field_name, name)) {
-                        break :blk !field_attrs.@"comptime" and fieldNeedsStorage(field_type);
+                        if (field_attrs.@"comptime" or !fieldNeedsStorage(field_type)) break :blk false;
+                        break :blk true;
                     }
                 }
                 break :blk false;
@@ -799,6 +843,19 @@ pub const __aguafria_jvm = struct {
         const writer = &sink.writer;
         writeResult(writer, value) catch @panic("Cannot encode JVM result");
         return sink.finish();
+    }
+
+    pub fn scopedValueResult(value: anytype) usize {
+        // A native expression's void value is not Zig null. Keep that type
+        // when an enclosing JVM let captures the result of an empty block.
+        if (@TypeOf(value) == void) {
+            var sink = NativeWriter.init();
+            defer sink.deinit();
+            sink.writer.writeAll("{:aguafria.jvm/comptime {:type :void :value nil}}") catch
+                @panic("Cannot encode native void value");
+            return sink.finish();
+        }
+        return result(value);
     }
 
     pub fn nominalResult(value: anytype, comptime Candidate: type, comptime identity: []const u8) usize {

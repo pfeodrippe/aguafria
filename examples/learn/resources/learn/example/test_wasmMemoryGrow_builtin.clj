@@ -12,7 +12,7 @@
       cpu/-arch))
 
 (a/deftest wasmMemoryGrow
-  (when (k/!= native-arch :.wasm32)
+  (when (k/!= native-arch :wasm32)
     (k/return (a/error-value :SkipZigTest)))
   (let [prev (k/wasmMemorySize 0)]
     ;; Zig 0.17 returns isize from grow (it can return -1), but usize from

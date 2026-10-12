@@ -16,7 +16,7 @@
   [])
 
 (a/defcomptime export-name
-  (k/export (k/& internal-name) {:name "aguafria_map_phase_fixture_export" :linkage :.strong}))
+  (k/export (k/& internal-name) {:name "aguafria_map_phase_fixture_export" :linkage :strong}))
 
 (a/deftest names-obey-the-parameter-phase
   (try (testing/expectEqual 3 (comptime-name-length {:name "foo"})))

@@ -573,7 +573,7 @@
 (a/defvar language-event-sequence :u64 0)
 
 (a/defstruct LanguageSchedule {:layout :extern}
-  [[:revision :u64] [:next_tick :u64] [:marker :u8]])
+             [[:revision :u64] [:next_tick :u64] [:marker :u8]])
 
 (a/defvar language-schedules [:array racer-count LanguageSchedule]
   (std-mem/zeroes (a/type [:array racer-count LanguageSchedule])))
@@ -692,7 +692,7 @@
         (ak/= max-latency-us
               (ak/max max-latency-us
                       (a/field (a/deref (brain-pointer index))
-                                average_latency_us)))))
+                               average_latency_us)))))
     (let [pending (a/field workers pending)
           desired (cadence-ticks-for-pressure pending max-latency-us)]
       (when (ak/!= desired current-ordinary-thought-ticks)
@@ -744,7 +744,7 @@
   (let [ordered
         (or (ak/== replay-count 0)
             (<= (a/field (a/index replay-intents (- replay-count 1))
-                          install_tick)
+                         install_tick)
                 (a/field intent install_tick)))
         valid
         (and (a/field intent valid)
@@ -907,7 +907,7 @@
                       read-count (runtime/fread bytes 1 size file)
                       ^:var result
                       (ak/as (replay-file-summary false replay-file-invalid-size
-                                           0 0 0 0 0) ReplayFileSummary)]
+                                                  0 0 0 0 0) ReplayFileSummary)]
                   (ak/= :_ (runtime/fclose file))
                   (when (ak/== read-count size)
                     (let [magic-valid
@@ -1284,7 +1284,7 @@
                  (- head distance)
                  (- (+ team-radio-history-per-team head) distance))]
       (a/index team-radio-history
-                (+ (* team-index team-radio-history-per-team) slot)))))
+               (+ (* team-index team-radio-history-per-team) slot)))))
 
 (a/defn team-view TeamView
   "Inspect one of the four Flecs-owned teams."
@@ -1520,13 +1520,13 @@
                              (a/field (a/deref racer) lane)))
                   progress-radius
                   (ak/f32 (if (ak/== (a/field (a/deref hazard) kind) item-bolt)
-                    0.012
-                    0.009))]
+                            0.012
+                            0.009))]
               (when (and (< progress-distance progress-radius)
                          (< lane-distance 0.045))
                 (when (hit-racer! racer-index
                                   (if (ak/== (a/field (a/deref hazard) kind)
-                                            item-trap)
+                                             item-trap)
                                     0.85
                                     0.55))
                   (ak/= :_
@@ -1673,16 +1673,16 @@
       (when (ak/!= index other-index)
         (let [other (racer-pointer other-index)
               ahead (mod (- (a/field (a/deref other) progress)
-                             (a/field (a/deref racer) progress)) 1.0)]
+                            (a/field (a/deref racer) progress)) 1.0)]
           (when (and (> ahead 0.0) (< ahead 0.02)
                      (< (a/field (a/deref other) speed) 0.002)
                      (< (ak/abs (- (a/field (a/deref other) lane)
                                    (a/field (a/deref racer) lane))) 0.055))
             (ak/= hazard-near true)))))
     (classify-tactical-status
-      (> (a/field (a/deref racer) stun_seconds) 0.0)
-      hazard-near
-      (a/field (a/deref racer) shielded))))
+     (> (a/field (a/deref racer) stun_seconds) 0.0)
+     hazard-near
+     (a/field (a/deref racer) shielded))))
 
 (a/defn build-observation ObservationView
   "Build the single authoritative immutable worker observation."
@@ -1738,9 +1738,9 @@
                            (ak/as (ak/intCast index) :u64))
                         3)
         lane-target (ak/f32 (cond
-                      (ak/== lane-phase 0) -0.075
-                      (ak/== lane-phase 1) 0.0
-                      :else 0.075))
+                              (ak/== lane-phase 0) -0.075
+                              (ak/== lane-phase 1) 0.0
+                              :else 0.075))
         target-speed (+ 0.068 (* aggression 0.010) (* risk 0.006))
         target (choose-target index)
         revision (next-decision-revision!)
@@ -1850,13 +1850,13 @@
     (telemetry/record-llm!
      base
      (a/slice (a/field result prompt_bytes)
-               0 (a/field result prompt_byte_count))
+              0 (a/field result prompt_byte_count))
      (a/slice (a/field result response_bytes)
-               0 (a/field result output_token_count))
+              0 (a/field result output_token_count))
      (a/slice (a/field result input_tokens)
-               0 (ak/min 32 (a/field result input_token_count)))
+              0 (ak/min 32 (a/field result input_token_count)))
      (a/slice (a/field result output_tokens)
-               0 (ak/min 1 (a/field result output_token_count))))))
+              0 (ak/min 1 (a/field result output_token_count))))))
 
 (a/defn valid-worker-action? :bool
   "Validate the complete constrained action envelope before it can affect the
@@ -2053,7 +2053,7 @@
                           (telemetry/mark-hit!
                            (a/field (a/deref racer) id)
                            (a/field (a/deref brain)
-                                     decision_revision))))))))
+                                    decision_revision))))))))
 
           (ak/== item item-surge)
           (ak/= (a/field (a/deref racer) boost_seconds) 3.0)
@@ -2149,7 +2149,7 @@
         brain (brain-pointer index)
         loss (physics/take-vehicle-tread-loss! (a/deref (vehicle-pointer index)))]
     (when (and (ak/!= (a/field (a/deref racer) pit_state)
-                       pit-state-servicing)
+                      pit-state-servicing)
                (ak/! (a/field (a/deref racer) finished)))
       (ak/= (a/field (a/deref racer) tire_condition)
             (ak/max 0.0 (- (a/field (a/deref racer) tire_condition) loss)))
@@ -2331,7 +2331,7 @@
                         (* 100.0
                            (ak/max 0.0
                                    (a/field (a/deref driver-a)
-                                             tire_condition)))))
+                                            tire_condition)))))
                :u8)
         tire-b
         (ak/as (ak/intFromFloat
@@ -2339,7 +2339,7 @@
                         (* 100.0
                            (ak/max 0.0
                                    (a/field (a/deref driver-b)
-                                             tire_condition)))))
+                                            tire_condition)))))
                :u8)
         damage-a
         (ak/as (ak/intFromFloat
@@ -2444,9 +2444,9 @@
             p (circuit/at-distance (* progress 4309.0)
                                    (* (a/field (a/deref racer) lane) 50.0))
             car (physics/create-vehicle dynamics-world
-                  (b3/b3Pos {:x (a/field p x) :y (a/field p y)
-                             :z (+ (a/field p z) 0.76)})
-                  (a/field p heading))
+                                        (b3/b3Pos {:x (a/field p x) :y (a/field p y)
+                                                   :z (+ (a/field p z) 0.76)})
+                                        (a/field p heading))
             tag (ak/as (ak/ptrFromInt (+ i 1)) [:optional [:* :anyopaque]])]
         (b3/b3Body_SetUserData (a/field car chassis) tag)
         (dotimes [wheel 4]
@@ -2472,7 +2472,7 @@
   "Actual metre-space rigid pose: part 0 chassis, parts 1..4 individual wheels." [[index :usize] [part :usize]]
   (let [car (a/deref (vehicle-pointer index))]
     (physics/body-state (if (ak/== part 0) (a/field car chassis)
-                           (a/index (a/field car wheels) (- part 1))))))
+                            (a/index (a/field car wheels) (- part 1))))))
 
 (a/defn enable-language-driving! :bool
   "Opt into readable plans on the simulation thread. Start held, invalidate
@@ -2480,10 +2480,10 @@
   (when (or (>= index racer-count) (ak/! initialized)) (ak/return false))
   (let [brain (brain-pointer index)]
     (ak/= (a/index language-drivers index)
-      (LanguageDriverState {:enabled enabled :kind protocol/plan-hold
-                            :epoch race-epoch
-                            :revision (a/field (a/index language-drivers index) revision)
-                            :expires_tick 0}))
+          (LanguageDriverState {:enabled enabled :kind protocol/plan-hold
+                                :epoch race-epoch
+                                :revision (a/field (a/index language-drivers index) revision)
+                                :expires_tick 0}))
     (ak/= (a/field (a/deref brain) pending) false)
     (ak/= (a/field (a/deref brain) target_speed) 0.0)
     (ak/= (a/field (a/deref brain) item_action) action-hold))
@@ -2504,19 +2504,19 @@
             blend (* fraction fraction (- 3.0 (* 2.0 fraction)))
             lane (+ (* 50.0 (a/field projected lane) (- 1.0 blend)) (* lane-metres blend))
             point (circuit/at-distance
-                    (+ (* (a/field projected progress) 4309.0) (* distance fraction)) lane)
+                   (+ (* (a/field projected progress) 4309.0) (* distance fraction)) lane)
             x (a/field point x) y (a/field point y) yaw (a/field point heading)]
         (when (ak/! (turnaround/static-clearance dynamics-world x y
-                       (+ (a/field point z) 0.76) yaw)) (ak/return false))
+                                                 (+ (a/field point z) 0.76) yaw)) (ak/return false))
         (dotimes [other-index racer-count]
           (when (ak/!= other-index index)
             (let [^:var other (vehicle-pose other-index 0)
                   before (turnaround/footprint-separation (a/field body x)
-                           (a/field body y) (turnaround/heading body) other)]
+                                                          (a/field body y) (turnaround/heading body) other)]
               (ak/= (a/field other x) (+ (a/field other x) (* (a/field other vx) seconds)))
               (ak/= (a/field other y) (+ (a/field other y) (* (a/field other vy) seconds)))
               (when (ak/! (turnaround/separation-safe? before
-                             (turnaround/footprint-separation x y yaw other)))
+                                                       (turnaround/footprint-separation x y yaw other)))
                 (ak/return false))))))))
   true)
 
@@ -2535,20 +2535,20 @@
                     (ak/! (retired? index)) (ak/! (a/field racer finished))
                     (ak/== race-state race-state-running))]
     (protocol/DrivingObservation
-      {:valid true :racer (ak/intCast index)
-       :speed_kmh (* 3.6 (ak/sqrt (+ (* (a/field body vx) (a/field body vx))
-                                     (* (a/field body vy) (a/field body vy)))))
-       :off_track (> (ak/abs lane) 6.5)
-       :wrong_way (< (std-math/cos (- (turnaround/heading body) (a/field route heading))) 0.0)
-       :overturned (driver/overturned? body)
-       :ahead_clear (language-lane-clear? index lane)
-       :left_clear (language-lane-clear? index 3.75)
-       :right_clear (language-lane-clear? index -3.75)
-       :tire_percent (* 100.0 (a/field racer tire_condition))
-       :damage_percent (* 100.0 (a/field racer damage))
-       :pit_available (and active (ak/== (a/field racer pit_state) pit-state-track)
-                           (ak/== (a/field team pit_occupant) no-pit-occupant))
-       :active active})))
+     {:valid true :racer (ak/intCast index)
+      :speed_kmh (* 3.6 (ak/sqrt (+ (* (a/field body vx) (a/field body vx))
+                                    (* (a/field body vy) (a/field body vy)))))
+      :off_track (> (ak/abs lane) 6.5)
+      :wrong_way (< (std-math/cos (- (turnaround/heading body) (a/field route heading))) 0.0)
+      :overturned (driver/overturned? body)
+      :ahead_clear (language-lane-clear? index lane)
+      :left_clear (language-lane-clear? index 3.75)
+      :right_clear (language-lane-clear? index -3.75)
+      :tire_percent (* 100.0 (a/field racer tire_condition))
+      :damage_percent (* 100.0 (a/field racer damage))
+      :pit_available (and active (ak/== (a/field racer pit_state) pit-state-track)
+                          (ak/== (a/field team pit_occupant) no-pit-occupant))
+      :active active})))
 
 (a/defn language-driving-request worker/LanguageRequest
   "Build the exact bounded text handed to inference and retained in history.
@@ -2557,7 +2557,7 @@
         ^:var request (std-mem/zeroes (a/type worker/LanguageRequest))
         system "Choose: hold (stop), follow, pass left, pass right, pit, yield (slow). Avoid blocked routes. Reply with one command. Optional Radio: your message."
         length (protocol/describe-driving-observation observation
-                 (ak/& (a/index (a/field request prompt_bytes) 0)) 160)]
+                                                      (ak/& (a/index (a/field request prompt_bytes) 0)) 160)]
     (when (or (ak/! (a/field observation active)) (ak/== revision 0) (ak/== length 0))
       (ak/return request))
     (ak/= (a/field request valid) true)
@@ -2588,44 +2588,44 @@
         kind (a/field plan kind)
         on-track (ak/== (a/field (a/deref racer) pit_state) pit-state-track)
         context (protocol/DrivingPlanContext
-                  {:epoch race-epoch :tick simulation-tick
-                   :latest_revision (a/field (a/deref state) revision)
-                   :active (and on-track (a/field (a/deref state) enabled)
-                                (ak/! (retired? index)) (ak/! (a/field (a/deref racer) finished))
-                                (ak/! replay-active) (ak/== race-state race-state-running))
-                   :left_clear (or (ak/!= kind protocol/plan-pass-left) (language-lane-clear? index 3.75))
-                   :right_clear (or (ak/!= kind protocol/plan-pass-right) (language-lane-clear? index -3.75))
-                   ;; Race-control flags are still a separate open task; do not
-                   ;; fabricate flag observations in the language interface.
-                   :red_flag false :overtaking_allowed on-track
-                   :pit_available (and on-track (ak/== (a/field (a/deref team) pit_occupant) no-pit-occupant))})
+                 {:epoch race-epoch :tick simulation-tick
+                  :latest_revision (a/field (a/deref state) revision)
+                  :active (and on-track (a/field (a/deref state) enabled)
+                               (ak/! (retired? index)) (ak/! (a/field (a/deref racer) finished))
+                               (ak/! replay-active) (ak/== race-state race-state-running))
+                  :left_clear (or (ak/!= kind protocol/plan-pass-left) (language-lane-clear? index 3.75))
+                  :right_clear (or (ak/!= kind protocol/plan-pass-right) (language-lane-clear? index -3.75))
+                  ;; Race-control flags are still a separate open task; do not
+                  ;; fabricate flag observations in the language interface.
+                  :red_flag false :overtaking_allowed on-track
+                  :pit_available (and on-track (ak/== (a/field (a/deref team) pit_occupant) no-pit-occupant))})
         ^:var reason (protocol/validate-driving-plan plan epoch revision observed expires context)]
     (when (and (ak/== reason protocol/plan-ok) (ak/== kind protocol/plan-pit)
                (ak/! (request-driver-pit! team-index (ak/intCast index) true)))
       (ak/= reason protocol/plan-pit-unavailable))
     (when (ak/== reason protocol/plan-ok)
       (ak/= (a/deref state)
-        (LanguageDriverState {:enabled true :kind kind :epoch epoch :revision revision :expires_tick expires}))
+            (LanguageDriverState {:enabled true :kind kind :epoch epoch :revision revision :expires_tick expires}))
       (ak/= (a/field (a/deref brain) source)
-        (if generated telemetry/source-llm telemetry/source-human))
+            (if generated telemetry/source-llm telemetry/source-human))
       (ak/= (a/field (a/deref brain) lane_target)
-        (cond (ak/== kind protocol/plan-pass-left) 0.075
-              (ak/== kind protocol/plan-pass-right) -0.075
-              :else (a/field (a/deref racer) lane)))
+            (cond (ak/== kind protocol/plan-pass-left) 0.075
+                  (ak/== kind protocol/plan-pass-right) -0.075
+                  :else (a/field (a/deref racer) lane)))
       (ak/= (a/field (a/deref brain) target_speed)
-        (cond (ak/== kind protocol/plan-hold) 0.0
-              (ak/== kind protocol/plan-yield) 0.025
-              :else 0.080)))
+            (cond (ak/== kind protocol/plan-hold) 0.0
+                  (ak/== kind protocol/plan-yield) 0.025
+                  :else 0.080)))
     (ak/= language-event-sequence (+ language-event-sequence 1))
     (let [event (ak/& (a/index language-events (mod language-event-sequence 128)))
           stored (ak/min length 2048)]
       (ak/= (a/deref event)
-        (LanguagePlanEvent {:valid true :accepted (ak/== reason protocol/plan-ok)
-          :generated generated :racer (ak/intCast index) :reason reason :plan plan
-          :sequence language-event-sequence :revision revision :epoch epoch
-          :observed_tick observed :install_tick simulation-tick :expires_tick expires
-          :byte_count (ak/intCast stored) :truncated (> length stored)
-          :text (std-mem/zeroes (a/type [:array 2048 :u8]))}))
+            (LanguagePlanEvent {:valid true :accepted (ak/== reason protocol/plan-ok)
+                                :generated generated :racer (ak/intCast index) :reason reason :plan plan
+                                :sequence language-event-sequence :revision revision :epoch epoch
+                                :observed_tick observed :install_tick simulation-tick :expires_tick expires
+                                :byte_count (ak/intCast stored) :truncated (> length stored)
+                                :text (std-mem/zeroes (a/type [:array 2048 :u8]))}))
       (dotimes [i stored] (ak/= (a/index (a/field (a/deref event) text) i) (a/index bytes i))))
     reason))
 
@@ -2633,27 +2633,27 @@
   "A bounded history lookup; valid=false means absent or already overwritten." [[sequence :u64]]
   (let [event (a/index language-events (mod sequence 128))]
     (if (and (> sequence 0) (ak/== (a/field event sequence) sequence)) event
-      (std-mem/zeroes (a/type LanguagePlanEvent)))))
+        (std-mem/zeroes (a/type LanguagePlanEvent)))))
 
 (a/defn language-exchange-count :u64 []
-  (ak/atomicLoad :u64 (ak/& language-exchange-sequence) :.acquire))
+  (ak/atomicLoad :u64 (ak/& language-exchange-sequence) :acquire))
 
 (a/defn language-exchange-at LanguageExchange
   "Nonblocking, coherent copy for nREPL/UI. valid=false on a busy/absent slot;
   refresh to retry. No data race with the simulation's history writer." [[sequence :u64]]
-  (when (ak/!= (ak/cmpxchgStrong :u8 (ak/& language-exchange-lock) 0 1 :.acq_rel :.acquire) ak/null)
+  (when (ak/!= (ak/cmpxchgStrong :u8 (ak/& language-exchange-lock) 0 1 :acq_rel :acquire) ak/null)
     (ak/return (std-mem/zeroes (a/type LanguageExchange))))
-  (ak/defer (ak/atomicStore :u8 (ak/& language-exchange-lock) 0 :.release))
+  (ak/defer (ak/atomicStore :u8 (ak/& language-exchange-lock) 0 :release))
   (let [entry (a/index language-exchanges (mod sequence 128))]
     (if (and (> sequence 0) (a/field entry valid) (ak/== (a/field entry sequence) sequence)) entry
-      (std-mem/zeroes (a/type LanguageExchange)))))
+        (std-mem/zeroes (a/type LanguageExchange)))))
 
 (a/defn request-language-mode! :bool
   "Thread-safe nREPL/UI command. The next native tick performs the change;
   the calling thread never reads or mutates Flecs/Box3D objects." [[index :usize] [enabled :bool]]
   (when (>= index racer-count) (ak/return false))
   (ak/atomicStore :u8 (ak/& (a/index language-mode-requests index))
-                  (if enabled (ak/as 1 :u8) 2) :.release)
+                  (if enabled (ak/as 1 :u8) 2) :release)
   true)
 
 (a/defn step-language-driving! :void
@@ -2662,7 +2662,7 @@
   expiry. Existing valid intent controls the car while the worker thinks.
   This is driver scheduling; natural-language TEAM scheduling is still separate." []
   (dotimes [index racer-count]
-    (let [mode (ak/atomicRmw :u8 (ak/& (a/index language-mode-requests index)) :.Xchg 0 :.acq_rel)
+    (let [mode (ak/atomicRmw :u8 (ak/& (a/index language-mode-requests index)) :Xchg 0 :acq_rel)
           schedule (ak/& (a/index language-schedules index))]
       (when (> mode 0)
         (ak/= :_ (enable-language-driving! index (ak/== mode 1)))
@@ -2675,20 +2675,20 @@
       ;; If a reader is copying history, leave the worker result in its mailbox
       ;; until the next tick. Neither block physics nor drop an unread reply.
       (when (and (ak/== (worker/language-mailbox-state index) 3)
-                 (ak/== (ak/cmpxchgStrong :u8 (ak/& language-exchange-lock) 0 1 :.acq_rel :.acquire) ak/null))
-        (ak/defer (ak/atomicStore :u8 (ak/& language-exchange-lock) 0 :.release))
+                 (ak/== (ak/cmpxchgStrong :u8 (ak/& language-exchange-lock) 0 1 :acq_rel :acquire) ak/null))
+        (ak/defer (ak/atomicStore :u8 (ak/& language-exchange-lock) 0 :release))
         (let [reply (worker/take-language-result! index)]
-        (when (a/field reply valid)
-          (let [request (a/field reply request) generation (a/field reply generation)
-                reason (install-language-plan! index (a/field request epoch)
-                         (a/field request revision) (a/field request observed_tick)
-                         (a/field request expires_tick)
-                         (ak/& (a/index (a/field generation bytes) 0)) (a/field generation byte_count)
-                         (and (a/field generation valid) (ak/== (a/field generation stop) 1)) true)]
-            (let [sequence (+ (language-exchange-count) 1)]
-              (ak/= (a/index language-exchanges (mod sequence 128))
-                (LanguageExchange {:valid true :sequence sequence :reason reason :result reply}))
-              (ak/atomicStore :u64 (ak/& language-exchange-sequence) sequence :.release))))))
+          (when (a/field reply valid)
+            (let [request (a/field reply request) generation (a/field reply generation)
+                  reason (install-language-plan! index (a/field request epoch)
+                                                 (a/field request revision) (a/field request observed_tick)
+                                                 (a/field request expires_tick)
+                                                 (ak/& (a/index (a/field generation bytes) 0)) (a/field generation byte_count)
+                                                 (and (a/field generation valid) (ak/== (a/field generation stop) 1)) true)]
+              (let [sequence (+ (language-exchange-count) 1)]
+                (ak/= (a/index language-exchanges (mod sequence 128))
+                      (LanguageExchange {:valid true :sequence sequence :reason reason :result reply}))
+                (ak/atomicStore :u64 (ak/& language-exchange-sequence) sequence :release))))))
       (let [state (a/index language-drivers index) racer (a/deref (racer-pointer index))
             marker (ak/as (ak/intFromFloat (* 16.0 (track/wrap-progress (a/field racer progress)))) :u8)
             incident (or (< (a/field racer speed) 0.002) (> (ak/abs (a/field racer lane)) 0.13))]
@@ -2764,7 +2764,7 @@
           (when (ak/!= i j)
             (let [front (racer-pointer j)
                   gap (* 4309.0 (mod (- (a/field (a/deref front) progress)
-                                       (a/field (a/deref racer) progress)) 1.0))
+                                        (a/field (a/deref racer) progress)) 1.0))
                   lateral (* 50.0 (ak/abs (- (a/field (a/deref front) lane)
                                              (a/field (a/deref racer) lane))))]
               (when (and (< gap 500.0) (< lateral 2.7))
@@ -2772,13 +2772,13 @@
                       route (circuit/at-distance
                              (* 4309.0 (a/field (a/deref front) progress)) 0.0)
                       forward (ak/max 0.0
-                                (+ (* (a/field body vx) (std-math/cos (a/field route heading)))
-                                   (* (a/field body vy) (std-math/sin (a/field route heading)))))]
+                                      (+ (* (a/field body vx) (std-math/cos (a/field route heading)))
+                                         (* (a/field body vy) (std-math/sin (a/field route heading)))))]
                   (ak/= (a/index vehicle-controls i)
                         (driver/yield-to-offset-obstacle
-                          (a/index vehicle-controls i) gap forward
-                          (* 50.0 (- (a/field (a/deref front) lane)
-                                      (a/field (a/deref racer) lane))))))))))))))
+                         (a/index vehicle-controls i) gap forward
+                         (* 50.0 (- (a/field (a/deref front) lane)
+                                    (a/field (a/deref racer) lane))))))))))))))
 
 (a/defn update-retirements! :void
   "Race-control classification from sustained physical evidence. Never moves,
@@ -2790,15 +2790,15 @@
             racer (racer-pointer i)
             body (vehicle-pose i 0)
             up (- 1.0 (* 2.0 (+ (* (a/field body qx) (a/field body qx))
-                               (* (a/field body qy) (a/field body qy)))))
+                                (* (a/field body qy) (a/field body qy)))))
             speed (ak/sqrt (+ (* (a/field body vx) (a/field body vx))
-                             (* (a/field body vy) (a/field body vy))
-                             (* (a/field body vz) (a/field body vz))))
+                              (* (a/field body vy) (a/field body vy))
+                              (* (a/field body vz) (a/field body vz))))
             next (status/observe-world-position previous up speed
-                                 (a/field body z) circuit/minimum-elevation simulation-tick
-                                 (a/field (a/deref racer) lap)
-                                 (a/field (a/deref racer) progress)
-                                 (a/field (a/deref racer) finished))]
+                                                (a/field body z) circuit/minimum-elevation simulation-tick
+                                                (a/field (a/deref racer) lap)
+                                                (a/field (a/deref racer) progress)
+                                                (a/field (a/deref racer) finished))]
         (ak/= (a/deref entry) next)
         (when (and (a/field next retired) (ak/! (a/field previous retired)))
           (let [brain (brain-pointer i)
@@ -2828,58 +2828,58 @@
   (let [^:var bodies (std-mem/zeroes (a/type [:array racer-count physics/BodyState]))]
     (dotimes [i racer-count]
       (ak/= (a/index bodies i) (vehicle-pose i 0)))
-  (dotimes [i racer-count]
-    (let [racer (racer-pointer i)
-          brain (brain-pointer i)
-          body (vehicle-pose i 0)
-          normal (a/index normal-controls i)
-          ^:var front-gap (ak/f32 1000.0)
-          ^:var rear-gap (ak/f32 1000.0)
-          ^:var rear-closing (ak/f32 0.0)
-          route (circuit/at-distance (* 4309.0 (a/field (a/deref racer) progress)) 0.0)
-          aligned (> (std-math/cos (- (a/field (a/deref racer) heading)
-                                      (a/field route heading))) 0.8)
-          enabled (and (ak/== race-state race-state-running)
-                       (ak/! (retired? i)) (ak/! (a/field (a/deref racer) finished))
-                       (ak/! (and human-controlled (ak/== i 0)))
-                       (ak/! (pit-navigation-active?
-                              (a/field (a/deref racer) pit_state)
-                              (a/field (a/deref racer) progress)
-                              (pit-box-progress (a/field (a/deref racer) team))))
-                       aligned (< (ak/abs (a/field normal lane)) recovery/corridor-half-width))]
-      (dotimes [j racer-count]
-        (when (ak/!= i j)
-          (let [other (racer-pointer j)
-                ahead (* 4309.0 (mod (- (a/field (a/deref other) progress)
-                                        (a/field (a/deref racer) progress)) 1.0))
-                behind (- 4309.0 ahead)
-                side (* 50.0 (ak/abs (- (a/field (a/deref other) lane)
-                                         (a/field (a/deref racer) lane))))]
-            (when (and (< side (turnaround/recovery-side-clearance body (a/index bodies j)
-                                  (a/field route heading)))
-                       (< (a/field (a/deref other) speed) 0.002))
-              (ak/= front-gap (ak/min front-gap ahead)))
-            ;; Wide rear corridor includes cars close enough to move into our
-            ;; path. Conservative max closing speed cannot hide a fast car
-            ;; behind a nearer slow one. The check repeats while reversing.
-            (when (and (< side 5.4) (< behind 500.0))
-              (ak/= rear-gap (ak/min rear-gap behind))
-              (ak/= rear-closing (ak/max rear-closing
-                                   (* 1000.0 (a/field (a/deref other) speed))))))))
-      (let [entry (recovery-pointer i)
-            ^:var output (recovery/step (a/field (a/deref entry) state) normal
-                     (a/index vehicle-controls i) body
-                     (* 50.0 (a/field (a/deref brain) lane_target))
-                     front-gap rear-gap rear-closing enabled)]
-        (when (and (ak/!= (a/field (a/field output state) phase) 0)
-                   (< (a/field normal speed) 3.0))
-          (ak/= (a/field output control)
-            (turnaround/guard-recovery-control (a/field output control) body
-              bodies racer-count i (a/field output gear) dynamics-world
-              recovery/corridor-half-width)))
-        ;; Inspection must report the same pedals that physics will receive.
-        (ak/= (a/deref entry) output)
-        (ak/= (a/index vehicle-controls i) (a/field output control)))))))
+    (dotimes [i racer-count]
+      (let [racer (racer-pointer i)
+            brain (brain-pointer i)
+            body (vehicle-pose i 0)
+            normal (a/index normal-controls i)
+            ^:var front-gap (ak/f32 1000.0)
+            ^:var rear-gap (ak/f32 1000.0)
+            ^:var rear-closing (ak/f32 0.0)
+            route (circuit/at-distance (* 4309.0 (a/field (a/deref racer) progress)) 0.0)
+            aligned (> (std-math/cos (- (a/field (a/deref racer) heading)
+                                        (a/field route heading))) 0.8)
+            enabled (and (ak/== race-state race-state-running)
+                         (ak/! (retired? i)) (ak/! (a/field (a/deref racer) finished))
+                         (ak/! (and human-controlled (ak/== i 0)))
+                         (ak/! (pit-navigation-active?
+                                (a/field (a/deref racer) pit_state)
+                                (a/field (a/deref racer) progress)
+                                (pit-box-progress (a/field (a/deref racer) team))))
+                         aligned (< (ak/abs (a/field normal lane)) recovery/corridor-half-width))]
+        (dotimes [j racer-count]
+          (when (ak/!= i j)
+            (let [other (racer-pointer j)
+                  ahead (* 4309.0 (mod (- (a/field (a/deref other) progress)
+                                          (a/field (a/deref racer) progress)) 1.0))
+                  behind (- 4309.0 ahead)
+                  side (* 50.0 (ak/abs (- (a/field (a/deref other) lane)
+                                          (a/field (a/deref racer) lane))))]
+              (when (and (< side (turnaround/recovery-side-clearance body (a/index bodies j)
+                                                                     (a/field route heading)))
+                         (< (a/field (a/deref other) speed) 0.002))
+                (ak/= front-gap (ak/min front-gap ahead)))
+              ;; Wide rear corridor includes cars close enough to move into our
+              ;; path. Conservative max closing speed cannot hide a fast car
+              ;; behind a nearer slow one. The check repeats while reversing.
+              (when (and (< side 5.4) (< behind 500.0))
+                (ak/= rear-gap (ak/min rear-gap behind))
+                (ak/= rear-closing (ak/max rear-closing
+                                           (* 1000.0 (a/field (a/deref other) speed))))))))
+        (let [entry (recovery-pointer i)
+              ^:var output (recovery/step (a/field (a/deref entry) state) normal
+                                          (a/index vehicle-controls i) body
+                                          (* 50.0 (a/field (a/deref brain) lane_target))
+                                          front-gap rear-gap rear-closing enabled)]
+          (when (and (ak/!= (a/field (a/field output state) phase) 0)
+                     (< (a/field normal speed) 3.0))
+            (ak/= (a/field output control)
+                  (turnaround/guard-recovery-control (a/field output control) body
+                                                     bodies racer-count i (a/field output gear) dynamics-world
+                                                     recovery/corridor-half-width)))
+          ;; Inspection must report the same pedals that physics will receive.
+          (ak/= (a/deref entry) output)
+          (ak/= (a/index vehicle-controls i) (a/field output control)))))))
 
 (a/defn update-turnarounds! :void
   "Physical body-relative manoeuvring takes precedence only after a spin.
@@ -2900,11 +2900,11 @@
                          ;; queries the actual containment walls before moving.
                          (< (ak/abs (a/field normal lane)) 30.0)
                          (ak/! (pit-navigation-active?
-                                 (a/field (a/deref racer) pit_state)
-                                 (a/field (a/deref racer) progress)
-                                 (pit-box-progress (a/field (a/deref racer) team)))))
+                                (a/field (a/deref racer) pit_state)
+                                (a/field (a/deref racer) progress)
+                                (pit-box-progress (a/field (a/deref racer) team)))))
             output (turnaround/step previous normal (a/index bodies i)
-                                   bodies racer-count i enabled dynamics-world)]
+                                    bodies racer-count i enabled dynamics-world)]
         (ak/= (a/deref entry) output)
         (when (or (a/field previous active) (a/field (a/field output state) active))
           (ak/= (a/index vehicle-controls i) (a/field output control))
@@ -2919,9 +2919,9 @@
           racer (racer-pointer i)]
       (ak/= (a/deref entry)
             (lap-timing/observe (a/deref entry) simulation-tick
-              (a/field (a/deref racer) lap)
-              (ak/== race-state race-state-running)
-              (or (retired? i) (a/field (a/deref racer) finished)))))))
+                                (a/field (a/deref racer) lap)
+                                (ak/== race-state race-state-running)
+                                (or (retired? i) (a/field (a/deref racer) finished)))))))
 
 (a/defn step-dynamics! :void
   "Apply controls and solve contacts; derive telemetry from the resulting bodies." []
@@ -2934,15 +2934,15 @@
     ;; A finish is a classification result, not evidence that the car is still
     ;; driveable. Disable final pedals after a rollover even during cooldown.
     (ak/= (a/index vehicle-controls i)
-      (driver/stop-if-overturned (a/index vehicle-controls i) (vehicle-pose i 0)))
+          (driver/stop-if-overturned (a/index vehicle-controls i) (vehicle-pose i 0)))
     (when (> (a/index contact-cooldowns i) 0)
       (ak/= (a/index contact-cooldowns i) (- (a/index contact-cooldowns i) 1))))
   (dotimes [_ (ak/divTrunc physics/step-rate 120)]
     (dotimes [i racer-count]
       (let [control (a/index vehicle-controls i)]
         (physics/drive-in-gear! (a/deref (vehicle-pointer i))
-          (a/field control throttle) (a/field control brake) (a/field control steering)
-          (a/field (a/deref (recovery-pointer i)) gear))))
+                                (a/field control throttle) (a/field control brake) (a/field control steering)
+                                (a/field (a/deref (recovery-pointer i)) gear))))
     (physics/step! dynamics-world)
     (physical-contacts!))
   (dotimes [i racer-count]
@@ -2973,7 +2973,7 @@
             (std-math/atan2 (* 2.0 (+ (* (a/field state qw) (a/field state qz))
                                       (* (a/field state qx) (a/field state qy))))
                             (- 1.0 (* 2.0 (+ (* (a/field state qy) (a/field state qy))
-                                              (* (a/field state qz) (a/field state qz))))))))))
+                                             (* (a/field state qz) (a/field state qz))))))))))
 
 (a/defn step-pit! :bool
   "Pit strategy controls pedals; service starts only after a physical stop." [[index :usize]]
@@ -3080,12 +3080,12 @@
           ;; Classification is already fixed by finish_tick, not this motion.
           requested (if running
                       (if finished (ak/as 30.0 :f32)
-                        (* 1000.0 grip power-condition
-                           (+ (a/field (a/deref brain) target_speed) (if boosted (ak/as 0.035 :f32) 0.0))))
+                          (* 1000.0 grip power-condition
+                             (+ (a/field (a/deref brain) target_speed) (if boosted (ak/as 0.035 :f32) 0.0))))
                       0.0)
           ^:var control (driver/follow-lane-plan car requested
-                          (* (a/field (a/deref brain) lane_target) 50.0)
-                          (ak/& (a/index lane-plans index)))]
+                                                 (* (a/field (a/deref brain) lane_target) 50.0)
+                                                 (ak/& (a/index lane-plans index)))]
       (when (ak/! running)
         (ak/= (a/field control throttle) 0.0)
         (ak/= (a/field control brake) 1.0))
@@ -3258,9 +3258,9 @@
                       :lane_target lane
                       :target_speed 0.07
                       :aggression (+ 0.28 (* 0.595 (/ (ak/as (ak/floatFromInt index) :f32)
-                                                     (ak/as (ak/floatFromInt (- racer-count 1)) :f32))))
+                                                      (ak/as (ak/floatFromInt (- racer-count 1)) :f32))))
                       :patience (- 0.86 (* 0.49 (/ (ak/as (ak/floatFromInt index) :f32)
-                                                    (ak/as (ak/floatFromInt (- racer-count 1)) :f32))))
+                                                   (ak/as (ak/floatFromInt (- racer-count 1)) :f32))))
                       :risk (+ 0.20 (* 0.075 (ak/as (ak/floatFromInt (mod (+ index 3) 8)) :f32)))
                       :next_decision_tick (ak/as (ak/intCast (* index 5)) :u64)
                       :pending_revision 0
@@ -3714,7 +3714,7 @@
         (ak/= fingerprint (mix-state-f32 fingerprint (a/field state start_x)))
         (ak/= fingerprint (mix-state-f32 fingerprint (a/field state start_y)))
         (ak/= fingerprint (mix-state-word fingerprint
-                            (ak/as (ak/intCast (+ (ak/as (a/field entry gear) :i32) 1)) :u64)))))
+                                          (ak/as (ak/intCast (+ (ak/as (a/field entry gear) :i32) 1)) :u64)))))
     (dotimes [index team-count]
       (let [team (team-pointer index)]
         (ak/= fingerprint

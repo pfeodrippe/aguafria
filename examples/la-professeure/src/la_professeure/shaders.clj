@@ -38,59 +38,59 @@
    [:reserved :f32]])
 
 (a/defconst vertices
-  (k/extern [:* {:addrspace :.storage_buffer :const? true} VertexBuffer]
+  (k/extern [:* {:addrspace :storage_buffer :const? true} VertexBuffer]
             {:name "vertices" :decoration {:descriptor {:set 0 :binding 0}}}))
 
 (a/defconst pixels
-  (k/extern [:* {:addrspace :.storage_buffer :const? true} PixelBuffer]
+  (k/extern [:* {:addrspace :storage_buffer :const? true} PixelBuffer]
             {:name "pixels" :decoration {:descriptor {:set 0 :binding 1}}}))
 
-(a/defconst root (k/extern [:* {:addrspace :.push_constant :const? true} Root] {:name "root"}))
+(a/defconst root (k/extern [:* {:addrspace :push_constant :const? true} Root] {:name "root"}))
 
-(a/defconst vertex-index (k/extern [:* {:addrspace :.input} :u32] {:name "vertex_index"}))
+(a/defconst vertex-index (k/extern [:* {:addrspace :input} :u32] {:name "vertex_index"}))
 
 (a/defconst clip-position
-  (k/extern [:* {:addrspace :.output} [:vector 4 :f32]] {:name "position"}))
+  (k/extern [:* {:addrspace :output} [:vector 4 :f32]] {:name "position"}))
 
 (a/defconst color-out
-  (k/extern [:* {:addrspace :.output} [:vector 3 :f32]]
+  (k/extern [:* {:addrspace :output} [:vector 3 :f32]]
             {:name "color_out" :decoration {:location 0}}))
 
 (a/defconst uv-out
-  (k/extern [:* {:addrspace :.output} [:vector 2 :f32]] {:name "uv_out" :decoration {:location 1}}))
+  (k/extern [:* {:addrspace :output} [:vector 2 :f32]] {:name "uv_out" :decoration {:location 1}}))
 
 (a/defconst position-out
-  (k/extern [:* {:addrspace :.output} [:vector 2 :f32]]
+  (k/extern [:* {:addrspace :output} [:vector 2 :f32]]
             {:name "position_out" :decoration {:location 2}}))
 
 (a/defconst textured-out
-  (k/extern [:* {:addrspace :.output} :f32] {:name "textured_out" :decoration {:flat 3}}))
+  (k/extern [:* {:addrspace :output} :f32] {:name "textured_out" :decoration {:flat 3}}))
 
 (a/defconst lit-out
-  (k/extern [:* {:addrspace :.output} :f32] {:name "lit_out" :decoration {:flat 4}}))
+  (k/extern [:* {:addrspace :output} :f32] {:name "lit_out" :decoration {:flat 4}}))
 
 (a/defconst color-in
-  (k/extern [:* {:addrspace :.input} [:vector 3 :f32]]
+  (k/extern [:* {:addrspace :input} [:vector 3 :f32]]
             {:name "color_in" :decoration {:location 0}}))
 
 (a/defconst uv-in
-  (k/extern [:* {:addrspace :.input} [:vector 2 :f32]] {:name "uv_in" :decoration {:location 1}}))
+  (k/extern [:* {:addrspace :input} [:vector 2 :f32]] {:name "uv_in" :decoration {:location 1}}))
 
 (a/defconst position-in
-  (k/extern [:* {:addrspace :.input} [:vector 2 :f32]]
+  (k/extern [:* {:addrspace :input} [:vector 2 :f32]]
             {:name "position_in" :decoration {:location 2}}))
 
 (a/defconst textured-in
-  (k/extern [:* {:addrspace :.input} :f32] {:name "textured_in" :decoration {:flat 3}}))
+  (k/extern [:* {:addrspace :input} :f32] {:name "textured_in" :decoration {:flat 3}}))
 
 (a/defconst lit-in
-  (k/extern [:* {:addrspace :.input} :f32] {:name "lit_in" :decoration {:flat 4}}))
+  (k/extern [:* {:addrspace :input} :f32] {:name "lit_in" :decoration {:flat 4}}))
 
 (a/defconst result
-  (k/extern [:* {:addrspace :.output} [:vector 4 :f32]] {:name "result" :decoration {:location 0}}))
+  (k/extern [:* {:addrspace :output} [:vector 4 :f32]] {:name "result" :decoration {:location 0}}))
 
 (a/defn vertex :void
-  {:attrs #{k/export} :callconv :.spirv_vertex}
+  {:attrs #{k/export} :callconv :spirv_vertex}
   []
   (let [v (a/get (:data @vertices) @vertex-index)]
     (k/= @clip-position (a/vector [(:x v) (:y v) 0.0 1.0] :f32))
@@ -106,8 +106,8 @@
   [[p [:vector 2 :i32]]]
   (let [clamped (k/min (k/max p (a/vector [0 0] :i32)) (a/vector [2047 1535] :i32))
         packed (a/get (:data @pixels)
-                       (k/+ (k/* (k/as (a/get clamped 1) :u32) 2048)
-                            (k/as (a/get clamped 0) :u32)))]
+                      (k/+ (k/* (k/as (a/get clamped 1) :u32) 2048)
+                           (k/as (a/get clamped 0) :u32)))]
     (spv/glsl [:vector 4 :f32] "UnpackUnorm4x8" packed)))
 
 (a/defn fragment :void
@@ -140,7 +140,7 @@
                                  "FMix"
                                  (k/f32 1.0)
                                  (k/+ 0.80
-                                      (k/* 0.35 (k/exp (k/* -12.0 (k/reduce :.Add (k/* d d))))))
+                                      (k/* 0.35 (k/exp (k/* -12.0 (k/reduce :Add (k/* d d))))))
                                  (k/* @lit-in (:lighting @root)))
           rgb (k/* @color-in
                    (a/vector [(a/get texel 0) (a/get texel 1) (a/get texel 2)] :f32)
