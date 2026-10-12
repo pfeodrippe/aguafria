@@ -167,58 +167,61 @@
             (when (and (#{:const :var} (:kind descriptor)) (:module descriptor) (:name descriptor))
               root)))))))
 
-(defn- declaration-argument-schema [render form fallback]
-  (let [metadata (when (and (symbol? form)
-                            (not (contains? emitter/*lexical-bindings* form)))
-                   (some-> (ns-resolve (or emitter/*keyword-context* *ns*) form) meta))
-        reference (:aguafria/zig-reference metadata)
-        function-source (native-function-source form)]
-    (cond
-      function-source
-      (str "__aguafria_probe.comptimeExpression(" (render form) ", "
-           (artifact/print-data (artifact/print-data function-source)) ")")
+(defn- declaration-argument-schema
+  ([render form fallback]
+   (declaration-argument-schema render form fallback false))
+  ([render form fallback comptime?]
+   (let [metadata (when (and (symbol? form)
+                             (not (contains? emitter/*lexical-bindings* form)))
+                    (some-> (ns-resolve (or emitter/*keyword-context* *ns*) form) meta))
+         reference (:aguafria/zig-reference metadata)
+         function-source (native-function-source form)]
+     (cond
+       function-source
+       (str "__aguafria_probe.comptimeExpression(" (render form) ", "
+            (artifact/print-data (artifact/print-data function-source)) ")")
 
-      (and metadata
-           (or (= :const (get-in metadata [:aguafria/declaration :kind]))
-               (declared-native-value (or emitter/*keyword-context* *ns*) form)))
+       (and (not comptime?) metadata
+            (or (= :const (get-in metadata [:aguafria/declaration :kind]))
+                (declared-native-value (or emitter/*keyword-context* *ns*) form)))
       ;; A lazy declared pointer is borrowed native storage, not a JVM string.
       ;; Scalar constants can instead be exposed as ordinary boxed literals.
       ;; Ask the compiler for those values; never realize a native declaration.
-      (let [constant? (or (= :const (get-in metadata [:aguafria/declaration :kind]))
-                          (some-> (declared-native-value (or emitter/*keyword-context* *ns*) form)
-                                  value/info :kind (= :const)))
-            expression (render form)]
-        (str "(if (@typeInfo(@TypeOf(" expression ")) == .pointer and "
-             "!__aguafria_probe.requiresComptime(@TypeOf(" expression "))) "
-             "__aguafria_probe.argumentSchema(@TypeOf(" expression ")) else "
-             (if constant?
-               (str "(if (@typeInfo(@TypeOf(" expression ")) == .int or "
-                    "@typeInfo(@TypeOf(" expression ")) == .bool) "
-                    "\"{:representations [\" ++ " fallback
-                    " ++ \" \" ++ __aguafria_probe.comptimeValue(" expression ") ++ \"]}\" else " fallback ")")
-               fallback)
-             ")"))
+       (let [constant? (or (= :const (get-in metadata [:aguafria/declaration :kind]))
+                           (some-> (declared-native-value (or emitter/*keyword-context* *ns*) form)
+                                   value/info :kind (= :const)))
+             expression (render form)]
+         (str "(if (@typeInfo(@TypeOf(" expression ")) == .pointer and "
+              "!__aguafria_probe.requiresComptime(@TypeOf(" expression "))) "
+              "__aguafria_probe.argumentSchema(@TypeOf(" expression ")) else "
+              (if constant?
+                (str "(if (@typeInfo(@TypeOf(" expression ")) == .int or "
+                     "@typeInfo(@TypeOf(" expression ")) == .bool) "
+                     "\"{:representations [\" ++ " fallback
+                     " ++ \" \" ++ __aguafria_probe.comptimeValue(" expression ") ++ \"]}\" else " fallback ")")
+                fallback)
+              ")"))
 
-      reference
-      (str "(if (@typeInfo(@TypeOf(" (render form) ")) == .@\"fn\") "
-           "__aguafria_probe.comptimeExpression(" (render form) ", "
-           (artifact/print-data (artifact/print-data (qualified-name metadata))) ") else " fallback ")")
+       reference
+       (str "(if (@typeInfo(@TypeOf(" (render form) ")) == .@\"fn\") "
+            "__aguafria_probe.comptimeExpression(" (render form) ", "
+            (artifact/print-data (artifact/print-data (qualified-name metadata))) ") else " fallback ")")
 
-      (field-reference? form)
-      (let [{:keys [receiver schema]} (declaration-probe render form)]
-        (str "(if (@TypeOf(" receiver ") == type) " schema " else " fallback ")"))
+       (field-reference? form)
+       (let [{:keys [receiver schema]} (declaration-probe render form)]
+         (str "(if (@TypeOf(" receiver ") == type) " schema " else " fallback ")"))
 
-      (and (seq? form) (= 'if (first form)) (= 4 (count form))
-           (every? field-reference? (drop 2 form)))
-      (let [branches (mapv #(declaration-probe render %) (drop 2 form))]
+       (and (seq? form) (= 'if (first form)) (= 4 (count form))
+            (every? field-reference? (drop 2 form)))
+       (let [branches (mapv #(declaration-probe render %) (drop 2 form))]
       ;; A JVM if supplies one branch value to the call. Ask Zig for both
       ;; declaration representations, without evaluating the condition or body.
       ;; The guard avoids forcing a missing member in a dead source branch.
-        (str "(if (" (str/join " and " (map :available branches)) ") "
-             "\"{:representations [\" ++ " (str/join " ++ \" \" ++ " (map :schema branches))
-             " ++ \"]}\" else " fallback ")"))
+         (str "(if (" (str/join " and " (map :available branches)) ") "
+              "\"{:representations [\" ++ " (str/join " ++ \" \" ++ " (map :schema branches))
+              " ++ \"]}\" else " fallback ")"))
 
-      :else fallback)))
+       :else fallback))))
 
 (defn- literal-branches [form]
   (if (and (seq? form) (= 'if (first form)) (= 4 (count form)))
@@ -617,6 +620,17 @@
         item))
     form)))
 
+(defn- immutable-string-literal [form]
+  (loop [form form seen #{}]
+    (cond
+      (string? form) form
+      (and (symbol? form) (not (contains? seen form)))
+      (let [{:keys [initializer variable?] :as binding-source}
+            (:aguafria/jvm-binding-source (meta form))]
+        (when (and binding-source (not variable?))
+          (recur initializer (conj seen form))))
+      :else nil)))
+
 (defn- operand-schema [render expression parameter form schema-kind]
   (let [form (or (:aguafria/jvm-field-source (meta form)) form)
         metadata (when (and (seq? form) (symbol? (first form)))
@@ -658,6 +672,7 @@
                           (meta item))
                         :else item)) (initializer-source form))
         context (or emitter/*keyword-context* *ns*)
+        literal-string (when (symbol? form) (immutable-string-literal form))
         lexical-bindings (into emitter/*lexical-bindings*
                                (filter #(and (symbol? %) (:aguafria/local? (meta %))))
                                (tree-seq coll? seq value-form))
@@ -753,19 +768,55 @@
            (join-schemas (map #(operand-schema render (render %) parameter % schema-kind) branches))
            " ++ \"]}\"")
 
+      (and (string? form) (get-in parameter [:properties :jvm/string-storage?]))
+      ;; Host string construction allocates this exact sentinel array; retain
+      ;; its native pointer conversion as well as the literal construction.
+      (str "\"{:representations [\" ++ __aguafria_probe.argumentSchema(@TypeOf(" expression "))"
+           " ++ \" \" ++ __aguafria_probe.comptimeValue(" expression ") ++ \"]}\"")
+
       (and (string? form)
            (not= "comptime" (get-in parameter [:properties :zig/prefix]))
            (not (get-in parameter [:properties :jvm/literal?])))
       (str "__aguafria_probe.jvmMapStringArgumentSchema(" (render form) ")")
 
-      (vector? form)
+      (some? literal-string)
+      ;; An immutable lexical JVM string can be a literal or a native view.
+      ;; Zig validates both representations; never read a Var or evaluate its
+      ;; initializer, and never infer a sentinel for an explicitly typed value.
+      (str "(if (@TypeOf(" expression ") == @TypeOf(" (render literal-string) ")) "
+           (if (get-in parameter [:properties :jvm/literal?])
+             (str "\"{:representations [\" ++ __aguafria_probe." schema-kind
+                  "(@TypeOf(" expression ")) ++ \" \" ++ "
+                  "__aguafria_probe.comptimeValue(" (render literal-string) ") ++ \"]}\"")
+             (str "__aguafria_probe.jvmMapStringArgumentSchema(" (render literal-string) ")"))
+           " else "
+           "__aguafria_probe." schema-kind "(@TypeOf(" expression ")))")
+
+      (boolean? form)
+      ;; A literal boolean has one value. Keep its runtime carrier when the
+      ;; call uses one, but never invent the opposite literal specialization.
+      (if (or (get-in parameter [:properties :jvm/literal?])
+              (= "comptime" (get-in parameter [:properties :zig/prefix])))
+        (str "__aguafria_probe.comptimeValue(" expression ")")
+        (str "\"{:representations [\" ++ __aguafria_probe.schema(@TypeOf(" expression "))"
+             " ++ \" \" ++ __aguafria_probe.comptimeValue(" expression ") ++ \"]}\""))
+
+      (and (vector? form)
+           (some (fn [item]
+                   (when (and (symbol? item)
+                              (not (contains? emitter/*lexical-bindings* item)))
+                     (= :const (some-> (ns-resolve (or emitter/*keyword-context* *ns*) item)
+                                       meta :aguafria/declaration :kind))))
+                 (tree-seq coll? seq form)))
+      ;; Keep ordinary tuple reflection unless a declared value needs source
+      ;; provenance: reconstructing every tuple changes its native identities.
       ;; JVM vectors retain each element's value representation. Reflecting
       ;; only the Zig tuple type loses declared constants specialized by the
       ;; ordinary JVM call planner (including constants nested in print args).
       (str "(if (@TypeOf(" expression ") == type) \"{:comptime-type \" ++ "
            "__aguafria_probe.schema(" expression ") ++ \"}\" else "
            "\"{:tuple [\" ++ "
-           (join-schemas (map #(operand-schema render (render %) nil % "argumentSchema") form))
+           (join-schemas (map #(operand-schema render (render %) parameter % "argumentSchema") form))
            " ++ \"]}\")")
 
       (map? form)
@@ -808,7 +859,7 @@
                                   (str "__aguafria_probe.comptimeArgument(" value ", "
                                        (artifact/print-data (artifact/print-data closed-source)) ")")
                                   (str "__aguafria_probe.comptimeValue(" value ")"))]
-                     (declaration-argument-schema render form schema))
+                     (declaration-argument-schema render form schema true))
                    (declaration-argument-schema render form
                                                 (str "__aguafria_probe." schema-kind "(@TypeOf(" expression "))")))
                  ") ")]
@@ -976,6 +1027,14 @@
                                             expression)))
                                       (range) (rest form))))
                 parameters (cond
+                             ;; k/as constructs from host literals. A slice is
+                             ;; not an alternative input here: erasing a string's
+                             ;; sentinel would invent an invalid conversion.
+                             conversion? [nil {:properties {:jvm/literal? true
+                                                            :jvm/string-storage? true}}]
+                             storage? (take (count expressions)
+                                            (concat [{:properties {:jvm/literal? true}} nil]
+                                                    (repeat {:properties {:jvm/literal? true}})))
                              scoped? (mapcat (fn [_] [{:properties {:jvm/literal? true}} nil]) captures)
                              method-call?
                            ;; The JVM member planner embeds source strings. Keep
@@ -1070,12 +1129,18 @@
                                                     storage? [(second form)]
                                                     (not constructor?) (vec (rest form)))]
                                     (when (seq forms)
-                                      (mapv #(or (jvm-value-type-source context %)
-                                                 (when scoped?
-                                                   (when-let [type (jvm-anonymous-type-source context %)]
-                                                     {:type-source type :type-value? true :fields []
-                                                      :mutable? false})))
-                                            forms)))
+                                      (mapv (fn [index argument]
+                                              ;; A comptime parameter already has compiler-confirmed
+                                              ;; value provenance. Refining it to a storage schema
+                                              ;; would invent an invalid runtime argument.
+                                              (when-not (and native-function? (not method-call?) (not scoped?)
+                                                             (= "comptime" (get-in parameters [index :properties :zig/prefix])))
+                                                (or (jvm-value-type-source context argument)
+                                                    (when scoped?
+                                                      (when-let [type (jvm-anonymous-type-source context argument)]
+                                                        {:type-source type :type-value? true :fields []
+                                                         :mutable? false})))))
+                                            (range) forms)))
                                   :status (if probe? :unobserved :unsupported)
                                   :reason (when-not probe? (or non-call-reason :inspection-placement))})]
             (swap! operations conj operation)
@@ -2421,6 +2486,41 @@
          :module module :compiler-errors? (compiler-errors? result) :command (:command result)
          :source-path (:source-path result) :diagnostics (:err result)}))))
 
+(defn- refine-jvm-type-name-representations!
+  "Observe the ordinary JVM logical-name helper, rather than substituting a
+  guessed string schema for native @typeName's pointer-to-array result."
+  [report]
+  (let [selected (into #{}
+                       (keep (fn [{:keys [id form]}]
+                               (when (and (string? form)
+                                          (binding [*read-eval* false]
+                                            (some #{'aguafria.keyword/typeName}
+                                                  (tree-seq coll? seq (read-string form)))))
+                                 id)))
+                       (:operations report))]
+    (when (seq selected)
+      (let [module (:namespace report)
+            declarations (runtime/registered-declarations module)
+            operations (atom [])
+            result (runtime/inspect-module!
+                    module
+                    (fn [_]
+                      (let [source (binding [emitter/*expression-observer* (observer operations selected)
+                                             emitter/*logical-type-names?* true]
+                                     (emitter/emit-module (str module) declarations))]
+                        {:source (str "const __aguafria_probe = @import(\"operation_probe.zig\").Inspector(.{"
+                                      (type-catalog module declarations #{}) "});\n"
+                                      (emitter/logical-type-name-helper-source) "\n"
+                                      source (roots declarations))
+                         :files {"operation_probe.zig" (slurp (io/resource "aguafria/operation_probe.zig"))
+                                 "jvm_result.zig" (slurp (io/resource "aguafria/jvm_result.zig"))}})))
+            errors? (compiler-errors? result)]
+        {:basis :zig-compiler :representation :ordinary-jvm-logical-type-name
+         :compiler-errors? errors? :command (:command result) :source-path (:source-path result)
+         :diagnostics (:err result)
+         :observed (when-not errors?
+                     (compiler-observations (:err result) "aguafria\\.operation"))}))))
+
 (defn- observed-type-argument-sources
   [operation types]
   (when (and (string? (:form operation))
@@ -2448,9 +2548,11 @@
         jvm-maps (refine-jvm-map-representations! report)
         jvm-refinement (refine-jvm-type-representations! report)
         jvm-values (refine-jvm-value-representations! report)
+        jvm-type-names (refine-jvm-type-name-representations! report)
         jvm-constructions (inspect-jvm-construction-inputs! report)
         report (cond-> report
                  jvm-maps (assoc :jvm-map-representation-refinement (dissoc jvm-maps :observed))
+                 jvm-type-names (assoc :jvm-type-name-refinement (dissoc jvm-type-names :observed))
                  jvm-refinement (assoc :jvm-representation-refinement (dissoc jvm-refinement :observed :plans))
                  jvm-values (assoc :jvm-value-representation-refinement (dissoc jvm-values :observed :plans)))
         type-preparations
@@ -2545,7 +2647,9 @@
                                                                         [:reader-schemas (:id operation)]))))
                          result-reader-types (vec (distinct (concat result-reader-types jvm-readers)))
                          {prepared-signatures :signatures limited? :limited?}
-                         (preparation-signatures (or jvm-signatures signatures))]
+                         (preparation-signatures
+                          (concat (or jvm-signatures signatures)
+                                  (get-in jvm-type-names [:observed (:id operation)])))]
                      (cond-> (assoc operation :handlers
                                     (cond->
                                      (mapv (fn [types]

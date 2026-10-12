@@ -3,7 +3,7 @@
             [aguafria.zig :as a]))
 
 (a/defn- deferInvalidExample [:error-union :void] []
-  (defer (k/return (a/error-value :DeferError)))
+  (k/defer (k/return (a/error-value :DeferError)))
   (a/error-value :DeferError))
 
 (comment

@@ -24,6 +24,21 @@
     (is (= (emitter/emit-type observed) (emitter/emit-type (jvm/constructor-type observed))))
     (is (= (emitter/emit-type transported) (emitter/emit-type (jvm/constructor-type transported))))))
 
+(deftest equivalence-plans-normalize-spelling-without-erasing-type-identity
+  (let [module "aguafria.zig.preparation-identity-test"
+        record 'aguafria.zig.preparation-identity-test/FirstRecord
+        other 'aguafria.zig.preparation-identity-test/SecondRecord
+        observed (jvm/optional-payload-type [:optional [:* record]])
+        transported (jvm/constructor-type observed)
+        plan (fn [expected actual]
+               (let [{:keys [context expression]} (#'jvm/type-equivalence-plan module expected actual)]
+                 [(ns-name context) (runtime/adapter-fingerprint expression)]))]
+    (is (= (plan [:* record] observed) (plan [:* record] transported)))
+    (is (not= (plan [:* record] observed) (plan [:*const record] observed)))
+    (is (not= (plan [:* record] observed) (plan [:* other] observed)))
+    (is (true? (jvm/equivalent-types? module [:* record] observed)))
+    (is (false? (jvm/equivalent-types? module record other)))))
+
 (deftest projection-normalization-retains-exact-member-spelling
   (is (= '(field Owner "some_field") (jvm/constructor-type '(field Owner :some-field))))
   (is (= '(field Owner "some-field") (jvm/constructor-type '(field Owner "some-field"))))

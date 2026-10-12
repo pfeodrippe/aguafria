@@ -969,7 +969,7 @@
   (is (= "total += value;" (emit/emit-stmt '(+= total value))))
   (is (= "total /= divisor;"
          (emit/emit-stmt '(assign "/=" total divisor))))
-  (is (= "defer cleanup();" (emit/emit-stmt '(defer (cleanup)))))
+  (is (= "defer cleanup();" (emit/emit-stmt '(aguafria.keyword/defer (cleanup)))))
   (is (= "errdefer cleanup();" (emit/emit-stmt '(errdefer (cleanup)))))
   (is (= "comptime validate();"
          (emit/emit-stmt '(comptime (validate)))))

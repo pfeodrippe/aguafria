@@ -1,0 +1,12 @@
+{:width 100
+ :binding {:force-nl? true :hang-accept ##Inf}
+ :map {:comma? false :sort? false}
+ :comment {:wrap? false}
+ :vector {:respect-nl? true}
+ :parse {:interpose "\n\n"}
+ :fn-map {"let" [:binding {:vector {:respect-nl? false}}]
+          "loop" [:binding {:vector {:respect-nl? false}}]
+          "a/defn" :arg2-force-nl-body
+          "a/defn-" :arg2-force-nl-body
+          "a/defstruct" :arg1-body
+          "a/defconst" :arg1-body}}

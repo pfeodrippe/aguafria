@@ -14,4 +14,15 @@
     (log/info "{d}: {s}" [i preopen])))
 
 (comment
-  (main))
+  ;; Explicitly preopen the current directory, like wasmtime --dir=.
+  (require '[clojure.java.io :as io]
+           '[clojure.java.shell :as sh])
+  (let [wasm (a/build! 'learn.example.wasi-preopens
+                       {:kind :exe :target "wasm32-wasi"
+                        :output "build/wasi_preopens.wasm"})
+        result (sh/sh "node" "--no-warnings" "-e"
+                      (slurp (io/resource "learn/host/wasi.cjs"))
+                      "--" "--dir=." (:output-path wasm))]
+    (when-not (zero? (:exit result))
+      (throw (ex-info "WASI host failed" result)))
+    (clojure.core/print (str (:out result) (:err result)))))

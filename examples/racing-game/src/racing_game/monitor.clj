@@ -768,7 +768,7 @@
   []
   (when (ak/! (desktop/initialize!))
     (ak/return false))
-  (defer (desktop/shutdown!))
+  (ak/defer (desktop/shutdown!))
   (when (ak/! (initialize!))
     (ak/return false))
   (ak/= frame-report-enabled
@@ -776,7 +776,7 @@
       (if (ak/!= value ak/null)
         (std-mem/eql :u8 (std-mem/span (a/unwrap value)) "1")
         false)))
-  (defer (shutdown!))
+  (ak/defer (shutdown!))
   (ak/while (desktop/should-run?)
     (refresh!)
     (ak/= :_ (desktop/frame!)))

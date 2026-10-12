@@ -8,7 +8,7 @@
   (let [arena (k/var ((:init heap/ArenaAllocator) heap/page_allocator))]
     (k/defer ((:deinit arena)))
     (let [allocator ((:allocator arena))
-          ptr (try ((:create allocator) :i32))]
+          ptr (k/try ((:create allocator) :i32))]
       (debug/print "ptr={*}\n" [ptr]))))
 
 (comment

@@ -199,7 +199,7 @@
 (declare declaration-info declaration-type-value
          materialize-constant! materialize-state!
          materialize-type!
-         native-error-union-field-schema native-optional-field-schema
+         native-error-union-field-schema native-error-value-field-schema native-optional-field-schema
          native-slice-field-schema native-storage-binding-schema
          native-type-schema
          scalar-key scalar-layouts)
@@ -365,10 +365,16 @@
 
       :else
       (zig-value/native-value
-       (assoc (select-keys declaration [:module :name :kind :type :logical-id])
-              :type (or declaration-type
-                        (list 'aguafria.keyword/TypeOf
-                              (symbol (:module declaration) (str (:name declaration))))))
+       (cond-> (assoc (select-keys declaration [:module :name :kind :type :logical-id])
+                      :type (or declaration-type
+                                (list 'aguafria.keyword/TypeOf
+                                      (symbol (:module declaration) (str (:name declaration))))))
+         ;; An inferred string literal has the same exact type and bytes when
+         ;; emitted again at a comptime call site. Keep this on the value, not
+         ;; the live Var, so reload cannot substitute a newer constant. Normal
+         ;; runtime arguments still borrow the original native pointer.
+         (and (nil? declaration-type) (string? declaration-value))
+         (assoc :comptime-literal declaration-value))
        #(materialize-constant! declaration)))))
 
 (defn- container-type-info
@@ -4506,13 +4512,17 @@
                          optional-payload-address optional-payload-size
                          slice? slice-set slice-pointer slice-length
                          slice-element-size slice-element-align
-                         error-union? error-set-ok error-set-error
+                         error-union? error-value? error-set-ok error-set-error
                          error-present error-code error-name-pointer
                          error-name-length error-payload-address
                          error-payload-size]
                   :as optional-spec}]
               (let [bound
                     (cond-> optional-spec
+                      error-value?
+                      (assoc :error-set-error-handle (bind-error-name-set linker lookup error-set-error)
+                             :error-name-pointer-handle (bind-address error-name-pointer)
+                             :error-name-length-handle (bind-address error-name-length))
                       optional?
                       (assoc
                        :optional-set-handle (bind-optional-set optional-set)
@@ -4586,6 +4596,7 @@
              :slice-element-size (:result-slice-element-size spec)
              :slice-element-align (:result-slice-element-align spec)
              :error-union? (:result-error-union? spec)
+             :error-value? (:result-error-value? spec)
              :error-payload-type (:result-error-payload-type spec)
              :error-set (:result-error-set spec)
              :error-set-ok (:result-error-set-ok spec)
@@ -6289,11 +6300,14 @@
                                   :slice-element-align
                                   (str helper-prefix "_slice_element_align")
                                   :error-union? error-union?
+                                  :error-value? (and (vector? type) (= :error-set (first type)))
                                   :error-payload-type
                                   (when error-union? (last type))
                                   :error-set
-                                  (when (and error-union? (= 3 (count type)))
-                                    (second type))
+                                  (if (and (vector? type) (= :error-set (first type)))
+                                    type
+                                    (when (and error-union? (= 3 (count type)))
+                                      (second type)))
                                   :error-set-ok (str helper-prefix "_error_set_ok")
                                   :error-set-error
                                   (str helper-prefix "_error_set_error")
@@ -6359,11 +6373,14 @@
                    :result-slice-element-align
                    (str result-helper-prefix "_slice_element_align")
                    :result-error-union? result-error-union?
+                   :result-error-value? (and (vector? result-type) (= :error-set (first result-type)))
                    :result-error-payload-type
                    (when result-error-union? (last result-type))
                    :result-error-set
-                   (when (and result-error-union? (= 3 (count result-type)))
-                     (second result-type))
+                   (if (and (vector? result-type) (= :error-set (first result-type)))
+                     result-type
+                     (when (and result-error-union? (= 3 (count result-type)))
+                       (second result-type)))
                    :result-error-set-ok
                    (str result-helper-prefix "_error_set_ok")
                    :result-error-set-error
@@ -6683,6 +6700,32 @@
      "    return @alignOf(" element-type ");\n"
      "}\n")))
 
+(defn- emit-jvm-error-value-storage-wrapper
+  "Read/write a bare closed error set by name inside its callable image. Never
+  expose a foreign raw error ordinal as an input to this codec."
+  [type {:keys [error-set-error error-name-pointer error-name-length]}]
+  (let [type-source (emit/emit-type type)]
+    (str
+     "export fn " error-set-error "(address: usize, text_address: usize, text_length: usize) callconv(.c) u8 {\n"
+     "    const ErrorSet = " type-source ";\n"
+     "    const text = @as([*]const u8, @ptrFromInt(text_address))[0..text_length];\n"
+     "    if (@typeInfo(ErrorSet).error_set.error_names) |names| {\n"
+     "        inline for (names) |name| {\n"
+     "            if (@import(\"std\").mem.eql(u8, text, name)) {\n"
+     "                @as(*ErrorSet, @ptrFromInt(address)).* = @field(ErrorSet, name);\n"
+     "                return 1;\n"
+     "            }\n"
+     "        }\n"
+     "    }\n"
+     "    return 0;\n"
+     "}\n"
+     "export fn " error-name-pointer "(address: usize) callconv(.c) usize {\n"
+     "    return @intFromPtr(@errorName(@as(*const " type-source ", @ptrFromInt(address)).*).ptr);\n"
+     "}\n"
+     "export fn " error-name-length "(address: usize) callconv(.c) usize {\n"
+     "    return @errorName(@as(*const " type-source ", @ptrFromInt(address)).*).len;\n"
+     "}\n")))
+
 (defn- emit-jvm-error-union-storage-wrapper
   [error-union-type payload-type
    {:keys [error-set-ok error-set-error error-present error-code
@@ -6876,6 +6919,12 @@
                            :slice-element-size (:result-slice-element-size entry)
                            :slice-element-align
                            (:result-slice-element-align entry)}))
+                       (when (:result-error-value? entry)
+                         (emit-jvm-error-value-storage-wrapper
+                          result-type
+                          {:error-set-error (:result-error-set-error entry)
+                           :error-name-pointer (:result-error-name-pointer entry)
+                           :error-name-length (:result-error-name-length entry)}))
                        (when result-error-union?
                          (emit-jvm-error-union-storage-wrapper
                           result-type (if (= :void result-error-payload-type) :void
@@ -6921,6 +6970,9 @@
                                      (emit-jvm-slice-storage-wrapper
                                       (emitted-type-form argument-type nil)
                                       (emitted-type-form child-type-source slice-element-type) argument-spec))
+                                   (when (:error-value? argument-spec)
+                                     (emit-jvm-error-value-storage-wrapper
+                                      (emitted-type-form argument-type nil) argument-spec))
                                    (when error-union?
                                      (emit-jvm-error-union-storage-wrapper
                                       (emitted-type-form argument-type nil)
@@ -12649,7 +12701,8 @@
         function-binding))))
 
 (defn- native-argument-schema [module expected-type argument-binding]
-  (or (native-optional-field-schema module #{} argument-binding)
+  (or (native-error-value-field-schema argument-binding)
+      (native-optional-field-schema module #{} argument-binding)
       (native-slice-field-schema module #{} argument-binding)
       (native-error-union-field-schema module #{} argument-binding)
       (native-storage-binding-schema
@@ -12954,7 +13007,8 @@
                                          (empty? arguments))
                                 (function-native-image module function-binding))
                               :schema
-                              (or (native-optional-field-schema module #{}
+                              (or (native-error-value-field-schema function-binding)
+                                  (native-optional-field-schema module #{}
                                                                 function-binding)
                                   (native-slice-field-schema module #{}
                                                              function-binding)
@@ -13492,6 +13546,36 @@
             (long (.address backing))
             (long length)]))
          storage)})))
+
+(defn- native-error-value-field-schema
+  [{:keys [error-value? error-set error-set-error-handle
+           error-name-pointer-handle error-name-length-handle]}]
+  (when error-value?
+    {:kind :error-set
+     :error-set error-set
+     :error-fn
+     (fn [^MemorySegment storage]
+       (let [arguments (ArrayList. ^java.util.Collection [(long (.address storage))])
+             address (long (.invokeWithArguments ^MethodHandle error-name-pointer-handle arguments))
+             length (long (.invokeWithArguments ^MethodHandle error-name-length-handle arguments))]
+         {:name (String. (.toArray (.reinterpret (MemorySegment/ofAddress address) length)
+                                   ValueLayout/JAVA_BYTE)
+                         StandardCharsets/UTF_8)}))
+     :set-error-fn
+     (fn [^MemorySegment storage error-name]
+       (with-open [arena (Arena/ofConfined)]
+         (let [encoded (.getBytes (name error-name) StandardCharsets/UTF_8)
+               text (.allocateFrom arena ValueLayout/JAVA_BYTE encoded)
+               accepted (.invokeWithArguments
+                         ^MethodHandle error-set-error-handle
+                         (ArrayList. ^java.util.Collection
+                          [(long (.address storage)) (long (.address text)) (long (alength encoded))]))]
+           (when (zero? (long accepted))
+             (throw (ex-info "Destination Zig error set cannot represent this named error"
+                             {:aguafria/phase :native-error-transport
+                              :error-name error-name :error-set error-set
+                              :reason :error-name-not-in-closed-set})))))
+       storage)}))
 
 (defn- native-error-union-field-schema
   [module seen {:keys [error-union? error-payload-type error-set

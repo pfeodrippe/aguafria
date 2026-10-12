@@ -8,7 +8,7 @@
   []
   (let [bytes "hello"]
     (debug/print "{}\n" [(k/TypeOf bytes)]) ; *const [5:0]u8
-    (debug/print "{d}\n" [(:len bytes)]) ; 5
+    (debug/print "{d}\n" [(a/field bytes :len)]) ; 5
     (debug/print "{c}\n" [(a/get bytes 1)]) ; 'e'
     (debug/print "{d}\n" [(a/get bytes 5)]) ; 0
     (debug/print "{}\n" [(k/== \e (a/char-literal "'\\x65'"))]) ; true

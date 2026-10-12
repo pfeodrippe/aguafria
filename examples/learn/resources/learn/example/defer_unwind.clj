@@ -1,14 +1,15 @@
 (ns learn.example.defer-unwind
-  (:require [aguafria.std.debug :as debug]
+  (:require [aguafria.keyword :as k]
+            [aguafria.std.debug :as debug]
             [aguafria.zig :as a]))
 
 (a/defn main :void []
   (debug/print "\n" [])
-  (defer (debug/print "1 " []))
-  (defer (debug/print "2 " []))
+  (k/defer (debug/print "1 " []))
+  (k/defer (debug/print "2 " []))
   (when false
     ;; defers are not run if they are never executed.
-    (defer (debug/print "3 " []))))
+    (k/defer (debug/print "3 " []))))
 
 (comment
   (main))

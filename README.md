@@ -253,6 +253,13 @@ including `ak/undefined`, `@` builtins, and operators such as Zig equality.
 Ordinary Clojure forms such as `if` and `let` remain ordinary symbols. Nothing
 is injected as an unbound magical name.
 
+`ak/TypeOf` is a macro on the JVM: `(ak/TypeOf (native-call value))` lets Zig
+analyze the expression without executing `native-call`. Its operands must be
+valid native expressions; it is not a first-class function usable with `apply`.
+If a host computation should execute, bind its result first and pass that binding
+to `ak/TypeOf`. This unevaluated behavior is specific to constructs that require
+it, not a rule that all builtins should suppress argument evaluation.
+
 `aguafria.std` and its nested namespaces are interned from EDN resources, so
 they support normal `:require`, completion, `doc`, and REPL discovery without
 thousands of generated source files:

@@ -41,9 +41,11 @@
     (number? argument) argument
     (and (value/zig-value? argument)
          (#{:comptime_int :comptime_float} (value/qualified-type argument))
-         ;; A source expression may be more precise than its JVM display value.
-         ;; Keep it in Zig instead of turning that display value into an operand.
-         (not (:expression (value/realize! argument))))
+         ;; Comptime integers decode losslessly, including character literals.
+         ;; Floats can have more precision than their JVM display value: keep
+         ;; their source in Zig rather than using that display as an operand.
+         (or (= :comptime_int (value/qualified-type argument))
+             (not (:expression (value/realize! argument)))))
     (value/value argument)))
 
 (defn- integer-carrier [operation operands]

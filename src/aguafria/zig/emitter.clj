@@ -868,6 +868,9 @@
                                      (switch-clauses context (drop prefix form)))) (meta form)))
     form))
 
+(defn- scoped-native-token? [token]
+  (some-> (:symbol token) find-var meta :aguafria/scoped?))
+
 (defn- qualify-seq
   [context-ns form]
   (let [[op & raw-args] form
@@ -978,10 +981,11 @@
                           (rest args))
           (meta form)))
 
-      (contains? #{'with-block 'block 'if-capture 'if-capture-stmt 'catch-capture
-                   'switch 'switch-stmt 'labeled-switch 'labeled-switch-stmt 'while-loop
-                   'while 'for 'inline-for 'for-loop}
-                 structural-op)
+      (or (scoped-native-token? token)
+          (contains? #{'with-block 'block 'if-capture 'if-capture-stmt 'catch-capture
+                       'switch 'switch-stmt 'labeled-switch 'labeled-switch-stmt 'while-loop
+                       'while 'for 'inline-for 'for-loop}
+                     structural-op))
       (let [captures (or (:aguafria/scoped-captures (meta form))
                          (mapv (fn [name] [name (qualify-form context-ns name)])
                                (scoped-captures context-ns form
@@ -1019,10 +1023,11 @@
                                  :zig-token symbol)))
           form (normalize-switch-form context-ns operator form)
           form (if (and (seq? form)
-                        (contains? #{'with-block 'block 'if-capture 'if-capture-stmt
-                                     'catch-capture 'switch 'switch-stmt 'labeled-switch
-                                     'labeled-switch-stmt 'while-loop
-                                     'while 'for 'inline-for 'for-loop} operator))
+                        (or (scoped-native-token? (keyword/resolve-token context-ns (first form)))
+                            (contains? #{'with-block 'block 'if-capture 'if-capture-stmt
+                                         'catch-capture 'switch 'switch-stmt 'labeled-switch
+                                         'labeled-switch-stmt 'while-loop
+                                         'while 'for 'inline-for 'for-loop} operator)))
                  (vary-meta form assoc
                             :aguafria/scoped-template
                             (or (:aguafria/scoped-template (meta form)) form)

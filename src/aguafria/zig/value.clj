@@ -12,7 +12,7 @@
          decode-packed-backing decode-struct decode-value-segment
          encode-packed-backing
          write-struct! write-value-segment! sequence-values sequence-element
-         storage-alignment)
+         storage-alignment storage-type)
 
 (defonce ^:private ^Cleaner native-cleaner (Cleaner/create))
 
@@ -208,6 +208,13 @@
                    :logical-id :execution-context :align :comptime-mutable?])
      (select-keys state-map
                   [:status :representation :size :alignment :generation]))))
+
+(defn declared-comptime-literal
+  "Return a retained inferred string literal, if present, without realizing
+  native storage or consulting the current definition of its owning Var."
+  [value]
+  (when (zig-value? value)
+    (:comptime-literal (.-descriptor ^ZigValue value))))
 
 (defn realize!
   "Materialize a Zig value once and return its internal representation map."
@@ -660,6 +667,9 @@
     (= :slice (:kind schema))
     (decode-slice native-segment schema)
 
+    (= :error-set (:kind schema))
+    (->ZigError (:name ((:error-fn schema) native-segment)) zig-type)
+
     (= :error-union (:kind schema))
     (decode-error-union native-segment schema)
 
@@ -933,6 +943,12 @@
     (= :slice (:kind schema))
     (write-slice! native-segment zig-type schema value)
 
+    (= :error-set (:kind schema))
+    (if (zig-error? value)
+      ((:set-error-fn schema) native-segment (:name value))
+      (throw (ex-info "Zig error-set storage requires a named ZigError, not a raw ordinal"
+                      (assoc context :type zig-type :value value))))
+
     (= :error-union (:kind schema))
     (write-error-union! native-segment zig-type schema value)
 
@@ -1036,21 +1052,29 @@
               (swap! (value-state zig-value) assoc :tuple-length length)
               length))))))
 
+(defn- native-sequence-length [zig-value]
+  (let [schema (:schema (realize! zig-value))
+        type (storage-type zig-value)]
+    (cond
+      (= :array (:kind schema)) (:length schema)
+      (and (vector? type) (= :array (first type)) (integer? (second type))) (second type)
+      :else (native-tuple-length zig-value))))
+
 (defn- sequence-values
   [zig-value]
-  (if-some [length (native-tuple-length zig-value)]
+  (if-some [length (native-sequence-length zig-value)]
     (map #((requiring-resolve 'aguafria.zig/index) zig-value %) (range length))
     (decoded zig-value)))
 
 (defn- sequence-element
   ([zig-value index]
-   (if-some [length (native-tuple-length zig-value)]
+   (if-some [length (native-sequence-length zig-value)]
      (if (< -1 index length)
        ((requiring-resolve 'aguafria.zig/index) zig-value index)
        (throw (IndexOutOfBoundsException. (str index))))
      (nth (decoded zig-value) index)))
   ([zig-value index not-found]
-   (if-some [length (native-tuple-length zig-value)]
+   (if-some [length (native-sequence-length zig-value)]
      (if (< -1 index length)
        ((requiring-resolve 'aguafria.zig/index) zig-value index)
        not-found)
@@ -1059,7 +1083,7 @@
 (defn error-bearing-schema?
   "Whether a compiler-reported storage schema contains image-local error IDs."
   [schema]
-  (or (= :error-union (:kind schema))
+  (or (contains? #{:error-union :error-set} (:kind schema))
       (some error-bearing-schema?
             (keep #(get schema %) [:child-schema :element-schema :payload-schema]))
       (some #(error-bearing-schema? (:schema %)) (:fields schema))))
@@ -1087,6 +1111,10 @@
          (throw (ex-info "Missing compiler schema for cross-image error transport"
                          {:source-kind kind :destination-kind (:kind destination-schema)})))
        (case kind
+         :error-set
+         ((:set-error-fn destination-schema) destination
+                                             (:name ((:error-fn source-schema) source)))
+
          :error-union
          (if-let [error ((:error-fn source-schema) source)]
            ((:set-error-fn destination-schema) destination (:name error))

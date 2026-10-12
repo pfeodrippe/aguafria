@@ -39,6 +39,35 @@ Context-only declarations do not invent an entry point. Platform-specific and
 deliberate panic/exit examples need care: a native panic can terminate the JVM.
 Their original Shell results are not copied into a pretend REPL transcript.
 
+### WebAssembly and WASI
+
+The four Wasm/WASI lessons use their real target in the final comment, rather
+than attempting to call a Wasm export or a WASI entry point through JVM FFM.
+Evaluate the comment forms to build with the pinned Zig compiler and run via
+`clojure.java.shell/sh` and Node.js (tested with Node 22). The host programs in
+`resources/learn/host/` use only Node built-ins; no npm install is needed.
+
+| Lesson | Target and actual output |
+| --- | --- |
+| `math` | `wasm32-freestanding`, exported `add`, imported `env.print`: `The result is 3` |
+| `wasi-args` | `wasm32-wasi`: `0: wasi_args.wasm`, `1: 123`, `2: hello` |
+| `wasi-preopens` | `wasm32-wasi`: `info: 0: stdin` through `info: 3: .` |
+| `test-wasmMemoryGrow-builtin` | Real wasm32 WASI test executable: `All 1 tests passed.` (not a native-host skip) |
+
+Only the preopens recipe grants the current directory to the module. Node WASI
+is not a security sandbox. The WASI host's experimental warning is suppressed;
+program stderr and nonzero exit statuses are still reported.
+
+The memory-growth lesson explicitly converts the previous `usize` page count
+to `isize` with a checked cast: Zig 0.17's grow builtin can return `-1`. The pinned
+upstream test compares the two types directly and fails to compile when actually
+targeted at wasm32. Its original file remains untouched. The regression checks
+that original failure and runs a temporary corrected upstream copy, alongside
+exact output comparisons for the other three unmodified upstream programs.
+`learn.wasm-examples-test` executes the actual comment forms in a fresh JVM and
+temporary working directory. These are target-specific results, not native-JVM
+prepared-execution passes.
+
 From this directory:
 
 Type tooltips require ZLS matching Zig 0.17.0. Set `AGUAFRIA_ZLS` to its

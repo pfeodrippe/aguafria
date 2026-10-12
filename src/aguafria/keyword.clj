@@ -390,7 +390,18 @@
       :zig/param-count (:param-count builtin)
       :zig/signature (:signature builtin)
       :zig/source (get-in generated-catalog [:sources :builtin-table :path])
-      :zig/version (:zig-version generated-catalog)})))
+      :zig/version (:zig-version generated-catalog)})
+    (when (= "@TypeOf" (:zig-name builtin))
+      ;; A function would let Clojure execute the operands before Zig sees
+      ;; @TypeOf. Preserve the lexical syntax and use the native scoped bridge.
+      (let [v (ns-resolve *ns* (symbol (:name token)))]
+        (alter-var-root v (constantly (fn [form environment & arguments]
+                                        (validate-call! token arguments form)
+                                        (scoped-token-expansion form environment true))))
+        (alter-meta! v assoc :macro true :aguafria/scoped? true
+                     :doc (str "Determine native expression types without executing the operands. "
+                               "JVM calls preserve the lexical form and ask Zig to analyze it.\n\n"
+                               (compiler-doc builtin)))))))
 
 (let [builtin-names (set (map :name (:builtins generated-catalog)))]
   (doseq [entry (:keywords generated-catalog)]

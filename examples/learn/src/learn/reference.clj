@@ -254,8 +254,10 @@
     (throw (ex-info "Non-structural translation rejected" report))))
 
 (defn compiler-fingerprint []
+  ;; REPL recipes also execute the checked-in Wasm/WASI hosts. Their changes
+  ;; must invalidate captured outputs just like changes to the compiler/harness.
   (let [files (->> ["../../src/aguafria" "../../resources/aguafria" "src/learn"
-                    "../../deps.edn" "deps.edn"]
+                    "resources/learn/host" "../../deps.edn" "deps.edn"]
                    (mapcat #(file-seq (io/file %)))
                    (filter #(.isFile %))
                    (sort-by str))]

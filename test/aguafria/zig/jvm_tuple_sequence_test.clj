@@ -29,7 +29,7 @@
                              (aguafria.zig/array [1 2] :u8))]
                   (aguafria.keyword/for
                    [(aguafria.keyword/* item) (aguafria.keyword/& items)]
-                   (aguafria.keyword/= (deref item) 0)))))]
+                    (aguafria.keyword/= (deref item) 0)))))]
     (with-redefs [runtime/registered-declarations (constantly [])
                   runtime/inspect-module!
                   (fn [module supplier]
@@ -80,15 +80,17 @@
                                  :parallelism 1})]
                    (prn {:bundles (:bundles report#) :coverage (:coverage report#)}))))
              (do
-               (require 'aguafria.zig.jvm-tuple-sequence-fixture)
                (let [events# (atom [])
+                     load-events# (atom [])
+                     _# (binding [aguafria.zig.explain/*reporter* #(swap! load-events# conj %)]
+                          (require 'aguafria.zig.jvm-tuple-sequence-fixture))
                      forms# (with-open [reader# (java.io.PushbackReader.
-                                                (clojure.java.io/reader
-                                                 (clojure.java.io/resource
-                                                  "aguafria/zig/jvm_tuple_sequence_fixture.clj")))]
+                                                 (clojure.java.io/reader
+                                                  (clojure.java.io/resource
+                                                   "aguafria/zig/jvm_tuple_sequence_fixture.clj")))]
                               (binding [*read-eval* false]
                                 (doall (take-while some?
-                                                  (repeatedly #(read {:eof nil} reader#))))))
+                                                   (repeatedly #(read {:eof nil} reader#))))))
                      bodies# (into {} (for [form# forms#
                                             :when (and (seq? form#) (= "a/defn" (str (first form#))))]
                                         [(second form#) (cons (symbol "do") (drop 4 form#))]))
@@ -120,7 +122,8 @@
                               :elements elements-info#
                               :indexed-type (aguafria.zig.value/qualified-type (nth tuple# 0))
                               :default (nth tuple# 2 :missing)}))))]
-                 (prn {:results results# :output (str output#) :events @events#}))))
+                 (prn {:results results# :output (str output#)
+                       :load-events @load-events# :events @events#}))))
            (shutdown-agents))
         result (shell/sh (str (System/getProperty "java.home") "/bin/java")
                          "--enable-native-access=ALL-UNNAMED"
@@ -138,7 +141,9 @@
         consumer (tuple-sequence-jvm cache false)
         events (:events consumer)
         hits (filter #(= :bundle-cache-hit (:event %)) events)
-        packs (filter #(= :bundle-loaded (:event %)) events)
+        ;; Requiring native definitions may load the pack before body capture.
+        ;; Count that load, while keeping evaluation fallback checks separate.
+        packs (filter #(= :bundle-loaded (:event %)) (concat (:load-events consumer) events))
         misses (filter #(or (contains? #{:compiled :compile-failed} (:event %))
                             (and (= :disk-cache-hit (:event %))
                                  (str/starts-with? (str (:module %)) "aguafria.jvm."))) events)]

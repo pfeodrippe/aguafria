@@ -2315,7 +2315,7 @@
       (if (ak/== cache-allocation ak/null)
         0.0
         (do
-          (defer (runtime/free cache-allocation))
+          (ak/defer (runtime/free cache-allocation))
           (let [key-cache (a/cast cache-allocation [:c-pointer :f32])
                 value-cache (+ key-cache cache-elements)]
             (dotimes [index (* 2 cache-elements)]
@@ -2382,7 +2382,7 @@
         (if (ak/== state-allocation ak/null)
           0.0
           (do
-            (defer (runtime/free state-allocation))
+            (ak/defer (runtime/free state-allocation))
             (let [recurrent-state (a/cast state-allocation [:c-pointer :f32])]
               (dotimes [index 196608]
                 (ak/= (a/index recurrent-state index) 0.0))
@@ -2456,7 +2456,7 @@
       (if (ak/== state-allocation ak/null)
         0.0
         (do
-          (defer (runtime/free state-allocation))
+          (ak/defer (runtime/free state-allocation))
           (let [recurrent-state (a/cast state-allocation [:c-pointer :f32])]
             (dotimes [index model-mamba-recurrent-size]
               (ak/= (a/index recurrent-state index) 0.0))

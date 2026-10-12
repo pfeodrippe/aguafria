@@ -319,6 +319,16 @@
       (is (= 'fixture.forward-c-types
              (:namespace (convert/load-converted! output)))))))
 
+(deftest converted-defer-resolves-through-the-keyword-namespace
+  (let [path "test/fixtures/defer.zig"
+        {:keys [report clojure-source]}
+        (convert/convert-file path {:namespace 'fixture.defer})
+        verification (convert/verify-file path {:namespace 'fixture.defer :mode :build-obj})]
+    (is (zero? (:fallback-count report)))
+    (is (re-find #"\(k/defer\s" clojure-source))
+    (is (not (re-find #"\(defer(?:\s|\))" clojure-source)))
+    (is (:success? verification))))
+
 (deftest zig-for-and-errdefer-are-structural-test
   (let [path "test/fixtures/control_flow.zig"
         {:keys [forms report clojure-source]}
