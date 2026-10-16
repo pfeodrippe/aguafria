@@ -361,6 +361,11 @@
   ([module] (runtime/build! module))
   ([module options] (runtime/build! module options)))
 
+(clojure.core/defn check!
+  "Run project scenarios in isolated JVMs; see aguafria.zig.check/check!."
+  [options]
+  ((requiring-resolve 'aguafria.zig.check/check!) options))
+
 (clojure.core/defn configure! "Merge Aguafria compiler configuration." [options]
   (runtime/configure! options))
 

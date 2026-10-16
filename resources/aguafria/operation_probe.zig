@@ -1,6 +1,17 @@
 // Inspection-only compiler reflection. No runtime entry points.
 // The caller supplies declaration identities, not an inferred structural
 // replacement. Only the compiler may establish equality with one of them.
+pub fn fieldValueType(comptime T: type, comptime member: []const u8) type {
+    if (@import("jvm_result.zig").__aguafria_jvm.requiresComptime(T)) {
+        return @TypeOf(@field(@as(T, undefined), member));
+    }
+    // Runtime-shaped storage avoids evaluating an undefined pointer while
+    // reflecting its fields. Comptime-only containers cannot use this local.
+    var value: T = undefined;
+    _ = &value;
+    return @TypeOf(@field(value, member));
+}
+
 pub fn Inspector(comptime declarations: anytype) type {
     return struct {
         const std = @import("std");

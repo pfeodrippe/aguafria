@@ -21,6 +21,20 @@
                                        #(do (swap! calls inc) result))))
     (is (= 1 @calls))))
 
+(deftest command-durations-retain-owner-phase-and-failed-attempts
+  (let [collector (work/collector)]
+    (binding [work/*collector* collector work/*owner* 'example.one work/*phase* :type-query]
+      (work/run-command! ["zig" "test"] #(do (Thread/sleep 5) {:exit 0}))
+      (is (thrown? java.io.IOException
+                   (work/run-command! ["zig" "test"] #(throw (java.io.IOException. "failed"))))))
+    (let [report (work/report collector)
+          timing (first (:command-timings report))]
+      (is (= :summed-command-wall-time (:timing-scope report)))
+      (is (= 1 (count (:command-timings report))))
+      (is (= {:owner 'example.one :kind :compiler :phase :type-query :action "test" :invocations 2}
+             (dissoc timing :duration-ms)))
+      (is (<= 5 (:duration-ms timing))))))
+
 (deftest counts-rejected-builds-and-separates-metadata-and-debug-tools
   (let [collector (work/collector)]
     (binding [work/*collector* collector]
@@ -48,6 +62,16 @@
       (is (= 1 (:compiler-invocations report)))
       (is (= "class java.io.IOException"
              (get-in report [:command-samples 0 :spawn-error]))))))
+
+(deftest run-scoped-policy-blocks-before-spawn-and-counts-caught-rejections
+  (doseq [collector [nil (work/collector)]]
+    (let [spawned? (atom false)]
+      (binding [work/*collector* collector
+                work/*compiler-command-policy* #(throw (ex-info "blocked" {:command %}))]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"blocked"
+                              (work/run-command! ["zig" "build-lib"] #(reset! spawned? true)))))
+      (is (false? @spawned?))
+      (when collector (is (= 1 (:compiler-invocations (work/report collector))))))))
 
 (deftest builtin-metadata-is-not-a-compiler-build
   (let [collector (work/collector)]

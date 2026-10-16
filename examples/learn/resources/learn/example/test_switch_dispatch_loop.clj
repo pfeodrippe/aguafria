@@ -5,12 +5,11 @@
             [aguafria.zig :as a]))
 
 (a/defenum Instruction
-  [:add
-   :mul
-   :end])
+  [:add :mul :end])
 
 (a/defn- evaluate [:error-union :i32]
-  [[initial-stack [:slice-const :i32]] [code [:slice-const Instruction]]]
+  [[initial-stack [:slice-const :i32]]
+   [code [:slice-const Instruction]]]
   (let [buffer (k/var k/undefined [:array 8 :i32])
         stack (k/var ((:initBuffer (std/ArrayList :i32)) (k/& buffer)))
         ip (k/var 0 :usize)]
@@ -19,17 +18,18 @@
       ;; Because all code after `continue` is unreachable, this branch does
       ;; not provide a result.
       :add
-      (a/block
-       (try ((:appendBounded stack)
-             (k/+ (a/unwrap ((:pop stack))) (a/unwrap ((:pop stack))))))
-       (k/+= ip 1)
-       (k/continue vm (a/get code ip)))
+      (do
+        (try ((:appendBounded stack)
+              (k/+ (a/unwrap ((:pop stack))) (a/unwrap ((:pop stack))))))
+        (k/+= ip 1)
+        (k/continue vm (a/get code ip)))
+
       :mul
-      (a/block
-       (try ((:appendBounded stack)
-             (k/* (a/unwrap ((:pop stack))) (a/unwrap ((:pop stack))))))
-       (k/+= ip 1)
-       (k/continue vm (a/get code ip)))
+      (do
+        (try ((:appendBounded stack)
+              (k/* (a/unwrap ((:pop stack))) (a/unwrap ((:pop stack))))))
+        (k/+= ip 1)
+        (k/continue vm (a/get code ip)))
       :end (a/unwrap ((:pop stack))))))
 
 (a/deftest evaluate-test

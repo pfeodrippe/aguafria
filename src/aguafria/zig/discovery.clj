@@ -184,9 +184,9 @@
        (and (not comptime?) metadata
             (or (= :const (get-in metadata [:aguafria/declaration :kind]))
                 (declared-native-value (or emitter/*keyword-context* *ns*) form)))
-      ;; A lazy declared pointer is borrowed native storage, not a JVM string.
-      ;; Scalar constants can instead be exposed as ordinary boxed literals.
-      ;; Ask the compiler for those values; never realize a native declaration.
+       ;; A lazy declared pointer is borrowed native storage, not a JVM string.
+       ;; Scalar constants can instead be exposed as ordinary boxed literals.
+       ;; Ask the compiler for those values; never realize a native declaration.
        (let [constant? (or (= :const (get-in metadata [:aguafria/declaration :kind]))
                            (some-> (declared-native-value (or emitter/*keyword-context* *ns*) form)
                                    value/info :kind (= :const)))
@@ -214,9 +214,9 @@
        (and (seq? form) (= 'if (first form)) (= 4 (count form))
             (every? field-reference? (drop 2 form)))
        (let [branches (mapv #(declaration-probe render %) (drop 2 form))]
-      ;; A JVM if supplies one branch value to the call. Ask Zig for both
-      ;; declaration representations, without evaluating the condition or body.
-      ;; The guard avoids forcing a missing member in a dead source branch.
+         ;; A JVM if supplies one branch value to the call. Ask Zig for both
+         ;; declaration representations, without evaluating the condition or body.
+         ;; The guard avoids forcing a missing member in a dead source branch.
          (str "(if (" (str/join " and " (map :available branches)) ") "
               "\"{:representations [\" ++ " (str/join " ++ \" \" ++ " (map :schema branches))
               " ++ \"]}\" else " fallback ")"))
@@ -306,12 +306,12 @@
                                            {:source
                                             (if place-probe
                                               (place-probe proof "aguafria_scoped_constant_proof")
-                                          ;; A value observation has no statement
-                                          ;; placement callback. Keep its actual
-                                          ;; destination, owners and rendered
-                                          ;; value in the original lexical scope.
-                                          ;; Reuse the emitter's collision-safe
-                                          ;; lexical naming scope for this label.
+                                              ;; A value observation has no statement
+                                              ;; placement callback. Keep its actual
+                                              ;; destination, owners and rendered
+                                              ;; value in the original lexical scope.
+                                              ;; Reuse the emitter's collision-safe
+                                              ;; lexical naming scope for this label.
                                               (let [label (first (remove reserved-labels
                                                                          (repeatedly #(emitter/identifier
                                                                                        (#'emitter/binding-temp form)))))]
@@ -964,14 +964,14 @@
         (if-not candidate?
           source
           (let [id (str (count @operations))
-              ;; Only value operations can be transparently wrapped. Lvalues,
-              ;; control flow and result-location-dependent builtins require
-              ;; dedicated inspection placement, not a guessed type.
+                ;; Only value operations can be transparently wrapped. Lvalues,
+                ;; control flow and result-location-dependent builtins require
+                ;; dedicated inspection placement, not a guessed type.
                 contextual-plan (when conversion? (contextual-call-plan (second form)))
                 contextual-scope (when conversion? (contextual-scope-plan (second form)))
-              ;; Only an unconsumed deferred call needs this outer cast's
-              ;; result location. A nested @as may already provide it. For
-              ;; ordinary operands, query Zig for the operand type directly.
+                ;; Only an unconsumed deferred call needs this outer cast's
+                ;; result location. A nested @as may already provide it. For
+                ;; ordinary operands, query Zig for the operand type directly.
                 contextual-input? (boolean contextual-plan)
                 aggregate-construction? (and constructor? (not conversion?)
                                              (or (map? (second form)) (vector? (second form)))
@@ -1048,9 +1048,9 @@
                                           (if (and native-function?
                                                    (or (string? argument)
                                                        (needs-result-context? expression)))
-                                          ;; Source strings use the concrete call parameter's ABI.
-                                          ;; Other operands keep their own type unless a deferred
-                                          ;; builtin needs that parameter's result location.
+                                            ;; Source strings use the concrete call parameter's ABI.
+                                            ;; Other operands keep their own type unless a deferred
+                                            ;; builtin needs that parameter's result location.
                                             (str "(if (" index " < " parameters ".len and "
                                                  parameter " != null) @as(" parameter
                                                  ".?, " expression ") else " expression ")")
@@ -1067,8 +1067,8 @@
                                                     (repeat {:properties {:jvm/literal? true}})))
                              scoped? (mapcat (fn [_] [{:properties {:jvm/literal? true}} nil]) captures)
                              method-call?
-                           ;; The JVM member planner embeds source strings. Keep
-                           ;; that representation here, including comptime formats.
+                             ;; The JVM member planner embeds source strings. Keep
+                             ;; that representation here, including comptime formats.
                              (concat [nil nil]
                                      (repeat (dec (count form))
                                              {:properties {:jvm/literal? true}}))
@@ -2232,9 +2232,9 @@
             (binding [runtime/*source-only-registration?* true]
               (into []
                     (keep (fn [{:keys [id function storage-kind signatures]}]
-                          ;; This closed unary call has no runtime operands. Ask
-                          ;; Zig about the exact JVM descriptor's actual result;
-                          ;; do not reuse an original lexical type's reader.
+                            ;; This closed unary call has no runtime operands. Ask
+                            ;; Zig about the exact JVM descriptor's actual result;
+                            ;; do not reuse an original lexical type's reader.
                             (when (and (nil? storage-kind)
                                        (= 1 (count (first signatures)))
                                        (:aguafria/token (meta (find-var function))))
@@ -2344,7 +2344,9 @@
                               child (reduce (fn [type member]
                                               (list 'aguafria.keyword/FieldType type (name member)))
                                             root-type path)
-                              query-child (reduce (requiring-resolve 'aguafria.zig.jvm/field-value-type)
+                              query-child (reduce (fn [type member]
+                                                    (list '(field (aguafria.keyword/import "operation_probe.zig") :fieldValueType)
+                                                          (list 'aguafria.zig/type type) (name member)))
                                                   root-type path)
                               root (symbol (str "root_" id "_" index))
                               query (when pointer?
@@ -2518,8 +2520,8 @@
                                             (walk/prewalk
                                              (fn [form]
                                                (if-let [source (jvm-value-type-source caller form)]
-                                          ;; A typed native constructor becomes a type-only
-                                          ;; leaf, not a reconstructed anonymous @Struct.
+                                                 ;; A typed native constructor becomes a type-only
+                                                 ;; leaf, not a reconstructed anonymous @Struct.
                                                  (if (:pointer? source)
                                                    form
                                                    (let [root (register (:type-source source))

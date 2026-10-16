@@ -13,7 +13,8 @@
            [java.nio.channels FileChannel]
            [java.nio.charset StandardCharsets]
            [java.nio.file Files StandardCopyOption StandardOpenOption]
-           [java.util UUID]))
+           [java.util UUID]
+           [java.util.concurrent Callable ExecutionException ExecutorCompletionService Executors TimeUnit]))
 
 (def ^:private version 3)
 (def ^:dynamic *preparing* nil)
@@ -150,11 +151,11 @@
          parsed (when (or asset-import? application-extern?)
                   ((requiring-resolve 'aguafria.zig.convert/parse-source)
                    masked-source))
-        ;; Only supplier-validated support spans are omitted from this trigger.
-        ;; Original imports/exports still determine graph eligibility. Zig's
-        ;; AST distinguishes external function/storage declarations from layout
-        ;; qualifiers and text. An external declaration requires real linking,
-        ;; not rejection: it may be unused or supplied by this exact graph.
+         ;; Only supplier-validated support spans are omitted from this trigger.
+         ;; Original imports/exports still determine graph eligibility. Zig's
+         ;; AST distinguishes external function/storage declarations from layout
+         ;; qualifiers and text. An external declaration requires real linking,
+         ;; not rejection: it may be unused or supplied by this exact graph.
          external-declarations?
          (boolean
           (or (some (fn [declaration]
@@ -177,9 +178,9 @@
          (if-not (seq tests)
            analysis
            (let [bytes (.getBytes ^String source StandardCharsets/UTF_8)]
-            ;; build-lib ignores test-only embedFile calls, but Zig still
-            ;; resolves test imports. Mask only AST-confirmed embedded calls
-            ;; for eligibility; the emitted source remains unchanged.
+             ;; build-lib ignores test-only embedFile calls, but Zig still
+             ;; resolves test imports. Mask only AST-confirmed embedded calls
+             ;; for eligibility; the emitted source remains unchanged.
              (doseq [index (keys (:builtin-index parsed))
                      :let [{:keys [first-token last-token]} (nth (:nodes parsed) index)
                            [_ start token-length] (nth (:tokens parsed) first-token)
@@ -515,9 +516,9 @@
                             repeated)
          context {:shared-names shared-names :written-support (volatile! #{})}]
      (mapv #(if (:native-test-object? %)
-             ;; Test objects were compiled with the real test frontend and a
-             ;; selected-test filter. Keep them separate compiler units, but
-             ;; link and publish them in the same immutable AOT image.
+              ;; Test objects were compiled with the real test frontend and a
+              ;; selected-test filter. Keep them separate compiler units, but
+              ;; link and publish them in the same immutable AOT image.
               (let [target (io/file directory (str (:prefix %) "test.o"))]
                 (Files/copy (.toPath (io/file (:object-path %))) (.toPath target)
                             (into-array StandardCopyOption [StandardCopyOption/REPLACE_EXISTING]))
@@ -672,7 +673,8 @@
   split iteratively; isolated failures use their original compiler command.
   :full-build? also checks code generation/linkage using temporary, never-loaded
   images. :retain-pending? leaves successful candidates pending final publication."
-  [cache-dir collected {:keys [run-command validate-artifact full-build? retain-pending?]}]
+  [cache-dir collected {:keys [run-command validate-artifact full-build? retain-pending? parallelism progress]
+                        :or {parallelism (.availableProcessors (Runtime/getRuntime))}}]
   (let [started (System/nanoTime)
         artifacts (->> (:artifacts @collected) vals
                        (filter :validation-pending?) (keep candidate)
@@ -685,23 +687,63 @@
                       (vals groups))
         results (atom {})
         commands (atom 0)
-        rechecks (atom 0)]
-    (loop [pending batches]
-      (when-let [batch (peek pending)]
-        (when (> @commands (* 2 (count artifacts)))
-          (throw (ex-info "Validation batch isolation exceeded its bound" {})))
-        (swap! commands inc)
-        (if (validate-batch! cache-dir (vec batch) run-command full-build?)
-          (do (swap! results into (map #(vector (artifact-id %) {:status :validated}) batch))
-              (recur (pop pending)))
-          (if (= 1 (count batch))
-            (let [artifact (first batch)]
-              (swap! rechecks inc)
-              (swap! results assoc (artifact-id artifact) (validate-artifact artifact))
-              (recur (pop pending)))
-            (let [middle (quot (count batch) 2)
-                  batch (vec batch)]
-              (recur (conj (pop pending) (subvec batch 0 middle) (subvec batch middle))))))))
+        rechecks (atom 0)
+        batch-timings (atom [])
+        notify! (fn [pending active]
+                  (when progress
+                    (progress {:resolved (count @results) :total (count artifacts)
+                               :active active :queued (count pending)
+                               :failed (count (filter #(= :failed (:status %)) (vals @results)))
+                               :compiler-batches @commands :individual-rechecks @rechecks
+                               :duration-ms (/ (- (System/nanoTime) started) 1e6)})))]
+    (when-not (pos-int? parallelism)
+      (throw (ex-info "Expected positive validation parallelism" {:parallelism parallelism})))
+    (with-open [executor (Executors/newFixedThreadPool parallelism (.factory (Thread/ofVirtual)))]
+      (let [completion (ExecutorCompletionService. executor)
+            validate (fn [batch]
+                       (let [started (System/nanoTime)
+                             accepted? (validate-batch! cache-dir batch run-command full-build?)
+                             individual (when (and (not accepted?) (= 1 (count batch)))
+                                          (swap! rechecks inc)
+                                          (validate-artifact (first batch)))]
+                         {:batch batch :accepted? accepted? :individual individual
+                          :duration-ms (/ (- (System/nanoTime) started) 1e6)}))]
+        (try
+          ;; Only the controller schedules work or merges results. Failed batches
+          ;; add children to the queue; workers never wait on other workers.
+          (loop [pending (mapv vec batches) active 0]
+            (cond
+              (and (seq pending) (< active parallelism))
+              (do
+                (when (> (swap! commands inc) (* 2 (count artifacts)))
+                  (throw (ex-info "Validation batch isolation exceeded its bound" {})))
+                (.submit completion ^Callable (bound-fn [] (validate (peek pending))))
+                (recur (pop pending) (inc active)))
+
+              (pos? active)
+              (do
+                (notify! pending active)
+                (if-let [job (.poll completion 5 TimeUnit/SECONDS)]
+                  (let [{:keys [batch accepted? individual duration-ms]}
+                        (try (.get job) (catch ExecutionException error (throw (ex-cause error))))
+                        status (cond accepted? :validated individual (:status individual) :else :split)
+                        _ (swap! batch-timings conj
+                                 {:artifacts (count batch) :status status :duration-ms duration-ms
+                                  :individual-recheck? (some? individual)
+                                  :owners (vec (sort-by str (into #{} (mapcat #(get-in @collected [:artifact-owners (artifact-id %)])) batch)))})
+                        pending
+                        (cond
+                          accepted? (do (swap! results into (map #(vector (artifact-id %) {:status :validated}) batch)) pending)
+                          individual (do (swap! results assoc (artifact-id (first batch)) individual) pending)
+                          :else (let [middle (quot (count batch) 2)]
+                                  (conj pending (subvec batch 0 middle) (subvec batch middle))))]
+                    (recur pending (dec active)))
+                  (recur pending active)))
+
+              :else (notify! pending active)))
+          (catch Throwable error
+            (.shutdownNow executor)
+            (throw error)))))
     (swap! collected
            (fn [state]
              (reduce-kv
@@ -714,6 +756,7 @@
     (let [report {:candidates (count artifacts) :batch-limit validation-batch-limit
                   :mode (if full-build? :compile-and-link :analysis)
                   :compiler-batches @commands :individual-rechecks @rechecks
+                  :parallelism parallelism :batch-timings @batch-timings
                   :statuses (frequencies (map :status (vals @results)))
                   :duration-ms (/ (- (System/nanoTime) started) 1e6)}]
       (swap! collected assoc :validation report)
@@ -864,6 +907,24 @@
                          (assoc exclusion :artifact-id id))
                        (sort-by key (:excluded @collected)))}))
 
+(defn- parallel-mapv [parallelism f items]
+  (with-open [executor (Executors/newFixedThreadPool parallelism (.factory (Thread/ofVirtual)))]
+    (try
+      (let [completion (ExecutorCompletionService. executor)]
+        (doseq [[index item] (map-indexed vector items)]
+          (.submit completion ^Callable (bound-fn [] [index (f item)])))
+        ;; Observe failures promptly even when an earlier submitted job is slow.
+        ;; Keep successful results in input order, not completion order.
+        (loop [remaining (count items) results (vec (repeat (count items) nil))]
+          (if (zero? remaining)
+            results
+            (let [[index result] (try (.get (.take completion))
+                                      (catch ExecutionException error (throw (ex-cause error))))]
+              (recur (dec remaining) (assoc results index result))))))
+      (catch Throwable error
+        (.shutdownNow executor)
+        (throw error)))))
+
 (defn finish!
   "Publish the compatible shared pack and explicitly requested ABI-isolated
   linkage contexts. Isolated contexts retain all authored export names and are
@@ -874,20 +935,36 @@
         candidates (keep candidate records)
         isolated (set (map artifact-id (filter :isolated-linkage? candidates)))]
     (if (empty? isolated)
-      (finish-compatible! cache-dir collected callbacks)
+      (let [started (System/nanoTime)
+            _ (when-let [progress (:progress callbacks)]
+                (progress {:completed 0 :total 1 :duration-ms 0}))
+            result (finish-compatible! cache-dir collected callbacks)]
+        (when-let [progress (:progress callbacks)]
+          (progress {:completed 1 :total 1 :duration-ms (/ (- (System/nanoTime) started) 1e6)}))
+        result)
       (let [groups (vals (group-by #(when (isolated (artifact-id %)) (artifact-id %)) records))
             publications (atom [])
-            results (mapv (fn [group]
-                            (let [ids (set (map artifact-id group))
-                                  local (atom (assoc @collected :artifacts
-                                                     (select-keys (:artifacts @collected) ids)
-                                                     :excluded {}))
-                                  report (finish-compatible!
-                                          cache-dir local
-                                          (assoc callbacks :publish-index! #(swap! publications conj %)))]
-                              (swap! collected update :artifacts merge (:artifacts @local))
-                              (swap! collected update :validation-results merge (:validation-results @local))
-                              report)) groups)
+            completed (atom 0)
+            started (System/nanoTime)
+            _ (when-let [progress (:progress callbacks)]
+                (progress {:completed 0 :total (count groups) :duration-ms 0}))
+            results (parallel-mapv (or (:parallelism callbacks) (.availableProcessors (Runtime/getRuntime)))
+                                   (fn [group]
+                                     (let [ids (set (map artifact-id group))
+                                           local (atom (assoc @collected :artifacts
+                                                              (select-keys (:artifacts @collected) ids)
+                                                              :excluded {}))
+                                           report (finish-compatible!
+                                                   cache-dir local
+                                                   (assoc callbacks :publish-index! #(swap! publications conj %)))]
+                                       (swap! collected update :artifacts merge (:artifacts @local))
+                                       (swap! collected update :validation-results merge (:validation-results @local))
+                                       (locking completed
+                                         (let [done (swap! completed inc)]
+                                           (when-let [progress (:progress callbacks)]
+                                             (progress {:completed done :total (count groups)
+                                                        :duration-ms (/ (- (System/nanoTime) started) 1e6)}))))
+                                       report)) groups)
             validations (map :validation results)
             validation {:mode :compile-and-link
                         :candidates (reduce + 0 (map #(or (:candidates %) 0) validations))

@@ -149,16 +149,22 @@
     - [x] no error output
   - [x] test_allowzero.clj
   - [x] sentinel_terminated_pointer.clj
-  - [ ] test_pointer_casting.clj (again after v0.17.0 upgrade)
+  - [x] test_pointer_casting.clj (again after v0.17.0 upgrade)
     - [x] automatically test forms/subforms in emacs/cider
-    - [ ] command to highlight all subforms that will be evaluated
-    - [ ] why do we have try and also k/try ? we should support only one of them, not both
-    - [ ] and do we really need :.whatever and couldn't just use :whatever ?
-    - [ ] refactor k/switch
-    - [ ] check that the const at learn.example.test-pointer-casting is one of the evaluated
+    - [x] command to highlight all subforms that will be evaluated
+    - [x] why do we have try and also k/try ? we should support only one of them, not both
+    - [x] and do we really need :.whatever and couldn't just use :whatever ?
+    - [x] refactor k/switch
+    - [x] check that the const at learn.example.test-pointer-casting is one of the evaluated
   - [ ] test_basic_slices.clj
   - [ ] test_slices.clj
   - [ ] slicing_by_length.clj
+- [ ] fix ns subform check
+  - [x] put generic check into the lib so we can use for whatever projects
+  - [ ] when running the check, we set a global mode where boundaries where it would become native like a/defn or a/defn- or a/fn or function or or a/deftest or whatever we create from aguafria is run from the JVM so it allows us to check ALL code! This allow us to check all forms and to just run the test form (as it will call the others from the JVM as well) and we wouldn't need a complex repl plan anymore
+    - [x] defn/deftest
+      - [ ] fix failures
+- [ ] learn.example.test-enums loading takes too long
 
 - [ ] add ability to setup models so errors are better explained
   - [ ] test with a decision-one model (jev-like)

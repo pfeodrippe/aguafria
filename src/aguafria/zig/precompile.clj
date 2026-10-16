@@ -5,8 +5,32 @@
             [aguafria.zig.compiler-work :as compiler-work]
             [aguafria.zig.discovery :as discovery]
             [aguafria.zig.runtime :as runtime]
-            [clojure.java.io :as io])
-  (:import [java.util.concurrent Callable Executors Semaphore]))
+            [clojure.edn :as edn]
+            [clojure.java.io :as io]
+            [clojure.string :as str])
+  (:import [java.util.concurrent Callable Executors Semaphore TimeUnit]))
+
+(defn- progress! [& parts]
+  (locking *err*
+    (binding [*out* *err*]
+      (apply println parts)
+      (flush))))
+
+(defn- elapsed-ms [started]
+  (/ (- (System/nanoTime) started) 1e6))
+
+(defn- seconds [milliseconds]
+  (format "%.2fs" (/ milliseconds 1000.0)))
+
+(defn- timed! [timings phase f]
+  (let [started (System/nanoTime)]
+    (try (f)
+         (finally (swap! timings assoc phase (elapsed-ms started))))))
+
+(defn- with-heartbeat [report f]
+  (with-open [timer (Executors/newSingleThreadScheduledExecutor (.factory (Thread/ofVirtual)))]
+    (let [job (.scheduleAtFixedRate timer ^Runnable (bound-fn [] (report)) 5 5 TimeUnit/SECONDS)]
+      (try (f) (finally (.cancel job false))))))
 
 (defn- build-submitter [executor parallelism]
   (let [permits (Semaphore. (* 2 parallelism))]
@@ -53,7 +77,7 @@
                  (every? #(and (symbol? %) (nil? (namespace %))) (:linkage-contexts options))
                  (every? string? (:source-dirs options))
                  (or (nil? (:parallelism options))
-                     (and (integer? (:parallelism options)) (<= 1 (:parallelism options) 16)))
+                     (pos-int? (:parallelism options)))
                  (or (nil? (:report-file options)) (string? (:report-file options)))
                  (every? #(and (map? %)
                                (= #{:function :args} (set (keys %)))
@@ -108,57 +132,128 @@
                 [(str namespace) :configuration])
         (runtime/configuration))))
 
-(defn- analyze-namespaces! [namespaces parallelism report-file images]
-  ;; Load sequentially: Clojure namespace initialization is not a parallel
-  ;; compilation workload. Analysis/handler compilation use bounded workers.
-  (let [loads (mapv (fn [namespace]
-                      (try
-                        (let [configuration (load-namespace! namespace images)]
-                          (cond-> {:namespace namespace :configuration configuration}
-                            (= :no-native-declarations
-                               (get-in @images [(str namespace) :reason]))
-                            (assoc :status :skipped :reason :no-native-declarations)))
-                        (catch Exception error
-                          (assoc (discovery/error-report error)
-                                 :namespace namespace :status :load-failed))))
-                    namespaces)
-        _ (resolve-precompile-images! images)
-        prepare (fn [namespace]
-                  (let [analysis (discovery/analyze! namespace)
-                        exit (get-in analysis [:baseline :exit])]
-                    (when-not (#{0 1} exit)
-                      (throw (ex-info "Discovery compiler did not complete normally"
-                                      {:aguafria/phase :namespace-discovery
-                                       :namespace namespace :exit exit})))
-                    (if (= 1 exit)
-                      (assoc analysis :status :rejected :reason :compiler-rejected-namespace)
-                      (discovery/prepare-observations! analysis))))]
-    (with-open [executor (Executors/newFixedThreadPool parallelism (.factory (Thread/ofVirtual)))]
-      (let [jobs (mapv (fn [{:keys [namespace status configuration] :as loaded}]
-                         (.submit executor
-                                  ^Callable
-                                  (bound-fn []
-                                    (let [report (if status (dissoc loaded :configuration)
-                                                     (try (binding [bundle/*preparation-owner* namespace]
-                                                            (runtime/call-with-precompile-configuration
-                                                             configuration #(prepare namespace)))
-                                                          (catch Exception error
-                                                            (when (= :namespace-discovery (:aguafria/phase (ex-data error)))
-                                                              (throw error))
-                                                            (assoc (discovery/error-report error)
-                                                                   :namespace namespace :status :analysis-failed))))
-                                          checkpoint (io/file (str report-file ".d")
-                                                              (str namespace ".edn"))]
-                                      (io/make-parents checkpoint)
-                                      (spit checkpoint (artifact/print-data report))
-                                      report)))) loads)]
-        (mapv #(.get ^java.util.concurrent.Future %) jobs)))))
+(defn- previous-durations [report-file]
+  ;; Scheduling hints only: stale timings never authorize artifact reuse or
+  ;; skip work. Keep the caller's report order independent of execution order.
+  (if (.isFile (io/file report-file))
+    (try
+      (with-open [reader (java.io.PushbackReader. (io/reader report-file))]
+        (into {} (keep (fn [{:keys [namespace timings]}]
+                         (when (number? (:duration-ms timings))
+                           [namespace (:duration-ms timings)])))
+              (:analysis (edn/read reader))))
+      (catch Exception _ {}))
+    {}))
+
+(defn- analyze-namespaces!
+  ([namespaces parallelism report-file images]
+   (analyze-namespaces! namespaces parallelism report-file images (atom {})))
+  ([namespaces parallelism report-file images timings]
+   ;; Namespace initialization runs sequentially; compiler work uses virtual workers.
+   (let [total (count namespaces)
+         previous (if (seq namespaces) (previous-durations report-file) {})
+         completed (atom 0)
+         active (atom {})
+         heartbeat (fn [phase]
+                     (let [running @active]
+                       (progress! phase (str @completed "/" total) "completed;"
+                                  (count running) "active;"
+                                  (str/join "; "
+                                            (for [[namespace {:keys [started stage]}]
+                                                  (take 3 (sort-by (comp :started val) running))]
+                                              (str namespace " " (name stage) " " (seconds (elapsed-ms started))))))))
+         _ (when (pos? total) (progress! "Loading" (str "0/" total)))
+         loads
+         (timed! timings :namespace-loading-ms
+                 #(with-heartbeat
+                    (fn [] (heartbeat "Loading"))
+                    (fn []
+                      (mapv (fn [namespace]
+                              (let [started (System/nanoTime)
+                                    _ (swap! active assoc namespace {:started started :stage :loading})
+                                    loaded
+                                    (try
+                                      (binding [compiler-work/*owner* namespace]
+                                        (let [configuration (load-namespace! namespace images)]
+                                          (cond-> {:namespace namespace :configuration configuration}
+                                            (= :no-native-declarations (get-in @images [(str namespace) :reason]))
+                                            (assoc :status :skipped :reason :no-native-declarations))))
+                                      (catch Exception error
+                                        (assoc (discovery/error-report error) :namespace namespace :status :load-failed))
+                                      (finally (swap! active dissoc namespace)))
+                                    duration (elapsed-ms started)]
+                                (progress! "Loading" (str (swap! completed inc) "/" total) namespace (seconds duration))
+                                (assoc loaded :timings {:load-ms duration}))) namespaces))))
+         _ (timed! timings :namespace-images-ms
+                   #(with-heartbeat (fn [] (progress! "Waiting for namespace image builds..."))
+                      (fn [] (resolve-precompile-images! images))))
+         _ (reset! completed 0)
+         _ (when (pos? total) (progress! "Analyzing" (str "0/" total)))
+         _ (when (seq previous) (progress! "Scheduling longest previous analyses first;" parallelism "workers"))
+         prepare (fn [namespace measurements]
+                   (let [analysis (timed! measurements :discovery-ms #(discovery/analyze! namespace))
+                         exit (get-in analysis [:baseline :exit])]
+                     (when-not (#{0 1} exit)
+                       (throw (ex-info "Discovery compiler did not complete normally"
+                                       {:aguafria/phase :namespace-discovery :namespace namespace :exit exit})))
+                     (if (= 1 exit)
+                       (assoc analysis :status :rejected :reason :compiler-rejected-namespace)
+                       (do
+                         (swap! active assoc-in [namespace :stage] :preparing)
+                         (timed! measurements :preparation-ms #(discovery/prepare-observations! analysis))))))]
+     (timed! timings :analysis-ms
+             #(with-heartbeat
+                (fn [] (heartbeat "Analyzing"))
+                (fn []
+                  (with-open [executor (Executors/newFixedThreadPool parallelism (.factory (Thread/ofVirtual)))]
+                    (try
+                      (let [scheduled (sort-by (fn [loaded] (get previous (:namespace loaded) 0)) > loads)
+                            jobs
+                            (mapv (fn [{:keys [namespace status configuration] :as loaded}]
+                                    (let [queued (System/nanoTime)]
+                                      (.submit executor ^Callable
+                                               (bound-fn []
+                                                 (let [started (System/nanoTime)
+                                                       _ (.setName (Thread/currentThread) (str "aguafria-analysis:" namespace))
+                                                       measurements (atom (assoc (:timings loaded) :queued-ms (elapsed-ms queued)))
+                                                       _ (swap! active assoc namespace {:started started :stage :discovering})]
+                                                   (try
+                                                     (let [report
+                                                           (if status (dissoc loaded :configuration)
+                                                               (try
+                                                                 (binding [bundle/*preparation-owner* namespace
+                                                                           compiler-work/*owner* namespace]
+                                                                   (runtime/call-with-precompile-configuration
+                                                                    configuration (fn [] (prepare namespace measurements))))
+                                                                 (catch Exception error
+                                                                   (when (= :namespace-discovery (:aguafria/phase (ex-data error)))
+                                                                     (throw error))
+                                                                   (assoc (discovery/error-report error)
+                                                                          :namespace namespace :status :analysis-failed))))
+                                                           duration (elapsed-ms started)
+                                                           report (assoc report :timings (assoc @measurements :duration-ms duration))
+                                                           checkpoint (io/file (str report-file ".d") (str namespace ".edn"))]
+                                                       (io/make-parents checkpoint)
+                                                       (spit checkpoint (artifact/print-data report))
+                                                       (locking completed
+                                                         (progress! "Analyzing" (str (swap! completed inc) "/" total)
+                                                                    namespace (seconds duration)
+                                                                    (str "(discovery " (seconds (get @measurements :discovery-ms 0))
+                                                                         ", preparation " (seconds (get @measurements :preparation-ms 0)) ")")))
+                                                       report)
+                                                     (finally (swap! active dissoc namespace))))))))
+                                  scheduled)
+                            jobs (zipmap (map :namespace scheduled) jobs)]
+                        (mapv (fn [namespace] (.get ^java.util.concurrent.Future (get jobs namespace))) namespaces))
+                      (catch Throwable error
+                        (.shutdownNow executor)
+                        (throw error))))))))))
 
 (defn- admit-namespaces!
   "Admission is based on compiler results, never a namespace allow/deny list.
   Failed source discovery is excluded before normal-context codegen validation.
   A shared artifact retains every requester so exclusion cannot strand a survivor."
-  [report]
+  [report parallelism]
   (let [collected bundle/*preparing*
         initial-reasons
         (merge
@@ -175,7 +270,12 @@
         _ (bundle/exclude-preparation-owners! collected initially-rejected)
         validation (binding [compiler-work/*phase* :namespace-admission]
                      (runtime/validate-precompile-bundles!
-                      collected {:full-build? true :retain-pending? true}))
+                      collected {:full-build? true :retain-pending? true :parallelism parallelism
+                                 :progress (fn [{:keys [resolved total active queued failed compiler-batches duration-ms]}]
+                                             (progress! "Admission" (str resolved "/" total)
+                                                        "resolved;" active "active," queued "queued batches;"
+                                                        failed "failed artifacts;" compiler-batches "batches started;"
+                                                        (seconds duration-ms)))}))
         rejected (into initially-rejected (bundle/rejected-preparation-owners collected))
         _ (bundle/exclude-preparation-owners! collected rejected)
         owner (fn [record]
@@ -183,7 +283,7 @@
                     (some-> (:function record) namespace symbol)))
         rejected-record? #(contains? rejected (owner %))
         marker (fn [record]
-                 (assoc (select-keys record [:namespace :function :args :type :basis :baseline])
+                 (assoc (select-keys record [:namespace :function :args :type :basis :baseline :timings])
                         :status :rejected :reason :compiler-rejected-namespace))
         fields [:analysis :namespace-images :functions :calls]
         rejected-records (into {}
@@ -342,10 +442,18 @@
   :independent-call-handlers; owner preparation does not make them runtime calls.
   :source-dirs discovers all
   .clj namespaces in directories already on the classpath. Per-operation gaps
-  and compiler errors remain in :analysis. :parallelism defaults to 2; analysis
+  and compiler errors remain in :analysis. :parallelism defaults to all available
+  processors and also bounds admission and independent bundle builds; analysis
   and frozen namespace-image builds run on bounded virtual-thread
   workers. Inputs are captured during sequential loading, with at most twice that many
   outstanding builds. Every result is resolved before reporting preparation.
+  Loading and analysis emit flushed completed/total progress lines to stderr;
+  these count processed namespaces, including failures and skips, not successes.
+  Each namespace records :timings for loading, queueing, discovery, preparation
+  and worker duration. Report :timings contains phase wall times. Compiler-work
+  :command-timings attributes summed command wall times to owners/phases; these
+  overlap across workers and are not total elapsed time. Admission retains
+  individual batch timings and prints resolved/total, active and queued work.
   Reports persist under :report-file
   (default .aguafria/precompile/report.edn).
   :compiler-work counts actual compiler attempts across loading, type queries,
@@ -391,7 +499,8 @@
   including transitive imports, so later link settings cannot change its keys.
   The normal cache invalidation rules apply; handles and state are not saved."
   [{:keys [namespaces calls coercions analyze tests source-dirs parallelism report-file ignore linkage-contexts]
-    :or {parallelism 2 report-file ".aguafria/precompile/report.edn"}
+    :or {parallelism (.availableProcessors (Runtime/getRuntime))
+         report-file ".aguafria/precompile/report.edn"}
     :as options}]
   (validate-options! options)
   (with-open [build-executor
@@ -407,6 +516,7 @@
               bundle/*batch-validation?* true
               bundle/*preparing* (atom {})]
       (let [started (System/nanoTime)
+            timings (atom {})
             initial-configuration (runtime/configuration)
             excluded (set ignore)
             analysis-namespaces (vec (distinct (concat analyze (source-namespaces source-dirs))))
@@ -422,43 +532,49 @@
             analysis-namespaces (filterv #(not (excluded %)) analysis-namespaces)
             images (atom {})
             configurations (atom {})]
-        (doseq [namespace (distinct (concat namespaces
-                                            (map (comp symbol namespace :function) calls)
-                                            (map (comp symbol namespace) tests)))]
-          (swap! configurations assoc namespace (load-namespace! namespace images)))
-        (resolve-precompile-images! images)
+        (timed! timings :explicit-loading-ms
+                #(doseq [namespace (distinct (concat namespaces
+                                                     (map (comp symbol namespace :function) calls)
+                                                     (map (comp symbol namespace) tests)))]
+                   (swap! configurations assoc namespace (load-namespace! namespace images))))
+        (timed! timings :explicit-images-ms #(resolve-precompile-images! images))
         (let [prepare-in (fn [namespace prepare]
-                           (binding [bundle/*preparation-owner* namespace]
+                           (binding [bundle/*preparation-owner* namespace
+                                     compiler-work/*owner* namespace]
                              (runtime/call-with-precompile-configuration
                               (get @configurations namespace) prepare)))
-              native-tests (mapv (fn [test]
-                                   (runtime/call-with-precompile-configuration
-                                    (get @configurations (symbol (namespace test)))
-                                    #(runtime/precompile-test! test))) tests)
-              native-tests (mapv #(runtime/resolve-precompiled-test! % discovery/error-report) native-tests)
+              native-tests (timed! timings :native-tests-ms
+                                   (fn []
+                                     (let [jobs (mapv (fn [test]
+                                                        (prepare-in (symbol (namespace test))
+                                                                    #(runtime/precompile-test! test))) tests)]
+                                       (mapv #(runtime/resolve-precompiled-test! % discovery/error-report) jobs))))
               _ (when (some #(not (#{:pending-publication :prepared} (:status %))) native-tests)
                   (throw (ex-info "Requested native test preparation failed"
                                   {:aguafria/phase :native-test-preparation :tests native-tests})))
               report {:linkage-contexts (vec (remove excluded linkage-contexts))
                       :tests native-tests
-                      :functions (into [] (mapcat (fn [namespace]
-                                                    (prepare-in namespace
-                                                                #(runtime/precompile-functions! namespace))))
-                                       (distinct namespaces))
-                      :calls (mapv (fn [call]
-                                     (prepare-in (call-namespace call)
-                                                 #(bundle/call-with-validation-scope
-                                                   (fn [] ((requiring-resolve 'aguafria.zig.jvm/precompile-call!) call)))))
-                                   calls)
-                      :coercions (mapv (fn [type]
-                                         (bundle/call-with-validation-scope
-                                          #((requiring-resolve 'aguafria.zig.jvm/precompile-coercion!) type))) coercions)
-                      :analysis (analyze-namespaces! analysis-namespaces parallelism report-file images)
+                      :functions (timed! timings :functions-ms
+                                         (fn [] (into [] (mapcat (fn [namespace]
+                                                                   (prepare-in namespace
+                                                                               #(runtime/precompile-functions! namespace))))
+                                                      (distinct namespaces))))
+                      :calls (timed! timings :calls-ms
+                                     (fn [] (mapv (fn [call]
+                                                    (prepare-in (call-namespace call)
+                                                                #(bundle/call-with-validation-scope
+                                                                  (fn [] ((requiring-resolve 'aguafria.zig.jvm/precompile-call!) call)))))
+                                                  calls)))
+                      :coercions (timed! timings :coercions-ms
+                                         (fn [] (mapv (fn [type]
+                                                        (bundle/call-with-validation-scope
+                                                         #((requiring-resolve 'aguafria.zig.jvm/precompile-coercion!) type))) coercions)))
+                      :analysis (analyze-namespaces! analysis-namespaces parallelism report-file images timings)
                       :ignored ignored
                       :cache-dir (:cache-dir (runtime/configuration))
                       :duration-ms (/ (- (System/nanoTime) started) 1e6)}
-              scalar-profiles (prepare-scalar-profiles! initial-configuration)
-              _ (resolve-precompile-images! images)
+              scalar-profiles (timed! timings :scalar-profiles-ms #(prepare-scalar-profiles! initial-configuration))
+              _ (timed! timings :remaining-images-ms #(resolve-precompile-images! images))
               report (assoc report :scalar-constructor-profiles scalar-profiles
                             :namespace-images (mapv val (sort-by key @images))
                             :coverage (-> (coverage (:analysis report))
@@ -467,21 +583,33 @@
                                                  :scalar-constructor-profiles (:statuses scalar-profiles)))
                             :duration-ms (/ (- (System/nanoTime) started) 1e6))
               admission (when (seq (:analysis report))
-                          (try (admit-namespaces! report)
-                               (catch Exception error
-                                 (bundle-failure! report-file report started error))))
+                          (progress! "Validating namespace admission...")
+                          (try
+                            (timed! timings :admission-ms #(admit-namespaces! report parallelism))
+                            (catch Exception error
+                              (bundle-failure! report-file (assoc report :timings @timings) started error))))
               report (or (:report admission) report)
               compiled-bundles
               (try
+                (progress! "Building bundles...")
                 (binding [compiler-work/*phase* :handler-bundle]
-                  (runtime/finish-precompile-bundles! bundle/*preparing*
-                                                      {:validate-pending? true}))
+                  (timed! timings :bundles-ms
+                          #(with-heartbeat
+                             (fn [] (progress! "Building bundles..." (seconds (elapsed-ms started)) "total elapsed"))
+                             (fn [] (runtime/finish-precompile-bundles! bundle/*preparing*
+                                                                        {:validate-pending? true :parallelism parallelism
+                                                                         :progress (fn [{:keys [completed total duration-ms]}]
+                                                                                     (progress! "Bundles" (str completed "/" total)
+                                                                                                (seconds duration-ms)))})))))
                 (catch Exception error
-                  (bundle-failure! report-file report started error)))
+                  (bundle-failure! report-file (assoc report :timings @timings) started error)))
               report (try
-                       (bundle/resolve-validation-report!
-                        bundle/*preparing* report discovery/error-report)
-                       (catch Exception error (bundle-failure! report-file report started error)))
+                       (timed! timings :report-resolution-ms
+                               #(with-heartbeat
+                                  (fn [] (progress! "Resolving validation diagnostics..."))
+                                  (fn [] (bundle/resolve-validation-report!
+                                          bundle/*preparing* report discovery/error-report))))
+                       (catch Exception error (bundle-failure! report-file (assoc report :timings @timings) started error)))
               scalar-statuses (frequencies (map :status
                                                 (get-in report [:scalar-constructor-profiles :constructors])))
               report (-> report
@@ -506,10 +634,15 @@
                                                (assoc-in [:artifact :library-path] (:library entry)))
                                            (throw (ex-info "Native test was not published" {:test (:test check)})))
                                          (dissoc check :bundle-artifact))) checks)))
-              report (assoc report :bundles compiled-bundles
+              report (assoc report :timings @timings :parallelism parallelism :bundles compiled-bundles
                             :compiler-work (compiler-work/report compiler-work/*collector*)
                             :source-key-cache (artifact/source-key-statistics artifact/*source-key-cache*)
                             :duration-ms (/ (- (System/nanoTime) started) 1e6))]
           (io/make-parents report-file)
           (spit report-file (artifact/print-data report))
+          (doseq [[phase duration] (sort-by key @timings)]
+            (progress! "Phase" (name phase) (seconds duration)))
+          (doseq [entry (take 10 (sort-by #(get-in % [:timings :duration-ms] 0) > (:analysis report)))]
+            (progress! "Slow namespace" (:namespace entry) (seconds (get-in entry [:timings :duration-ms] 0))))
+          (progress! "Report written:" report-file)
           report)))))

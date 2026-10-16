@@ -819,6 +819,38 @@ was reused. These are not statistics for Zig's internal compilation cache.
 Reporting does not force compilation, run extra warm-ups, or wait for async
 work; conveyed async events can arrive after the immediate summary.
 
+### Checking native workloads
+
+`a/defn`, `a/defn-`, and `a/deftest` use native execution. Ordinary Clojure/JVM
+interop and native-backed REPL operations remain available; there is no separate
+Clojure-body execution backend or execution-mode switch.
+
+The library checker invokes explicit workloads in independent JVMs:
+
+```clojure
+(a/check! {:tests '[my.project/check-results]
+           :scenarios [{:id :addition :call 'my.project/add
+                        :args [2 3] :expect {:value 5}}]})
+```
+
+It compares native execution with `:compilation-modes [:on-demand :prepared]`
+by default. Either compilation mode can be selected alone. Preparation does not
+run the workloads. Missing prepared adapters, caught compiler attempts and disk
+fallbacks fail strict prepared consumers. Load/bootstrap work is accounted for
+separately; this is not a promise of zero startup compilation.
+
+Check the returned `:accepted?` and per-mode results; unsuccessful reports are
+retained. Reports, raw output and worker receipts go to a fresh
+`.aguafria/checks/<run>` directory, or a non-existing `:report-dir`. Expectations
+may specify `:value`, test `:status`, root native `:error-name`, and exact
+`:stdout`/`:stderr`. Comparison covers status and requested fields; `:tests`
+alone is not an output-equivalence check. Native runner diagnostics are retained.
+Only selected workloads are checked, not every project function or branch.
+
+The experimental `:execution-modes` checker option has been removed. Existing
+native boundary issues, including cross-image `anyerror` transport, remain
+separate from the checker.
+
 ### Optional JVM precompilation
 
 Run this explicitly when desired, never as part of `:prepare`:
@@ -851,8 +883,18 @@ Automatic discovery can also inspect emitted Zig operations without running
 native bodies. From `examples/learn`, inspect every example namespace with:
 
 ```sh
-clojure -X:precompile :source-dirs '["resources/learn/example"]' :parallelism 2
+clojure -X:precompile :source-dirs '["resources/learn/example"]' :parallelism 16
 ```
+
+`:parallelism` defaults to the JVM's available processor count. Namespace loading
+remains sequential; namespace analysis, frozen-image builds, admission batches,
+and independent bundle groups use bounded virtual-thread workers. Progress is
+flushed to stderr, with active-work heartbeats during long phases. The report's
+`:timings` records phase wall times; each analysis entry's `:timings` separates
+loading, queue delay, discovery, preparation, and total worker duration. Compiler
+`:command-timings` are attributed by owner and phase; their overlapping durations
+must not be summed as elapsed time. When the previous report has namespace timings,
+longer analyses start first without changing report order or skipping any work.
 
 Or select namespaces with `:analyze '[my.app.math]`. Directories must already
 be on the classpath. The same API works for application and library namespaces;
