@@ -11,16 +11,16 @@
   []
   (let [src (k/src)
         next-location (k/src)]
-    (try (testing/expectEqual (k/+ (source-location/-line src) 1)
-                              (source-location/-line next-location)))
+    (k/try (testing/expectEqual (k/+ (source-location/-line src) 1)
+                                (source-location/-line next-location)))
     ;; The longer binding name shifts the builtin's source column.
-    (try (testing/expectEqual (k/+ (source-location/-column src) 10)
-                              (source-location/-column next-location)))
-    (try (testing/expect (mem/endsWith :u8 (source-location/-fn_name src) "doTheTest")))
-    (try (testing/expect (mem/endsWith :u8 (source-location/-file src) "test_src_builtin.zig")))))
+    (k/try (testing/expectEqual (k/+ (source-location/-column src) 10)
+                                (source-location/-column next-location)))
+    (k/try (testing/expect (mem/endsWith :u8 (source-location/-fn_name src) "doTheTest")))
+    (k/try (testing/expect (mem/endsWith :u8 (source-location/-file src) "test_src_builtin.zig")))))
 
 (a/deftest src
-  (try (doTheTest)))
+  (k/try (doTheTest)))
 
 (comment
   (src))

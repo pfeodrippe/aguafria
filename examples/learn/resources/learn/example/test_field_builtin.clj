@@ -13,13 +13,13 @@
     (k/= (k/field p "x") 4)
     (k/= (k/field p "y") (k/+ (k/field p "x") 1))
 
-    (try (testing/expectEqual 4 (k/field p "x")))
-    (try (testing/expectEqual 5 (k/field p "y")))))
+    (k/try (testing/expectEqual 4 (k/field p "x")))
+    (k/try (testing/expectEqual 5 (k/field p "y")))))
 
 (a/deftest decl-access-by-string
-  (try (testing/expectEqual 1 (k/field Point "z")))
+  (k/try (testing/expectEqual 1 (k/field Point "z")))
   (k/= (k/field Point "z") 2)
-  (try (testing/expectEqual 2 (k/field Point "z"))))
+  (k/try (testing/expectEqual 2 (k/field Point "z"))))
 
 (comment
   (field-access-by-string)

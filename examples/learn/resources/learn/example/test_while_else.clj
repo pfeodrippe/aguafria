@@ -13,8 +13,8 @@
                     (k/break true)))))
 
 (a/deftest while-else
-  (try (testing/expect (range-has-number 0 10 5)))
-  (try (testing/expect (k/! (range-has-number 0 10 15)))))
+  (k/try (testing/expect (range-has-number 0 10 5)))
+  (k/try (testing/expect (k/! (range-has-number 0 10 15)))))
 
 (comment
   (while-else))

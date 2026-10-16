@@ -16,7 +16,7 @@
   (let [array
         (k/var (a/array [0x11111111 0x11111111] :u32) nil {:align 4})
         bytes (mem/sliceAsBytes (a/slice array 0))]
-    (try (testing/expectEqual 0x11111111 (foo bytes)))))
+    (k/try (testing/expectEqual 0x11111111 (foo bytes)))))
 
 (comment
   (pointer-alignment-safety))

@@ -14,6 +14,17 @@
             [learn.bundle-cache-check-test]
             [learn.source-fidelity-test]))
 
+(deftest isolated-capture-bounds-each-worker-heap
+  (let [command (atom nil)]
+    (with-redefs [ref/run-command
+                  (fn [args _]
+                    (reset! command args)
+                    (spit (last args) (pr-str {:evaluations []}))
+                    {:exit 0 :out "" :err ""})]
+      (is (= :isolated-native-failure
+             (:scope (ref/capture-isolated-comment! "(ns sample)" "sample.clj"))))
+      (is (some #{"-Xmx768m"} @command)))))
+
 (deftest type-tooltips-preserve-code-and-label-evidence
   (let [source "(ns sample (:require [aguafria.zig :as a]))\n(a/defconst n :i32 42)"
         html (ref/annotated-clojure-source source "sample.clj")]

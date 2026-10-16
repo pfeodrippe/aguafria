@@ -9,7 +9,7 @@
                 (k/for [_ (a/range 1 6)]
                   (k/+= count 1)
                   (a/break-label outer)))
-    (try (testing/expectEqual 1 count))))
+    (k/try (testing/expectEqual 1 count))))
 
 (a/deftest nested-continue
   (let [count (k/var 0 :usize)]
@@ -17,7 +17,7 @@
                 (k/for [_ (a/range 1 6)]
                   (k/+= count 1)
                   (k/continue outer)))
-    (try (testing/expectEqual 8 count))))
+    (k/try (testing/expectEqual 8 count))))
 
 (comment
   (nested-break)

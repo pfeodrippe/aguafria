@@ -9,8 +9,8 @@
 ;; Target: wasm32-wasi.
 (a/defn main :!void
   [[init process/Init]]
-  (let [args (try ((:toSlice (-> init process-init/-minimal minimal-init/-args))
-                   ((:allocator (process-init/-arena init)))))]
+  (let [args (k/try ((:toSlice (-> init process-init/-minimal minimal-init/-args))
+                     ((:allocator (process-init/-arena init)))))]
     (k/for [i (a/range 0) arg args]
       (debug/print "{d}: {s}\n" [i arg]))))
 

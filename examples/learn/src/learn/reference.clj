@@ -1281,7 +1281,10 @@
         result-file (io/file directory "result.edn")
         _ (doseq [file [directory request result-file]] (.deleteOnExit file))
         _ (write-edn! (.getPath request) {:source source :source-path source-path})
+        ;; Safety-failure examples run concurrently in disposable JVMs. Bound
+        ;; each heap rather than letting every worker size it for the whole host.
         command [(str (io/file (System/getProperty "java.home") "bin" "java"))
+                 "-Xmx768m"
                  "--enable-native-access=ALL-UNNAMED"
                  (str "-Djava.io.tmpdir=" (.getPath directory))
                  "-cp" (System/getProperty "java.class.path")

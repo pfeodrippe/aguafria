@@ -12,10 +12,10 @@
 
 (a/deftest fibonacci-test
   ;; test fibonacci at run-time
-  (try (testing/expectEqual 13 (fibonacci 7)))
+  (k/try (testing/expectEqual 13 (fibonacci 7)))
 
   ;; test fibonacci at compile-time
-  (try (k/comptime (testing/expectEqual 13 (fibonacci 7)))))
+  (k/try (k/comptime (testing/expectEqual 13 (fibonacci 7)))))
 
 (comment
   (fibonacci-test))

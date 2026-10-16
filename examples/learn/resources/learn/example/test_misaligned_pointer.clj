@@ -12,7 +12,7 @@
   @x)
 
 (a/deftest pointer-to-non-byte-aligned-field
-  (try (testing/expectEqual 2 (bar (k/& (:b bit-field))))))
+  (k/try (testing/expectEqual 2 (bar (k/& (:b bit-field))))))
 
 (comment
   (pointer-to-non-byte-aligned-field))

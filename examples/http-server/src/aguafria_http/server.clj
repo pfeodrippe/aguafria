@@ -29,10 +29,10 @@
         writer (k/var (net-stream/writer stream io (k/& write-buffer)))
         server (k/var (http-server/init (k/& (:interface reader))
                                         (k/& (:interface writer))))
-        request (k/var (try (http-server/receiveHead (k/& server))))
+        request (k/var (k/try (http-server/receiveHead (k/& server))))
         request-id (uuid/v4-new io)
         request-id-text (uuid/urn-serialize request-id)]
-    (try
+    (k/try
       (http-request/respond
        (k/& request)
        "Hello from live Aguafria Zig!\n"
@@ -58,16 +58,16 @@
   "Listen on loopback and call the current connection handler for every request."
   [[process-init std-process/Init]]
   (let [io (:io process-init)
-        address (try (ip-address/parseIp4 "127.0.0.1" port))
-        server (k/var (try (ip-address/listen
-                            (k/& address) io {:reuse_address true})))]
+        address (k/try (ip-address/parseIp4 "127.0.0.1" port))
+        server (k/var (k/try (ip-address/listen
+                              (k/& address) io {:reuse_address true})))]
     (k/defer (net-server/deinit (k/& server) io))
     (k/= requests-served 0)
     (k/= running true)
     (k/defer (k/= running false))
     (k/while running
-      (let [stream (try (net-server/accept (k/& server) io))]
-        (try (serve-connection! stream io))))))
+      (let [stream (k/try (net-server/accept (k/& server) io))]
+        (k/try (serve-connection! stream io))))))
 
 (def server-url "http://127.0.0.1:8787/")
 

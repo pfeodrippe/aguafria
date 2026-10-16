@@ -22,29 +22,29 @@
       ;; Generally, you can use UTF-8 and not worry about whether something is a
       ;; string. If you don't need to deal with individual characters, no need
       ;; to decode.
-      (try (testing/expectEqualStrings "hello 世界" hello-world)))))
+      (k/try (testing/expectEqualStrings "hello 世界" hello-world)))))
 
 (a/deftest slice-pointer
   (let [array (k/var k/undefined [:array 10 :u8])
         ptr (k/& array)]
-    (try (testing/expectEqual (a/type [:* [:array 10 :u8]])
-                              (k/TypeOf ptr)))
+    (k/try (testing/expectEqual (a/type [:* [:array 10 :u8]])
+                                (k/TypeOf ptr)))
     ;; A pointer to an array can be sliced just like an array:
     (let [start (k/var 0 :usize)
           end (k/var 5 :usize)]
       (k/= :_ [(k/& start) (k/& end)])
       (let [slice (a/slice ptr start end)]
         ;; The slice is mutable because we sliced a mutable pointer.
-        (try (testing/expectEqual (a/type [:slice :u8]) (k/TypeOf slice)))
+        (k/try (testing/expectEqual (a/type [:slice :u8]) (k/TypeOf slice)))
         (k/= (a/get slice 2) 3)
-        (try (testing/expectEqual 3 (a/get array 2)))
+        (k/try (testing/expectEqual 3 (a/get array 2)))
         ;; Again, slicing with comptime-known indexes will produce another pointer
         ;; to an array:
         (let [ptr2 (a/slice slice 2 3)]
-          (try (testing/expectEqual 1 (:len ptr2)))
-          (try (testing/expectEqual 3 (a/get ptr2 0)))
-          (try (testing/expectEqual (a/type [:* [:array 1 :u8]])
-                                    (k/TypeOf ptr2))))))))
+          (k/try (testing/expectEqual 1 (:len ptr2)))
+          (k/try (testing/expectEqual 3 (a/get ptr2 0)))
+          (k/try (testing/expectEqual (a/type [:* [:array 1 :u8]])
+                                      (k/TypeOf ptr2))))))))
 
 (comment
   (using-slices-for-strings)

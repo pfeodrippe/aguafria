@@ -9,7 +9,7 @@
       (if (k/== i 10)
         (k/break))
       (k/+= i 1))
-    (try (testing/expectEqual 10 i))))
+    (k/try (testing/expectEqual 10 i))))
 
 (comment
   (while-break))

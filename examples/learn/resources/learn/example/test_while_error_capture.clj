@@ -17,8 +17,8 @@
     (k/= numbers-left 3)
     (a/while-loop {:payload [value]
                    :error [err]
-                   :else [(try (testing/expectEqual
-                                (a/error-value :ReachedZero) err))]}
+                   :else [(k/try (testing/expectEqual
+                                  (a/error-value :ReachedZero) err))]}
                   (eventuallyErrorSequence)
                   (k/+= sum1 value))))
 

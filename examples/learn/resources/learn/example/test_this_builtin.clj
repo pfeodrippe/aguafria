@@ -15,7 +15,7 @@
 (a/deftest This
   (let [items (k/var (a/array [1 2 3 4] :i32))
         list (a/init {:items (a/slice items 0)} (List :i32))]
-    (try (testing/expectEqual 4 ((:length list))))))
+    (k/try (testing/expectEqual 4 ((:length list))))))
 
 (comment
   (This))

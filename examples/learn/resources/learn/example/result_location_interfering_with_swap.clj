@@ -10,8 +10,8 @@
     ;;   arr[0] = arr[1];
     ;;   arr[1] = arr[0];
     ;; So this fails!
-    (try (testing/expectEqual 2 (a/get arr 0))) ; succeeds
-    (try (testing/expectEqual 1 (a/get arr 1))))) ; fails
+    (k/try (testing/expectEqual 2 (a/get arr 0))) ; succeeds
+    (k/try (testing/expectEqual 1 (a/get arr 1))))) ; fails
 
 (comment
   (attempt-to-swap-array-elements-with-array-initializer))

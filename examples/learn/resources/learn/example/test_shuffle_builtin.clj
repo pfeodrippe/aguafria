@@ -10,13 +10,13 @@
         ;; Notice that we can re-order, duplicate, or omit elements of the input vector
         mask1 (a/vector [2 3 1 1 0] :i32)
         res1 (k/shuffle :u8 a k/undefined mask1)]
-    (try (testing/expectEqualStrings
-          "hello" (k/& (k/as res1 [:array 5 :u8]))))
+    (k/try (testing/expectEqualStrings
+            "hello" (k/& (k/as res1 [:array 5 :u8]))))
     ;; Combining two vectors
     (let [mask2 (a/vector [-1 0 4 1 -2 -3] :i32)
           res2 (k/shuffle :u8 a b mask2)]
-      (try (testing/expectEqualStrings
-            "world!" (k/& (k/as res2 [:array 6 :u8])))))))
+      (k/try (testing/expectEqualStrings
+              "world!" (k/& (k/as res2 [:array 6 :u8])))))))
 
 (comment
   (vector-shuffle))

@@ -11,7 +11,7 @@
     ;; .{ .x = @intCast(val) }   has result type `S` due to the type annotation
     ;;         @intCast(val)     has result type `u32` due to the type of the field `S.x`
     ;;                  val      has no result type, as it is permitted to be any integer type
-    (try (testing/expectEqual (k/as 123 :u32) (:x s)))))
+    (k/try (testing/expectEqual (k/as 123 :u32) (:x s)))))
 
 (comment
   (result-type-propagates-through-struct-initializer))

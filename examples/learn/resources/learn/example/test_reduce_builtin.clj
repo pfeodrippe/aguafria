@@ -8,13 +8,13 @@
         value (a/init [1 -1 1 -1] V)
         result (k/> value (k/as (k/splat 0) V))]
     ;; result is { true, false, true, false };
-    (try (k/comptime
-          (testing/expectEqual (a/type [:vector 4 :bool])
-                               (k/TypeOf result))))
+    (k/try (k/comptime
+            (testing/expectEqual (a/type [:vector 4 :bool])
+                                 (k/TypeOf result))))
     (let [is-all-true (k/reduce :And result)]
-      (try (k/comptime
-            (testing/expectEqual (a/type :bool) (k/TypeOf is-all-true))))
-      (try (testing/expectEqual false is-all-true)))))
+      (k/try (k/comptime
+              (testing/expectEqual (a/type :bool) (k/TypeOf is-all-true))))
+      (k/try (testing/expectEqual false is-all-true)))))
 
 (comment
   (vector-reduce))

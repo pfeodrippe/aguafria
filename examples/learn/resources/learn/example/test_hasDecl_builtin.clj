@@ -9,14 +9,14 @@
    [:hi {:const 1 :private true} :_]])
 
 (a/deftest hasDecl
-  (try (testing/expect (k/hasDecl Foo "blah")))
+  (k/try (testing/expect (k/hasDecl Foo "blah")))
 
   ;; @hasDecl returns false for private declarations.
-  (try (testing/expect (k/! (k/hasDecl Foo "hi"))))
+  (k/try (testing/expect (k/! (k/hasDecl Foo "hi"))))
 
   ;; @hasDecl is for declarations; not fields.
-  (try (testing/expect (k/! (k/hasDecl Foo "nope"))))
-  (try (testing/expect (k/! (k/hasDecl Foo "nope1234")))))
+  (k/try (testing/expect (k/! (k/hasDecl Foo "nope"))))
+  (k/try (testing/expect (k/! (k/hasDecl Foo "nope1234")))))
 
 (comment
   (hasDecl))

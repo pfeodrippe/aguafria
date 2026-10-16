@@ -8,9 +8,9 @@
         runtime-length (k/var 3 :usize)]
     (k/= :_ (k/& runtime-length))
     (let [slice (a/slice-sentinel array 0 runtime-length 0)]
-      (try (testing/expectEqual (a/type [:* {:size :slice :sentinel 0} :u8])
-                                (k/TypeOf slice)))
-      (try (testing/expectEqual 3 (:len slice))))))
+      (k/try (testing/expectEqual (a/type [:* {:size :slice :sentinel 0} :u8])
+                                  (k/TypeOf slice)))
+      (k/try (testing/expectEqual 3 (:len slice))))))
 
 (comment
   (zero-terminated-slicing))

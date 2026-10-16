@@ -17,13 +17,13 @@
     (k/= numbers-left 3)
     (a/while-loop {:payload [value]} (eventuallyNullSequence)
                   (k/+= sum1 value))
-    (try (testing/expectEqual 3 sum1)))
+    (k/try (testing/expectEqual 3 sum1)))
 
   ;; null capture with an else block
   (let [sum2 (k/var 0 :u32)]
     (k/= numbers-left 3)
     (a/while-loop {:payload [value]
-                   :else [(try (testing/expectEqual 3 sum2))]}
+                   :else [(k/try (testing/expectEqual 3 sum2))]}
                   (eventuallyNullSequence)
                   (k/+= sum2 value)))
 
@@ -35,7 +35,7 @@
                    :continue (a/assign-expr "+=" i 1)}
                   (eventuallyNullSequence)
                   (k/+= sum3 value))
-    (try (testing/expectEqual 3 i))))
+    (k/try (testing/expectEqual 3 i))))
 
 (comment
   (while-null-capture))

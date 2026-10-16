@@ -9,7 +9,7 @@
        (fibonacci (k/- index 2))))
 
 (a/deftest fibonacci-test
-  (try (k/comptime (testing/expectEqual 13 (fibonacci 7)))))
+  (k/try (k/comptime (testing/expectEqual 13 (fibonacci 7)))))
 
 (comment
   (fibonacci-test))

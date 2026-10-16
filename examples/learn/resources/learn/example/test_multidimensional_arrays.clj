@@ -12,21 +12,21 @@
 
 (a/deftest multidimensional-arrays
   ;; mat4x5 itself is a one-dimensional array of arrays.
-  (try (testing/expectEqual (a/get mat4x5 1)
-                            (a/array [0.0 1.0 0.0 1.0 0.0] :f32)))
+  (k/try (testing/expectEqual (a/get mat4x5 1)
+                              (a/array [0.0 1.0 0.0 1.0 0.0] :f32)))
 
   ;; Access the 2D array by indexing the outer array, and then the inner array.
-  (try (testing/expectEqual 9.9 (a/get-in mat4x5 [3 4])))
+  (k/try (testing/expectEqual 9.9 (a/get-in mat4x5 [3 4])))
 
   ;; Here we iterate with for loops.
   (k/for [row mat4x5 row-index (a/range 0)]
     (k/for [cell row column-index (a/range 0)]
       (when (k/== row-index column-index)
-        (try (testing/expectEqual 1.0 cell)))))
+        (k/try (testing/expectEqual 1.0 cell)))))
 
   ;; Initialize a multidimensional array to zeros.
   (let [all-zero (k/as (k/splat (k/splat 0)) [:array 4 [:array 5 :f32]])]
-    (try (testing/expectEqual 0 (a/get-in all-zero [0 0])))))
+    (k/try (testing/expectEqual 0 (a/get-in all-zero [0 0])))))
 
 (comment
   (multidimensional-arrays))

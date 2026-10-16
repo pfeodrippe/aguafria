@@ -1195,7 +1195,7 @@
   "Define a named Zig test as a zero-argument callable Clojure Var.
 
       (a/deftest pointer-arithmetic-test
-        (try (testing/expect true)))
+        (k/try (testing/expect true)))
       (pointer-arithmetic-test)
 
   The name must be an unqualified symbol and also supplies the Zig test label.

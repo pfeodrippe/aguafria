@@ -9,27 +9,27 @@
   (a/error-value :PermissionDenied))
 
 (a/defn- baz [:error-union :void] []
-  (try (bang1)))
+  (k/try (bang1)))
 
 (a/defn- quux [:error-union :void] []
-  (try (bang2)))
+  (k/try (bang2)))
 
 (a/defn- hello [:error-union :void] []
-  (try (bang2)))
+  (k/try (bang2)))
 
 (a/defn- bar [:error-union :void] []
   (a/if-capture-stmt {:error [err]} (baz)
-                     (try (quux))
+                     (k/try (quux))
                      (k/switch err
-                       (a/error-value :FileNotFound) (try (hello)))))
+                       (a/error-value :FileNotFound) (k/try (hello)))))
 
 (a/defn- foo [:error-union :void] [[x :i32]]
   (if (k/>= x 5)
-    (try (bar))
-    (try (bang2))))
+    (k/try (bar))
+    (k/try (bang2))))
 
 (a/defn main [:error-union :void] []
-  (try (foo 12)))
+  (k/try (foo 12)))
 
 (comment
   (main))

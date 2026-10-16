@@ -4,10 +4,10 @@
             [aguafria.zig :as a]))
 
 (a/deftest round
-  (try (testing/expectEqual 1 (k/round 1.4)))
-  (try (testing/expectEqual 2 (k/round 1.5)))
-  (try (testing/expectEqual -1 (k/round -1.4)))
-  (try (testing/expectEqual -3 (k/round -2.5))))
+  (k/try (testing/expectEqual 1 (k/round 1.4)))
+  (k/try (testing/expectEqual 2 (k/round 1.5)))
+  (k/try (testing/expectEqual -1 (k/round -1.4)))
+  (k/try (testing/expectEqual -3 (k/round -2.5))))
 
 (comment
   (round))

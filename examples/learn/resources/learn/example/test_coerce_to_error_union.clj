@@ -6,8 +6,8 @@
 (a/deftest coercion-to-error-unions
   (let [x (k/as 1234 [:error-union :anyerror :i32])
         y (k/as (a/error-value :Failure) [:error-union :anyerror :i32])]
-    (try (testing/expectEqual 1234 (try x)))
-    (try (testing/expectError (a/error-value :Failure) y))))
+    (k/try (testing/expectEqual 1234 (k/try x)))
+    (k/try (testing/expectError (a/error-value :Failure) y))))
 
 (comment
   (coercion-to-error-unions))

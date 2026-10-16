@@ -17,8 +17,8 @@
         value2 (if b
                  (k/as "zz" [:slice-const :u8])
                  "aoeu")]
-    (try (testing/expectEqualStrings "aoeu" value1))
-    (try (testing/expectEqualStrings "zz" value2))))
+    (k/try (testing/expectEqualStrings "aoeu" value1))
+    (k/try (testing/expectEqualStrings "zz" value2))))
 
 (a/defn- peerTypeTAndOptionalT [:optional :usize]
   [[c :bool] [b :bool]]
@@ -45,8 +45,8 @@
   (let [a (k/i8 12)
         b (k/i16 34)
         c (k/+ a b)]
-    (try (testing/expectEqual 46 c))
-    (try (testing/expectEqual :i16 (k/TypeOf c)))))
+    (k/try (testing/expectEqual 46 c))
+    (k/try (testing/expectEqual :i16 (k/TypeOf c)))))
 
 (a/deftest peer-resolve-small-int-and-float
   ;; This only works for integer types that can coerce to the float type.
@@ -55,51 +55,51 @@
         f (k/var 34 :f32)]
     (k/= :_ [(k/& i) (k/& f)])
     (let [x (k/+ i f)]
-      (try (testing/expectEqual x 46.0))
-      (try (testing/expectEqual (k/TypeOf x) :f32)))))
+      (k/try (testing/expectEqual x 46.0))
+      (k/try (testing/expectEqual (k/TypeOf x) :f32)))))
 
 (a/deftest peer-resolve-arrays-of-different-size-to-const-slice
-  (try (testing/expectEqualStrings "true" (boolToStr true)))
-  (try (testing/expectEqualStrings "false" (boolToStr false)))
-  (try (k/comptime (testing/expectEqualStrings "true" (boolToStr true))))
-  (try (k/comptime (testing/expectEqualStrings "false" (boolToStr false)))))
+  (k/try (testing/expectEqualStrings "true" (boolToStr true)))
+  (k/try (testing/expectEqualStrings "false" (boolToStr false)))
+  (k/try (k/comptime (testing/expectEqualStrings "true" (boolToStr true))))
+  (k/try (k/comptime (testing/expectEqualStrings "false" (boolToStr false)))))
 
 (a/deftest peer-resolve-array-and-const-slice
-  (try (testPeerResolveArrayConstSlice true))
-  (try (k/comptime (testPeerResolveArrayConstSlice true))))
+  (k/try (testPeerResolveArrayConstSlice true))
+  (k/try (k/comptime (testPeerResolveArrayConstSlice true))))
 
 (a/deftest peer-type-resolution-?T-and-T
-  (try (testing/expectEqual 0 (a/unwrap (peerTypeTAndOptionalT true false))))
-  (try (testing/expectEqual 3 (a/unwrap (peerTypeTAndOptionalT false false))))
+  (k/try (testing/expectEqual 0 (a/unwrap (peerTypeTAndOptionalT true false))))
+  (k/try (testing/expectEqual 3 (a/unwrap (peerTypeTAndOptionalT false false))))
   (k/comptime
    (a/block
-    (try (testing/expectEqual 0 (a/unwrap (peerTypeTAndOptionalT true false))))
-    (try (testing/expectEqual 3 (a/unwrap (peerTypeTAndOptionalT false false)))))))
+    (k/try (testing/expectEqual 0 (a/unwrap (peerTypeTAndOptionalT true false))))
+    (k/try (testing/expectEqual 3 (a/unwrap (peerTypeTAndOptionalT false false)))))))
 
 (a/deftest peer-type-resolution-*zero-u8-and-const-u8-slice
-  (try (testing/expectEqual 0 (:len (peerTypeEmptyArrayAndSlice true "hi"))))
-  (try (testing/expectEqual 1 (:len (peerTypeEmptyArrayAndSlice false "hi"))))
+  (k/try (testing/expectEqual 0 (:len (peerTypeEmptyArrayAndSlice true "hi"))))
+  (k/try (testing/expectEqual 1 (:len (peerTypeEmptyArrayAndSlice false "hi"))))
   (k/comptime
    (a/block
-    (try (testing/expectEqual 0 (:len (peerTypeEmptyArrayAndSlice true "hi"))))
-    (try (testing/expectEqual 1 (:len (peerTypeEmptyArrayAndSlice false "hi")))))))
+    (k/try (testing/expectEqual 0 (:len (peerTypeEmptyArrayAndSlice true "hi"))))
+    (k/try (testing/expectEqual 1 (:len (peerTypeEmptyArrayAndSlice false "hi")))))))
 
 (a/deftest peer-type-resolution-*zero-u8-const-u8-slice-and-anyerror-u8-slice
   (let [data (k/var (a/deref "hi"))
         slice (a/slice data 0)]
-    (try (testing/expectEqual 0 (:len (k/try (peerTypeEmptyArrayAndSliceAndError true slice)))))
-    (try (testing/expectEqual 1 (:len (k/try (peerTypeEmptyArrayAndSliceAndError false slice))))))
+    (k/try (testing/expectEqual 0 (:len (k/try (peerTypeEmptyArrayAndSliceAndError true slice)))))
+    (k/try (testing/expectEqual 1 (:len (k/try (peerTypeEmptyArrayAndSliceAndError false slice))))))
   (k/comptime
    (let [data (k/var (a/deref "hi"))
          slice (a/slice data 0)]
-     (try (testing/expectEqual 0 (:len (k/try (peerTypeEmptyArrayAndSliceAndError true slice)))))
-     (try (testing/expectEqual 1 (:len (k/try (peerTypeEmptyArrayAndSliceAndError false slice))))))))
+     (k/try (testing/expectEqual 0 (:len (k/try (peerTypeEmptyArrayAndSliceAndError true slice)))))
+     (k/try (testing/expectEqual 1 (:len (k/try (peerTypeEmptyArrayAndSliceAndError false slice))))))))
 
 (a/deftest peer-type-resolution-*const-T-and-?*T
   (let [a (k/as (k/ptrFromInt 0x123456780) [:*const :usize])
         b (k/as (k/ptrFromInt 0x123456780) [:optional [:* :usize]])]
-    (try (testing/expectEqual a b))
-    (try (testing/expectEqual b a))))
+    (k/try (testing/expectEqual a b))
+    (k/try (testing/expectEqual b a))))
 
 (a/deftest peer-type-resolution-error-union-switch
   ;; The non-error and error cases are only peers if the error case is just a switch expression;
@@ -113,7 +113,7 @@
                             (a/error-value :A) 0
                             (a/error-value :B) 1
                             (a/error-value :C) nil))]
-      (try (testing/expectEqual (a/type [:optional :u32]) (k/TypeOf b))))
+      (k/try (testing/expectEqual (a/type [:optional :u32]) (k/TypeOf b))))
 
     ;; The non-error and error cases are only peers if the error case is just a switch expression;
     ;; the pattern `x catch |err| blk: { switch (err) {...} }` does not consider the unwrapped `x`
@@ -123,7 +123,7 @@
                                (a/error-value :A) 0
                                (a/error-value :B) 1
                                (a/error-value :C) nil))]
-      (try (testing/expectEqual (a/type [:optional :u32]) (k/TypeOf c))))))
+      (k/try (testing/expectEqual (a/type [:optional :u32]) (k/TypeOf c))))))
 
 (comment
   (peer-resolve-int-widening)

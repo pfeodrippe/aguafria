@@ -18,7 +18,7 @@
       (a/with-block :_ [(k/* value)] (a/block
                                       (k/+= @value 1)))
       (:not_ok ComplexTypeTag) (k/unreachable))
-    (try (testing/expectEqual 43 (:ok c)))))
+    (k/try (testing/expectEqual 43 (:ok c)))))
 
 (comment
   (modify-tagged-union-in-switch))

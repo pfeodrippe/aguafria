@@ -29,10 +29,10 @@
     ;; https://github.com/ziglang/zig/issues/21350#issuecomment-3543006475
     (k/return (a/error-value :SkipZigTest)))
 
-  (try (testing/expectEqual (k/as 0 :c_int) (add 0)))
-  (try (testing/expectEqual (k/as 1 :c_int) (add 1 (k/as 1 :c_int))))
-  (try (testing/expectEqual (k/as 3 :c_int)
-                            (add 2 (k/as 1 :c_int) (k/as 2 :c_int)))))
+  (k/try (testing/expectEqual (k/as 0 :c_int) (add 0)))
+  (k/try (testing/expectEqual (k/as 1 :c_int) (add 1 (k/as 1 :c_int))))
+  (k/try (testing/expectEqual (k/as 3 :c_int)
+                              (add 2 (k/as 1 :c_int) (k/as 2 :c_int)))))
 
 (comment
   (defining-a-variadic-function))

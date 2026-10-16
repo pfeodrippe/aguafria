@@ -10,8 +10,8 @@
     (:x S)))
 
 (a/deftest static-local-variable
-  (try (testing/expectEqual 1235 (foo)))
-  (try (testing/expectEqual 1236 (foo))))
+  (k/try (testing/expectEqual 1235 (foo)))
+  (k/try (testing/expectEqual 1236 (foo))))
 
 (comment
   (static-local-variable))

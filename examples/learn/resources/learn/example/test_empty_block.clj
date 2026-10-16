@@ -5,7 +5,7 @@
 
 (a/deftest empty-block-test
   (let [a (a/block)]
-    (try (testing/expectEqual :void (k/TypeOf a)))))
+    (k/try (testing/expectEqual :void (k/TypeOf a)))))
 
 (comment
   (empty-block-test))

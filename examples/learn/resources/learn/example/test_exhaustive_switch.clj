@@ -14,7 +14,7 @@
                  :auto false
                  :on false
                  :off true)]
-    (try (testing/expect result))))
+    (k/try (testing/expect result))))
 
 (comment
   (enum-literals-with-switch))

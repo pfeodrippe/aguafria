@@ -29,7 +29,7 @@
   (let [sum (k/var 0 :usize)]
     (k/for [byte message]
       (k/+= sum byte))
-    (try (testing/expectEqual (k/+ \h \e (k/* \l 2) \o) sum))))
+    (k/try (testing/expectEqual (k/+ \h \e (k/* \l 2) \o) sum))))
 
 ;; modifiable array
 (a/defvar some-integers [:array 100 :i32] k/undefined)
@@ -38,8 +38,8 @@
   (k/for [(k/* item) (k/& some-integers)
           i (a/range 0)]
     (k/= @item (k/intCast i)))
-  (try (testing/expectEqual 10 (a/get some-integers 10)))
-  (try (testing/expectEqual 99 (a/get some-integers 99))))
+  (k/try (testing/expectEqual 10 (a/get some-integers 10)))
+  (k/try (testing/expectEqual 99 (a/get some-integers 99))))
 
 ;; array concatenation works if the values are known
 ;; at compile time
@@ -82,8 +82,8 @@
       (k/break :init initial-value))))
 
 (a/deftest compile-time-array-initialization
-  (try (testing/expectEqual 4 (a/get-in fancy-array [4 :x])))
-  (try (testing/expectEqual 8 (a/get-in fancy-array [4 :y]))))
+  (k/try (testing/expectEqual 4 (a/get-in fancy-array [4 :x])))
+  (k/try (testing/expectEqual 8 (a/get-in fancy-array [4 :y]))))
 
 (a/defn- make-point Point
   [[x :i32]]
@@ -93,9 +93,9 @@
 (a/defvar more-points [:array 10 Point] (k/splat (make-point 3)))
 
 (a/deftest array-initialization-with-function-calls
-  (try (testing/expectEqual 3 (a/get-in more-points [4 :x])))
-  (try (testing/expectEqual 6 (a/get-in more-points [4 :y])))
-  (try (testing/expectEqual 10 (:len more-points))))
+  (k/try (testing/expectEqual 3 (a/get-in more-points [4 :x])))
+  (k/try (testing/expectEqual 6 (a/get-in more-points [4 :y])))
+  (k/try (testing/expectEqual 10 (:len more-points))))
 
 (comment
   (iterate-over-an-array)

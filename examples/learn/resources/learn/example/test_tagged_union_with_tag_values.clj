@@ -10,8 +10,8 @@
 (a/deftest tag-values
   (let [int (Tagged {:int -40})
         boolean (Tagged {:boolean false})]
-    (try (testing/expectEqual 123 (k/backingInt int)))
-    (try (testing/expectEqual 67 (k/backingInt boolean)))))
+    (k/try (testing/expectEqual 123 (k/backingInt int)))
+    (k/try (testing/expectEqual 67 (k/backingInt boolean)))))
 
 (comment
   (tag-values))

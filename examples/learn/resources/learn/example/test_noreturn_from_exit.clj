@@ -12,7 +12,7 @@
 
 (a/deftest foo
   (let [value (catch (bar) (ExitProcess 1))]
-    (try (testing/expectEqual 1234 value))))
+    (k/try (testing/expectEqual 1234 value))))
 
 (comment
   (foo))

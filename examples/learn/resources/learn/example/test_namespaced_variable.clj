@@ -12,8 +12,8 @@
   (:x S))
 
 (a/deftest namespaced-container-level-variable
-  (try (testing/expectEqual 1235 (foo)))
-  (try (testing/expectEqual 1236 (foo))))
+  (k/try (testing/expectEqual 1235 (foo)))
+  (k/try (testing/expectEqual 1236 (foo))))
 
 (comment
   (namespaced-container-level-variable))

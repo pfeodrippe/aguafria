@@ -9,8 +9,8 @@
 (a/defvar bit-field (BitField {:a 1 :b 2 :c 3}))
 
 (a/deftest pointers-of-sub-byte-aligned-fields-share-addresses
-  (try (testing/expectEqual (k/intFromPtr (k/& (:a bit-field))) (k/intFromPtr (k/& (:b bit-field)))))
-  (try (testing/expectEqual (k/intFromPtr (k/& (:a bit-field))) (k/intFromPtr (k/& (:c bit-field))))))
+  (k/try (testing/expectEqual (k/intFromPtr (k/& (:a bit-field))) (k/intFromPtr (k/& (:b bit-field)))))
+  (k/try (testing/expectEqual (k/intFromPtr (k/& (:a bit-field))) (k/intFromPtr (k/& (:c bit-field))))))
 
 (comment
   (pointers-of-sub-byte-aligned-fields-share-addresses))

@@ -8,12 +8,12 @@
   (let [map (k/var ((:init (std/AutoHashMap :i32 :void))
                     testing/allocator))]
     (k/defer ((:deinit map)))
-    (try ((:put map) 1 (a/block)))
-    (try ((:put map) 2 (a/block)))
-    (try (testing/expect ((:contains map) 2)))
-    (try (testing/expect (k/! ((:contains map) 3))))
+    (k/try ((:put map) 1 (a/block)))
+    (k/try ((:put map) 2 (a/block)))
+    (k/try (testing/expect ((:contains map) 2)))
+    (k/try (testing/expect (k/! ((:contains map) 3))))
     (k/= :_ ((:remove map) 2))
-    (try (testing/expect (k/! ((:contains map) 2))))))
+    (k/try (testing/expect (k/! ((:contains map) 2))))))
 
 (comment
   (turn-HashMap-into-a-set-with-void))

@@ -19,7 +19,7 @@
                             2 :bool
                             (k/unreachable))]
                     (k/+= sum (type-name-length T))))
-    (try (testing/expectEqual 9 sum))))
+    (k/try (testing/expectEqual 9 sum))))
 
 (comment
   (inline-while-loop))

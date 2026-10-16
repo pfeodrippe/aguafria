@@ -22,12 +22,12 @@
                          \{
                          (do
                            (when (k/< start-index i)
-                             (try ((:write self) (a/slice format start-index i))))
+                             (k/try ((:write self) (a/slice format start-index i))))
                            (k/= state (:open-brace State)))
                          \}
                          (do
                            (when (k/< start-index i)
-                             (try ((:write self) (a/slice format start-index i))))
+                             (k/try ((:write self) (a/slice format start-index i))))
                            (k/= state (:close-brace State)))
                          (do))
                        (:open-brace State)
@@ -38,7 +38,7 @@
                            (k/= start-index i))
                          \}
                          (do
-                           (try ((:print-value self) (a/get args next-arg)))
+                           (k/try ((:print-value self) (a/get args next-arg)))
                            (k/+= next-arg 1)
                            (k/= state (:start State))
                            (k/= start-index (k/+ i 1)))
@@ -61,8 +61,8 @@
           (when (k/!= state (:start State))
             (k/compileError (k/++ "Incomplete format string: " format)))))
        (when (k/< start-index (:len format))
-         (try ((:write self) (a/slice format start-index (:len format)))))
-       (try ((:flush self)))))
+         (k/try ((:write self) (a/slice format start-index (:len format)))))
+       (k/try ((:flush self)))))
 
    (a/fn- write [:error-union :void]
           [[self [:* Writer]] [value [:slice-const :u8]]]

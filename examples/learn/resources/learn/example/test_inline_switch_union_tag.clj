@@ -18,7 +18,7 @@
 
 (a/deftest test
   (let [u (U {:b 42})]
-    (try (testing/expectEqual 42 (getNum u)))))
+    (k/try (testing/expectEqual 42 (getNum u)))))
 
 (comment
   (test))

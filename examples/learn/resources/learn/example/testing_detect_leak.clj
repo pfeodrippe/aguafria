@@ -10,8 +10,8 @@
   (let [gpa testing/allocator
         list (k/var :empty (std/ArrayList :u21))]
     ;; missing `defer list.deinit(gpa);`
-    (try (al/append list gpa \☔))
-    (try (testing/expectEqual 1 (-> list al/-items al-slice/-len)))))
+    (k/try (al/append list gpa \☔))
+    (k/try (testing/expectEqual 1 (-> list al/-items al-slice/-len)))))
 
 (comment
   (detect-leak))

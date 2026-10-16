@@ -71,8 +71,8 @@
   (fn-call op1 op2))
 
 (a/deftest function
-  (try (testing/expectEqual 11 (do-op add 5 6)))
-  (try (testing/expectEqual -1 (do-op sub2 5 6))))
+  (k/try (testing/expectEqual 11 (do-op add 5 6)))
+  (k/try (testing/expectEqual -1 (do-op sub2 5 6))))
 
 (comment
   (function))

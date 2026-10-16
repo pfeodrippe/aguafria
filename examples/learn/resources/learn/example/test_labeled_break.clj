@@ -8,8 +8,8 @@
         x (a/with-block :blk
             (k/+= y 1)
             (k/break :blk y))]
-    (try (testing/expectEqual 124 x))
-    (try (testing/expectEqual 124 y))))
+    (k/try (testing/expectEqual 124 x))
+    (k/try (testing/expectEqual 124 y))))
 
 (comment
   (labeled-break-from-labeled-block-expression))

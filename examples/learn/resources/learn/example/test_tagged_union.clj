@@ -15,9 +15,9 @@
 
 (a/deftest switch-on-tagged-union
   (let [c (ComplexType {:ok 42})]
-    (try (testing/expectEqual (:ok ComplexTypeTag) (k/as c ComplexTypeTag)))
+    (k/try (testing/expectEqual (:ok ComplexTypeTag) (k/as c ComplexTypeTag)))
     (k/switch c
-      :ok (a/with-block :_ [value] (try (testing/expectEqual 42 value)))
+      :ok (a/with-block :_ [value] (k/try (testing/expectEqual 42 value)))
       :not_ok (k/unreachable))
     (k/switch c
       :ok
@@ -26,7 +26,7 @@
       :not_ok (k/unreachable))))
 
 (a/deftest get-tag-type
-  (try (testing/expectEqual ComplexTypeTag (meta/Tag ComplexType))))
+  (k/try (testing/expectEqual ComplexTypeTag (meta/Tag ComplexType))))
 
 (comment
   (switch-on-tagged-union)

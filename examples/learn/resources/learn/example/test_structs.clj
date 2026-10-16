@@ -27,11 +27,11 @@
 (a/deftest dot-product
   (let [v1 ((:init Vec3) 1.0 0.0 0.0)
         v2 ((:init Vec3) 0.0 1.0 0.0)]
-    (try (testing/expectEqual 0.0 ((:dot v1) v2)))
+    (k/try (testing/expectEqual 0.0 ((:dot v1) v2)))
     ;; Other than being available to call with dot syntax, struct methods are
     ;; not special. You can reference them as any other declaration inside
     ;; the struct:
-    (try (testing/expectEqual 0.0 ((:dot Vec3) v1 v2)))))
+    (k/try (testing/expectEqual 0.0 ((:dot Vec3) v1 v2)))))
 
 ;; Structs can have declarations.
 ;; Structs can have 0 fields.
@@ -39,8 +39,8 @@
   [[:PI {:const 3.14} :_]])
 
 (a/deftest struct-namespaced-variable
-  (try (testing/expectEqual 3.14 (:PI Empty)))
-  (try (testing/expectEqual 0 (k/sizeOf Empty)))
+  (k/try (testing/expectEqual 3.14 (:PI Empty)))
+  (k/try (testing/expectEqual 0 (k/sizeOf Empty)))
   ;; Empty structs can be instantiated the same as usual.
   (let [does-nothing (Empty {})]
     (k/= :_ does-nothing)))
@@ -55,7 +55,7 @@
 (a/deftest field-parent-pointer
   (let [point (k/var (Point {:x 0.1234 :y 0.5678}))]
     (setYBasedOnX (k/& (:x point)) 0.9)
-    (try (testing/expectEqual 0.9 (:y point)))))
+    (k/try (testing/expectEqual 0.9 (:y point)))))
 
 ;; Structs can be returned from functions.
 (a/defn LinkedList :type [[T {:attrs #{k/comptime}} :type]]
@@ -70,19 +70,19 @@
 
 (a/deftest linked-list
   ;; Functions called at compile-time are memoized.
-  (try (testing/expectEqual (LinkedList :i32) (LinkedList :i32)))
+  (k/try (testing/expectEqual (LinkedList :i32) (LinkedList :i32)))
   (let [list (a/init {:first nil :last nil :len 0} (LinkedList :i32))]
-    (try (testing/expectEqual 0 (:len list))))
+    (k/try (testing/expectEqual 0 (:len list))))
   ;; Since types are first class values you can instantiate the type
   ;; by assigning it to a variable:
   (let [ListOfInts (LinkedList :i32)]
-    (try (testing/expectEqual (LinkedList :i32) ListOfInts))
+    (k/try (testing/expectEqual (LinkedList :i32) ListOfInts))
     (let [node (k/var (a/init {:prev nil :next nil :data 1234} (:Node ListOfInts)))
           list2 (a/init {:first (k/& node) :last (k/& node) :len 1} (LinkedList :i32))]
       ;; When using a pointer to a struct, fields can be accessed directly,
       ;; without explicitly dereferencing the pointer.
       ;; So you can do
-      (try (testing/expectEqual 1234 (:data (a/unwrap (:first list2)))))
+      (k/try (testing/expectEqual 1234 (:data (a/unwrap (:first list2)))))
       ;; instead of try expectEqual(1234, list2.first.?.*.data);
       )))
 

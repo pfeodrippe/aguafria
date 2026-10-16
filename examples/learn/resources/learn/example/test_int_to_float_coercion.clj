@@ -8,7 +8,7 @@
     (k/= :_ (k/& int))
     (let [float (k/f32 int)
           int-from-float (k/u8 (k/intFromFloat float))]
-      (try (testing/expectEqual int int-from-float)))))
+      (k/try (testing/expectEqual int int-from-float)))))
 
 (comment
   (implicit-integer-to-float))

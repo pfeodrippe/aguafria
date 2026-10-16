@@ -7,7 +7,7 @@
   (let [i (k/var 0 :usize)]
     (k/while (k/< i 10)
       (k/+= i 1))
-    (try (testing/expectEqual 10 i))))
+    (k/try (testing/expectEqual 10 i))))
 
 (comment
   (while-basic))

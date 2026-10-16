@@ -12,17 +12,17 @@
     ;; Coerce from an error set:
     (k/= foo (a/error-value :SomeError))
     ;; Use compile-time reflection to access the payload type of an error union:
-    (try (k/comptime
-          (testing/expectEqual :i32
-                               (-> (k/typeInfo (k/TypeOf foo))
-                                   type-info/-error_union
-                                   error-union-info/-payload))))
+    (k/try (k/comptime
+            (testing/expectEqual :i32
+                                 (-> (k/typeInfo (k/TypeOf foo))
+                                     type-info/-error_union
+                                     error-union-info/-payload))))
     ;; Use compile-time reflection to access the error set type of an error union:
-    (try (k/comptime
-          (testing/expectEqual :anyerror
-                               (-> (k/typeInfo (k/TypeOf foo))
-                                   type-info/-error_union
-                                   error-union-info/-error_set))))))
+    (k/try (k/comptime
+            (testing/expectEqual :anyerror
+                                 (-> (k/typeInfo (k/TypeOf foo))
+                                     type-info/-error_union
+                                     error-union-info/-error_set))))))
 
 (comment
   (error-union))

@@ -11,8 +11,8 @@
 (a/defvar y :i32 (add 10 x))
 
 (a/deftest container-level-variables
-  (try (testing/expectEqual 46 x))
-  (try (testing/expectEqual 56 y)))
+  (k/try (testing/expectEqual 46 x))
+  (k/try (testing/expectEqual 56 y)))
 
 (comment
   (container-level-variables))

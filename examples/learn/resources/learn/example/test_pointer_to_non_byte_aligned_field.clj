@@ -10,7 +10,7 @@
 
 (a/deftest pointer-to-non-byte-aligned-field
   (let [ptr (k/& (:b foo))]
-    (try (testing/expectEqual 2 @ptr))))
+    (k/try (testing/expectEqual 2 @ptr))))
 
 (comment
   (pointer-to-non-byte-aligned-field))

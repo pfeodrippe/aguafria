@@ -9,14 +9,14 @@
     ;; The first argument to `expectEqual` is the known, expected, result.
     ;; The second argument is the result of some expression.
     ;; The actual's type is casted to the type of expected.
-    (try (testing/expectEqual expected actual))))
+    (k/try (testing/expectEqual expected actual))))
 
 (a/deftest expectError-demo
   (let [expected-error (a/error-value :DemoError)
         actual-error-union (k/as (a/error-value :DemoError) [:error-union :anyerror :void])]
     ;; `expectError` will fail when the actual error is different than
     ;; the expected error.
-    (try (testing/expectError expected-error actual-error-union))))
+    (k/try (testing/expectError expected-error actual-error-union))))
 
 (comment
   (expectEqual-demo)

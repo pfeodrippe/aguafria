@@ -16,7 +16,7 @@
   [[a :i32] [b :i32]])
 
 (a/deftest global-assembly
-  (try (testing/expectEqual 46 (my-func 12 34))))
+  (k/try (testing/expectEqual 46 (my-func 12 34))))
 
 (comment
   (global-assembly))

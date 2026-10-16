@@ -13,9 +13,9 @@
                                 :hi (a/number-literal "0b0101")})
         backing-int (k/backingInt original)]
     (k/comptime (debug/assert (k/== (k/TypeOf backing-int) :u8)))
-    (try (testing/expectEqual (a/number-literal "0b0101_1100") backing-int))
+    (k/try (testing/expectEqual (a/number-literal "0b0101_1100") backing-int))
     (let [reconstructed (k/as (k/fromBackingInt backing-int) PackedStruct)]
-      (try (testing/expectEqual original reconstructed)))))
+      (k/try (testing/expectEqual original reconstructed)))))
 
 (comment
   (convert-to-and-from-backing-integer))

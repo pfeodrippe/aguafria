@@ -10,9 +10,9 @@
   [[format [:sentinel-const :u8 0]] [... {:zig/variadic true} _]])
 
 (a/deftest variadic-function
-  (try (testing/expectEqual 14 (printf "Hello, world!\n")))
-  (try (testing/expect
-        (-> (k/typeInfo (k/TypeOf printf)) type-info/-fn fn-info/-attrs :varargs))))
+  (k/try (testing/expectEqual 14 (printf "Hello, world!\n")))
+  (k/try (testing/expect
+          (-> (k/typeInfo (k/TypeOf printf)) type-info/-fn fn-info/-attrs :varargs))))
 
 (comment
   (variadic-function))

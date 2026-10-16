@@ -26,8 +26,8 @@
               (k/break :blk 6))
             ;; No else is required if the types cases was exhaustively handled
             (:d Item) 8)]
-    (try (testing/expectEqual 6 b))
-    (try (testing/expectEqual 2 (a/get-in a [:c :x])))))
+    (k/try (testing/expectEqual 6 b))
+    (k/try (testing/expectEqual 2 (a/get-in a [:c :x])))))
 
 (comment
   (switch-on-tagged-union))

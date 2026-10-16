@@ -9,8 +9,8 @@
    [:c :u8]])
 
 (a/deftest tagName
-  (try (testing/expectEqualSlices
-        :u8 "a" (k/tagName (:a Small2)))))
+  (k/try (testing/expectEqualSlices
+          :u8 "a" (k/tagName (:a Small2)))))
 
 (comment
   (tagName))

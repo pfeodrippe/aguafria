@@ -9,7 +9,7 @@
          ptr (k/& x)]
      (k/+= @ptr 1)
      (k/+= x 1)
-     (try (testing/expectEqual 3 @ptr)))))
+     (k/try (testing/expectEqual 3 @ptr)))))
 
 (comment
   (comptime-pointers))

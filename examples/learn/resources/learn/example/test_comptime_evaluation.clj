@@ -36,9 +36,9 @@
     result))
 
 (a/deftest perform-fn
-  (try (testing/expectEqual 6 (performFn \t 1)))
-  (try (testing/expectEqual 1 (performFn \o 0)))
-  (try (testing/expectEqual 99 (performFn \w 99))))
+  (k/try (testing/expectEqual 6 (performFn \t 1)))
+  (k/try (testing/expectEqual 1 (performFn \o 0)))
+  (k/try (testing/expectEqual 99 (performFn \w 99))))
 
 (comment
   (perform-fn))

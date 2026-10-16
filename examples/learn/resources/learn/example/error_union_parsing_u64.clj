@@ -30,8 +30,8 @@
     x))
 
 (a/deftest parse-u64
-  (let [result (try (parseU64 "1234" 10))]
-    (try (testing/expectEqual 1234 result))))
+  (let [result (k/try (parseU64 "1234" 10))]
+    (k/try (testing/expectEqual 1234 result))))
 
 (comment
   (parse-u64))

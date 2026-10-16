@@ -18,9 +18,9 @@
   (let [v1 (k/var (Variant {:int 1}))
         v2 (k/var (Variant {:boolean false}))
         v3 (k/var :none Variant)]
-    (try (testing/expect ((:truthy v1))))
-    (try (testing/expect (k/! ((:truthy v2)))))
-    (try (testing/expect (k/! ((:truthy v3)))))))
+    (k/try (testing/expect ((:truthy v1))))
+    (k/try (testing/expect (k/! ((:truthy v2)))))
+    (k/try (testing/expect (k/! ((:truthy v3)))))))
 
 (comment
   (union-method))

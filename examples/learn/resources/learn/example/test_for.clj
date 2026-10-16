@@ -12,27 +12,27 @@
       (when (k/== value 0)
         (k/continue))
       (k/+= sum value))
-    (try (testing/expectEqual 16 sum))
+    (k/try (testing/expectEqual 16 sum))
 
     ;; To iterate over a portion of a slice, reslice.
     (k/for [value (a/slice items 0 1)]
       (k/+= sum value))
-    (try (testing/expectEqual 20 sum))
+    (k/try (testing/expectEqual 20 sum))
 
     ;; To access the index of iteration, specify a second condition as well
     ;; as a second capture value.
     (let [sum2 (k/var 0 :i32)]
       (k/for [_ items i (a/range 0)]
-        (try (testing/expectEqual :usize (k/TypeOf i)))
+        (k/try (testing/expectEqual :usize (k/TypeOf i)))
         (k/+= sum2 (k/as (k/intCast i) :i32)))
-      (try (testing/expectEqual 10 sum2)))
+      (k/try (testing/expectEqual 10 sum2)))
 
     ;; To iterate over consecutive integers, use the range syntax.
     ;; Unbounded range is always a compile error.
     (let [sum3 (k/var 0 :usize)]
       (k/for [i (a/range 0 5)]
         (k/+= sum3 i))
-      (try (testing/expectEqual 10 sum3)))))
+      (k/try (testing/expectEqual 10 sum3)))))
 
 (a/deftest multi-object-for
   (let [items (a/array [1 2 3] :usize)
@@ -43,7 +43,7 @@
     ;; illegal behavior occurs.
     (k/for [i items j items2]
       (k/+= count (k/+ i j)))
-    (try (testing/expectEqual 21 count))))
+    (k/try (testing/expectEqual 21 count))))
 
 (a/deftest for-reference
   (let [items (k/var (a/array [3 4 2] :i32))]
@@ -51,9 +51,9 @@
     ;; specifying that the capture value is a pointer.
     (k/for [(k/* value) (k/& items)]
       (k/+= @value 1))
-    (try (testing/expectEqual 4 (a/get items 0)))
-    (try (testing/expectEqual 5 (a/get items 1)))
-    (try (testing/expectEqual 3 (a/get items 2)))))
+    (k/try (testing/expectEqual 4 (a/get items 0)))
+    (k/try (testing/expectEqual 5 (a/get items 1)))
+    (k/try (testing/expectEqual 3 (a/get items 2)))))
 
 (a/deftest for-else
   ;; For allows an else attached to it, the same as a while loop.
@@ -66,9 +66,9 @@
                      (k/+= sum (a/unwrap value)))
                    (a/else-expression
                     (a/with-block :blk
-                      (try (testing/expectEqual 12 sum))
+                      (k/try (testing/expectEqual 12 sum))
                       (k/break :blk sum))))]
-      (try (testing/expectEqual 12 result)))))
+      (k/try (testing/expectEqual 12 result)))))
 
 (comment
   (for-basics)

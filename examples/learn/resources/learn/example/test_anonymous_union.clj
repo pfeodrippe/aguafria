@@ -1,5 +1,6 @@
 (ns learn.example.test-anonymous-union
-  (:require [aguafria.std.testing :as testing]
+  (:require [aguafria.keyword :as k]
+            [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
 (ns-unmap *ns* 'Number)
@@ -14,8 +15,8 @@
 (a/deftest anonymous-union-literal-syntax
   (let [i (Number {:int 42})
         f (make-number)]
-    (try (testing/expectEqual 42 (:int i)))
-    (try (testing/expectEqual 12.34 (:float f)))))
+    (k/try (testing/expectEqual 42 (:int i)))
+    (k/try (testing/expectEqual 12.34 (:float f)))))
 
 (comment
   (anonymous-union-literal-syntax))

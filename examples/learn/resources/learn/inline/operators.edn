@@ -315,7 +315,7 @@
   :note "Alternative error handlers; the second makes err available to b."}
 
  "try a"
- {:clojure-source "(try a)" :kind :expr
+ {:clojure-source "(k/try a)" :kind :expr
   :note "Unwrap a successful error union, returning any error to the caller."}
 
  "a catch |err| return err"
@@ -323,7 +323,7 @@
   :note "Propagate a's error to the caller."}
 
  "const value: anyerror!u32 = 5678;\ntry value == 5678"
- {:clojure-source "(let [value (k/as 5678 [:error-union :anyerror :u32])]\n  (k/== (try value) 5678))"
+ {:clojure-source "(let [value (k/as 5678 [:error-union :anyerror :u32])]\n  (k/== (k/try value) 5678))"
   :kind :expr :standalone? true
   :note "Unwrap the successful u32 payload before comparison."}
 

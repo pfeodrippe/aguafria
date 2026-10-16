@@ -9,12 +9,12 @@
 (a/deftest offsets-of-non-byte-aligned-fields
   (k/comptime
    (do
-     (try (testing/expectEqual 0 (k/bitOffsetOf BitField "a")))
-     (try (testing/expectEqual 3 (k/bitOffsetOf BitField "b")))
-     (try (testing/expectEqual 6 (k/bitOffsetOf BitField "c")))
-     (try (testing/expectEqual 0 (k/offsetOf BitField "a")))
-     (try (testing/expectEqual 0 (k/offsetOf BitField "b")))
-     (try (testing/expectEqual 0 (k/offsetOf BitField "c"))))))
+     (k/try (testing/expectEqual 0 (k/bitOffsetOf BitField "a")))
+     (k/try (testing/expectEqual 3 (k/bitOffsetOf BitField "b")))
+     (k/try (testing/expectEqual 6 (k/bitOffsetOf BitField "c")))
+     (k/try (testing/expectEqual 0 (k/offsetOf BitField "a")))
+     (k/try (testing/expectEqual 0 (k/offsetOf BitField "b")))
+     (k/try (testing/expectEqual 0 (k/offsetOf BitField "c"))))))
 
 (comment
   (offsets-of-non-byte-aligned-fields))

@@ -3,7 +3,7 @@
             [aguafria.zig :as a]))
 
 (a/defn- create-foo [:error-union Foo] [[parameter :i32]]
-  (let [foo (try (try-to-allocate-foo))]
+  (let [foo (k/try (try-to-allocate-foo))]
     ;; Ownership transfers to the caller only when this function succeeds.
     (k/errdefer (deallocate-foo foo))
     (let [temporary-buffer (orelse (allocate-tmp-buffer)

@@ -48,8 +48,8 @@
 
 (a/deftest inline-for-and-inline-else-similarity
   (let [any (AnySlice {:c "hello"})]
-    (try (testing/expectEqual 5 (with-for any)))
-    (try (testing/expectEqual 5 (with-switch any)))))
+    (k/try (testing/expectEqual 5 (with-for any)))
+    (k/try (testing/expectEqual 5 (with-switch any)))))
 
 (comment
   (inline-for-and-inline-else-similarity))

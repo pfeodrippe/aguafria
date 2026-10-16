@@ -8,10 +8,10 @@
         start (k/var 2 :usize)] ; var to make it runtime-known
     (k/= :_ (k/& start)) ; suppress 'var is never mutated' error
     (let [slice (a/slice array start 4)]
-      (try (testing/expectEqual 2 (:len slice)))
-      (try (testing/expectEqual 4 (a/get array 3)))
+      (k/try (testing/expectEqual 2 (:len slice)))
+      (k/try (testing/expectEqual 4 (a/get array 3)))
       (k/+= (a/get slice 1) 1)
-      (try (testing/expectEqual 5 (a/get array 3))))))
+      (k/try (testing/expectEqual 5 (a/get array 3))))))
 
 (comment
   (pointer-slicing))

@@ -18,11 +18,11 @@
                  :one true
                  (:two :three) false
                  _ false)]
-    (try (testing/expect result))
+    (k/try (testing/expect result))
     (let [is-one (k/switch number
                    :one true
                    false)]
-      (try (testing/expect is-one)))))
+      (k/try (testing/expect is-one)))))
 
 (comment
   (switch-on-non-exhaustive-enum))

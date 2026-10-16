@@ -8,11 +8,11 @@
   (k/+ x 42))
 
 (a/deftest fn-type-inference
-  (try (testing/expectEqual 43 (add-forty-two 1)))
-  (try (testing/expectEqual :comptime_int (k/TypeOf (add-forty-two 1))))
+  (k/try (testing/expectEqual 43 (add-forty-two 1)))
+  (k/try (testing/expectEqual :comptime_int (k/TypeOf (add-forty-two 1))))
   (let [y (k/i64 2)]
-    (try (testing/expectEqual 44 (add-forty-two y)))
-    (try (testing/expectEqual :i64 (k/TypeOf (add-forty-two y))))))
+    (k/try (testing/expectEqual 44 (add-forty-two y)))
+    (k/try (testing/expectEqual :i64 (k/TypeOf (add-forty-two y))))))
 
 (comment
   (fn-type-inference))

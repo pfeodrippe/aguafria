@@ -10,19 +10,19 @@
         d (k/u64 c)
         e (k/u64 d)
         f (k/u128 e)]
-    (try (testing/expectEqual f a))))
+    (k/try (testing/expectEqual f a))))
 
 (a/deftest implicit-unsigned-integer-to-signed-integer
   (let [a (k/u8 250)
         b (k/i16 a)]
-    (try (testing/expectEqual 250 b))))
+    (k/try (testing/expectEqual 250 b))))
 
 (a/deftest float-widening
   (let [a (k/f16 12.34)
         b (k/f32 a)
         c (k/f64 b)
         d (k/f128 c)]
-    (try (testing/expectEqual d a))))
+    (k/try (testing/expectEqual d a))))
 
 (comment
   (integer-widening)

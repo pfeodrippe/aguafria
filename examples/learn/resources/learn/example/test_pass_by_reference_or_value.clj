@@ -13,7 +13,7 @@
   (k/+ (:x point) (:y point)))
 
 (a/deftest pass-struct-to-function
-  (try (testing/expectEqual 3 (foo (Point {:x 1 :y 2})))))
+  (k/try (testing/expectEqual 3 (foo (Point {:x 1 :y 2})))))
 
 (comment
   (pass-struct-to-function))

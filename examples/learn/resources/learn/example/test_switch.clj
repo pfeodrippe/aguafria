@@ -37,7 +37,7 @@
             ;; Else branches are mandatory unless the entire range of values
             ;; is handled.
             9)]
-    (try (testing/expectEqual 1 b))))
+    (k/try (testing/expectEqual 1 b))))
 
 ;; Switch expressions can be used outside a function:
 (a/defconst os-msg

@@ -11,7 +11,7 @@
 (a/deftest enum-literals
   (let [color1 (k/as :auto Color)
         color2 (:auto Color)]
-    (try (testing/expectEqual color1 color2))))
+    (k/try (testing/expectEqual color1 color2))))
 
 (a/deftest switch-using-enum-literals
   (let [color (:on Color)
@@ -19,7 +19,7 @@
                  :auto false
                  :on true
                  :off false)]
-    (try (testing/expect result))))
+    (k/try (testing/expect result))))
 
 (comment
   (enum-literals)

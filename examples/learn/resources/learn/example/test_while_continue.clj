@@ -10,7 +10,7 @@
       (if (k/< i 10)
         (k/continue))
       (k/break))
-    (try (testing/expectEqual 10 i))))
+    (k/try (testing/expectEqual 10 i))))
 
 (comment
   (while-continue))

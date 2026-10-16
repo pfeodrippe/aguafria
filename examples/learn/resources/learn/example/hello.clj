@@ -7,7 +7,7 @@
 
 (a/defn main :!void
   [[process-init process/Init]]
-  (try
+  (k/try
     (-> (std-file/stdout)
         (std-file/writeStreamingAll
          (process-init/-io process-init)

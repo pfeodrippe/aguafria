@@ -11,8 +11,8 @@
 (a/deftest no-runtime-side-effects
   (let [data (k/var 0 :i32)
         T (k/TypeOf (foo :i32 (k/& data)))]
-    (try (k/comptime (testing/expectEqual :i32 T)))
-    (try (testing/expectEqual 0 data))))
+    (k/try (k/comptime (testing/expectEqual :i32 T)))
+    (k/try (testing/expectEqual 0 data))))
 
 (comment
   (no-runtime-side-effects))

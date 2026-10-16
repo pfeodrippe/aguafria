@@ -1,5 +1,6 @@
 (ns learn.example.test-packed-union-equality
-  (:require [aguafria.std.testing :as testing]
+  (:require [aguafria.keyword :as k]
+            [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
 (a/deftest packed-union-equality
@@ -8,7 +9,7 @@
                     [:b :i4]])
         x (U {:a 3})
         y (U {:b 3})]
-    (try (testing/expectEqual x y))))
+    (k/try (testing/expectEqual x y))))
 
 (comment
   (packed-union-equality))

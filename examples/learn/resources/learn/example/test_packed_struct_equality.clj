@@ -1,5 +1,6 @@
 (ns learn.example.test-packed-struct-equality
-  (:require [aguafria.std.testing :as testing]
+  (:require [aguafria.keyword :as k]
+            [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
 (a/deftest packed-struct-equality
@@ -8,7 +9,7 @@
                      [:b :u4]])
         x (S {:a 1 :b 2})
         y (S {:b 2 :a 1})]
-    (try (testing/expectEqual x y))))
+    (k/try (testing/expectEqual x y))))
 
 (comment
   (packed-struct-equality))

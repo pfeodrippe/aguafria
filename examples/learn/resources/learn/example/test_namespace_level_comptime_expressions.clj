@@ -33,7 +33,7 @@
 (a/defconst sum-of-first-25-primes (sum (k/& first-25-primes)))
 
 (a/deftest variable-values
-  (try (testing/expectEqual 1060 sum-of-first-25-primes)))
+  (k/try (testing/expectEqual 1060 sum-of-first-25-primes)))
 
 (comment
   (variable-values))

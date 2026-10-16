@@ -9,7 +9,7 @@
     (k/= :_ (k/& runtime-start))
     (let [length 2
           array-ptr-len (a/slice (a/slice array runtime-start) 0 length)]
-      (try (testing/expectEqual (a/type [:* [:array length :i32]]) (k/TypeOf array-ptr-len))))))
+      (k/try (testing/expectEqual (a/type [:* [:array length :i32]]) (k/TypeOf array-ptr-len))))))
 
 (comment
   (example))

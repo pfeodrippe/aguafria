@@ -12,12 +12,12 @@
     (k/= foo 1234)
 
     ;; Use compile-time reflection to access the child type of the optional:
-    (try (k/comptime
-          (testing/expectEqual
-           :i32
-           (-> (k/typeInfo (k/TypeOf foo))
-               type-info/-optional
-               optional-info/-child))))))
+    (k/try (k/comptime
+            (testing/expectEqual
+             :i32
+             (-> (k/typeInfo (k/TypeOf foo))
+                 type-info/-optional
+                 optional-info/-child))))))
 
 (comment
   (optional-type))

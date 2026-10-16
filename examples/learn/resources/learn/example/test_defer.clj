@@ -9,12 +9,12 @@
     (a/block
      (k/defer (k/= a 2))
      (k/= a 1))
-    (try (testing/expectEqual 2 a))
+    (k/try (testing/expectEqual 2 a))
     (k/= a 5)
     a))
 
 (a/deftest defer-basics
-  (try (testing/expectEqual 5 (try (defer-example)))))
+  (k/try (testing/expectEqual 5 (k/try (defer-example)))))
 
 (comment
   (defer-basics))

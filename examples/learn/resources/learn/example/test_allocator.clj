@@ -17,7 +17,7 @@
         fba (k/var ((:init heap/FixedBufferAllocator) (k/& buffer)))
         allocator ((:allocator fba))
         result (k/try (concat allocator "foo" "bar"))]
-    (try (testing/expectEqualStrings "foobar" result))))
+    (k/try (testing/expectEqualStrings "foobar" result))))
 
 (comment
   (using-an-allocator))

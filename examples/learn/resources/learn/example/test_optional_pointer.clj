@@ -9,11 +9,11 @@
   (let [ptr (k/var nil [:optional [:* :i32]])
         x (k/var 1 :i32)]
     (k/= ptr (k/& x))
-    (try (testing/expectEqual 1 (deref (a/unwrap ptr))))
+    (k/try (testing/expectEqual 1 (deref (a/unwrap ptr))))
     ;; Optional pointers are the same size as normal pointers, because pointer
     ;; value 0 is used as the null value.
-    (try (testing/expectEqual (k/sizeOf [:optional [:* :i32]])
-                              (k/sizeOf [:* :i32])))))
+    (k/try (testing/expectEqual (k/sizeOf [:optional [:* :i32]])
+                                (k/sizeOf [:* :i32])))))
 
 (comment
   (optional-pointers))

@@ -8,8 +8,8 @@
         y (k/var 1 :i32 {:attrs #{k/comptime}})]
     (k/+= x 1)
     (k/+= y 1)
-    (try (testing/expectEqual 2 x))
-    (try (testing/expectEqual 2 y))
+    (k/try (testing/expectEqual 2 x))
+    (k/try (testing/expectEqual 2 y))
 
     (when (k/!= y 2)
       ;; This compile error never triggers because y is a comptime variable,

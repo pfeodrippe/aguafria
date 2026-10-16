@@ -10,7 +10,7 @@
     (if (k/> a b) a b)))
 
 (a/deftest try-to-compare-bools
-  (try (testing/expectEqual true (max :bool false true))))
+  (k/try (testing/expectEqual true (max :bool false true))))
 
 (comment
   (try-to-compare-bools))

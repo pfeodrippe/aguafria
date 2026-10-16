@@ -1,5 +1,6 @@
 (ns learn.example.testing-detect-test
-  (:require [aguafria.builtin :as builtin]
+  (:require [aguafria.keyword :as k]
+            [aguafria.builtin :as builtin]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
@@ -8,7 +9,7 @@
   builtin/is_test)
 
 (a/deftest builtin-is-test
-  (try (testing/expect (isATest))))
+  (k/try (testing/expect (isATest))))
 
 (comment
   (builtin-is-test))
