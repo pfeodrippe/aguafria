@@ -78,10 +78,10 @@
         namespaces (mapv create-ns symbols)]
     (try
       (a/configure! {:async? async?
-                      :reloadable? true
-                      :optimize "fast"
-                      :modules {}
-                      :zig-args []})
+                     :reloadable? true
+                     :optimize "fast"
+                     :modules {}
+                     :zig-args []})
       (doseq [target namespaces]
         (binding [*ns* target]
           (refer 'clojure.core)
@@ -123,16 +123,16 @@
                               (System/mapLibraryName "aguafria_final_benchmark"))]
     (try
       (a/configure! {:async? false
-                      :reloadable? false
-                      :optimize "fast"
-                      :modules {}
-                      :zig-args []})
+                     :reloadable? false
+                     :optimize "fast"
+                     :modules {}
+                     :zig-args []})
       (binding [*ns* module-ns]
         (refer 'clojure.core)
         (alias 'a 'aguafria.zig)
-        (eval '(a/defn step :u64 [x :- :u64] (+ x 1)))
+        (eval '(a/defn step :u64 [[x :u64]] (+ x 1)))
         (eval
-         '(a/defn direct_loop :u64 [n :- :u64]
+         '(a/defn direct_loop :u64 [[n :u64]]
             (var total :u64 0)
             (var i :u64 0)
             (while (< i n)
@@ -140,7 +140,7 @@
               (+= i 1))
             total))
         (eval
-         '(a/defn composed_loop :u64 [n :- :u64]
+         '(a/defn composed_loop :u64 [[n :u64]]
             (var total :u64 0)
             (var i :u64 0)
             (while (< i n)
@@ -149,9 +149,9 @@
             total)))
       (let [source (a/source module-symbol)
             build (a/build! module-symbol
-                             {:kind :dynamic-lib
-                              :output (.getAbsolutePath output)
-                              :optimize "fast"})]
+                            {:kind :dynamic-lib
+                             :output (.getAbsolutePath output)
+                             :optimize "fast"})]
         (with-open [arena (Arena/ofConfined)]
           (let [linker (Linker/nativeLinker)
                 lookup (SymbolLookup/libraryLookup (.toPath output) arena)
@@ -312,8 +312,8 @@
          module-ns (create-ns module-symbol)]
      (try
        (a/configure! {:async? false
-                       :reloadable? true
-                       :optimize "fast"})
+                      :reloadable? true
+                      :optimize "fast"})
        (binding [*ns* module-ns]
          (refer 'clojure.core)
          (alias 'a 'aguafria.zig))
@@ -322,11 +322,11 @@
                  (eval
                   '(a/defn hot-step :u64
                      {:attrs #{:public :implicit-return}}
-                     [x :- :u64]
+                     [[x :u64]]
                      (+ x 1)))
                  (eval
                   '(a/defn direct-loop :u64
-                     [n :- :u64]
+                     [[n :u64]]
                      (var total :u64 0)
                      (var i :u64 0)
                      (while (< i n)
@@ -335,7 +335,7 @@
                      total))
                  (eval
                   '(a/defn dispatch-loop :u64
-                     [n :- :u64]
+                     [[n :u64]]
                      (var total :u64 0)
                      (var i :u64 0)
                      (while (< i n)
@@ -353,7 +353,7 @@
                  (eval
                   '(a/defn hot-step :u64
                      {:attrs #{:public :implicit-return}}
-                     [x :- :u64]
+                     [[x :u64]]
                      (+ x 2))))
              incremental (compile-measurement module-symbol
                                               (elapsed-ms incremental-started))
@@ -361,7 +361,7 @@
                  (eval
                   '(a/defn hot-step :u64
                      {:attrs #{:public :implicit-return}}
-                     [x :- :u64]
+                     [[x :u64]]
                      (+ x 1))))
              direct-loop (ns-resolve module-ns 'direct-loop)
              dispatch-loop (ns-resolve module-ns 'dispatch-loop)
@@ -529,26 +529,26 @@
             "check"
             (checked-benchmark! (keyword (or (first arguments) "micro")))
 
-         "project"
-         (benchmark-project! (some-> (first arguments) keyword))
+            "project"
+            (benchmark-project! (some-> (first arguments) keyword))
 
-         "all"
-         {:benchmark :aguafria/all
-          :micro (benchmark! {})
-          :sample (benchmark-project! :sample)
-          :tigerbeetle (benchmark-project! :tigerbeetle)}
+            "all"
+            {:benchmark :aguafria/all
+             :micro (benchmark! {})
+             :sample (benchmark-project! :sample)
+             :tigerbeetle (benchmark-project! :tigerbeetle)}
 
-         "micro"
-         (benchmark! (micro-options arguments))
+            "micro"
+            (benchmark! (micro-options arguments))
 
-         "suite"
-         (benchmark-suite!
-          {:focus (first arguments)
-           :populate? (not= "once" (second arguments))})
+            "suite"
+            (benchmark-suite!
+             {:focus (first arguments)
+              :populate? (not= "once" (second arguments))})
 
          ;; Preserve the original concise numeric invocation:
          ;; `clojure -M:bench 100000 5 2000 4`.
-         (benchmark! (micro-options (cond-> arguments mode (conj mode)))))]
+            (benchmark! (micro-options (cond-> arguments mode (conj mode)))))]
       (prn result)
       (when (false? (get-in result [:budget :passed?]))
         (throw (ex-info "Aguafria performance budget failed"

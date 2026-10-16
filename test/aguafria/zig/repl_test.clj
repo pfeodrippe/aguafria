@@ -39,7 +39,7 @@
   (let [rows (:rows (repl/plan
                      (str "(a/defn main :void \"First line\nSecond line\" [] (run-main))\n"
                           "(defn helper \"First line\nSecond line\" [] 42)\n"
-                          "(a/defconst typed \"First line\nSecond line\" :i32 (value))")
+                          "(a/defconst typed :i32 \"First line\nSecond line\" (value))")
                      "aguafria.zig.repl-test"))]
     (is (= ["(run-main)" "42" "(value)"] (mapv :expression rows)))
     (is (not-any? :reason rows))
@@ -71,7 +71,7 @@
 (deftest native-initializers-are-whole-forms-with-declaration-context
   (let [source (str "(a/defconst native-endian ((:endian (:arch (:cpu builtin/target)))))\n"
                     "(a/defconst text \"literal value\")\n"
-                    "(a/defconst typed \"doc\" {:private true} :i32 (k/intCast source))\n"
+                    "(a/defconst typed :i32 \"doc\" {:private true} (k/intCast source))\n"
                     "(a/defvar counter :u32 \"doc\" {:private true} (k/+ one two))\n"
                     "(def ordinary (must-not-run-again))")
         rows (:rows (repl/plan source "aguafria.zig.repl-test"))]

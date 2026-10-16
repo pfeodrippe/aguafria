@@ -45,14 +45,9 @@
                                :expression (node/string body)}))]
                (cond
                  (and (= 'aguafria.zig owner) (#{'defconst 'defvar} op))
-                 (let [parts (loop [parts tail]
-                               (if (and (next parts) (documentation? (first parts)))
-                                 (recur (next parts)) parts))
-                       type (if (= 'defconst op)
-                              (when (= 2 (count parts)) (first parts))
-                              (when (and (next tail)
-                                         (not (documentation? (first tail))))
-                                (first tail)))]
+                 (let [type (when (and (next tail)
+                                       (not (documentation? (first tail))))
+                              (first tail))]
                    [(cond-> (assoc (record (last tail)) :kind :initializer)
                       (and type (not (#{'_ :_} (token type))))
                       (assoc :type-context (node/string type)))])

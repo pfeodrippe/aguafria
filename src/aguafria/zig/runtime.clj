@@ -10945,7 +10945,7 @@
   "Authorize and apply one explicit breaking `a/defvar` migration.
 
   `migration` must name an exported Aguafria function with signature
-  `[old-address :- :usize new-address :- :usize] -> :void`. The migration is
+  `[[old-address :usize] [new-address :usize]] -> :void`. The migration is
   registered for exactly the currently published and requested schema pair,
   then the complete dependency component is prepared and published again."
   [state migration]

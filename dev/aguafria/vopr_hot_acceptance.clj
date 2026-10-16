@@ -95,7 +95,7 @@
          '(a/defvar aguafria_hot_reload_probe_value :u64 0))
         (evaluate-and-await!
          '(a/defn aguafria_hot_reload_mark :u8
-            [value :- :u8]
+            [[value :u8]]
             (set! aguafria_hot_reload_probe_value 4242)
             value))
         (evaluate-and-await!

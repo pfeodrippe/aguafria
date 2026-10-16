@@ -13,24 +13,24 @@
             [aguafria-examples-native.bindings.box3d :as b3]))
 
 (a/defconst corridor-half-width
-  "Low-speed recovery may use one metre of supported shoulder, not arbitrary
+  :f32 "Low-speed recovery may use one metre of supported shoulder, not arbitrary
   off-course space. Normal racing still targets the driver's ordinary lanes."
-  :f32 7.5)
+  7.5)
 
 (a/defstruct State {:layout :extern}
-  [[:phase :u8] [:waiting_ticks :u16] [:start_x :f32] [:start_y :f32]])
+             [[:phase :u8] [:waiting_ticks :u16] [:start_x :f32] [:start_y :f32]])
 
 (a/defstruct Output {:layout :extern}
-  [[:state State] [:control driver/Control] [:gear :i8]])
+             [[:state State] [:control driver/Control] [:gear :i8]])
 
 (a/defn reverse-steering :f32
   "Align to the road while reversing, not to the eventual lateral destination." [[body physics/BodyState]]
   (let [projection (track/project (* (a/field body x) 0.001) (* (a/field body y) 0.001))
         route (circuit/at-distance (* 4309.0 (a/field projection progress)) 0.0)
         heading (math/atan2 (* 2.0 (+ (* (a/field body qw) (a/field body qz))
-                                       (* (a/field body qx) (a/field body qy))))
-                   (- 1.0 (* 2.0 (+ (* (a/field body qy) (a/field body qy))
-                                     (* (a/field body qz) (a/field body qz))))))
+                                      (* (a/field body qx) (a/field body qy))))
+                            (- 1.0 (* 2.0 (+ (* (a/field body qy) (a/field body qy))
+                                             (* (a/field body qz) (a/field body qz))))))
         heading-error (- heading (a/field route heading))]
     (ak/max -0.45 (ak/min 0.45 (* 1.5 (math/atan2 (math/sin heading-error) (math/cos heading-error)))))))
 
@@ -45,13 +45,13 @@
         rotation (b3/b3Quat {:v {:x (a/field body qx) :y (a/field body qy) :z (a/field body qz)}
                              :s (a/field body qw)})
         delta (b3/b3InvRotateVector rotation
-                (b3/b3Vec3 {:x (- (a/field target x) (a/field body x))
-                            :y (- (a/field target y) (a/field body y)) :z 0.0}))
+                                    (b3/b3Vec3 {:x (- (a/field target x) (a/field body x))
+                                                :y (- (a/field target y) (a/field body y)) :z 0.0}))
         wheelbase (- (a/index (a/index spec/wheel-geometry 0) 0)
-                      (a/index (a/index spec/wheel-geometry 2) 0))
+                     (a/index (a/index spec/wheel-geometry 2) 0))
         steering (math/atan2 (* 2.0 wheelbase (a/field delta y))
-                   (ak/max 1.0 (+ (* (a/field delta x) (a/field delta x))
-                                  (* (a/field delta y) (a/field delta y)))))
+                             (ak/max 1.0 (+ (* (a/field delta x) (a/field delta x))
+                                            (* (a/field delta y) (a/field delta y)))))
         speed (ak/sqrt (+ (* (a/field body vx) (a/field body vx))
                           (* (a/field body vy) (a/field body vy))))]
     (driver/Control {:throttle (driver/clamp-unit (* (- 2.0 speed) 0.25))
@@ -78,7 +78,7 @@
                             (* (a/field body qy) (a/field body qy)))))
         safe (and enabled (> up 0.8))
         rear-clear (and (> rear-gap 14.0)
-                         (> (- rear-gap 7.0) (* (ak/max 0.0 rear-closing) 4.0)))
+                        (> (- rear-gap 7.0) (* (ak/max 0.0 rear-closing) 4.0)))
         dx (- (a/field body x) (a/field state start_x))
         dy (- (a/field body y) (a/field state start_y))
         travelled (ak/sqrt (+ (* dx dx) (* dy dy)))]

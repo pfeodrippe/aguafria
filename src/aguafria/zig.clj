@@ -718,7 +718,7 @@
   "Define, compile, and expose a Zig function.
 
       (a/defn add :i32
-        [a :- :i32 b :- :i32]
+        [[a :i32] [b :i32]]
         (+ a b))
 
   The Zig declaration is public to its module and remains directly callable
@@ -753,18 +753,12 @@
 (defmacro defconst
   "Define a Zig top-level constant.
 
-  Accepts an optional docstring and attr-map after the name. Use either
-  `value` for inferred type or `type value` for an explicit Zig type."
+  Uses name [type] [docstring] [attributes] value, like a/defvar.
+  An explicit type immediately follows the name; omit it or use :_ to infer it.
+  For example: (a/defconst answer :i32 {:public true} 42)."
   [name & declaration]
-  (let [[docstring attributes declaration]
-        (leading-doc-and-attributes declaration)
-        [type value]
-        (case (count declaration)
-          1 [nil (first declaration)]
-          2 [(first declaration) (second declaration)]
-          (throw (ex-info
-                  "a/defconst expects name, optional doc/attr-map, optional type, and value"
-                  {:form &form :name name :declaration declaration})))
+  (let [{:keys [type value attributes] docstring :doc}
+        (emitter/parse-value-declaration &form declaration)
         descriptor (emitter/prepare-declaration
                     *ns*
                     (merge {:kind :const
@@ -772,7 +766,7 @@
                             :declaration-key [:const name]
                             :module (str *ns*)
                             :doc docstring
-                            :type (when-not (or (nil? type) (= '_ type)) type)
+                            :type type
                             :value value
                             :clojure-form &form
                             :source (source-location &form)}
@@ -793,18 +787,8 @@
   `(a/defvar mouse-down false)` infers its type. An explicit type immediately
   follows the name: `(a/defvar count :u32 {:attrs #{ak/threadlocal}} 0)`."
   [name & declaration]
-  (let [typed? (and (next declaration)
-                    (not (or (map? (first declaration))
-                             (string? (first declaration)))))
-        type (when typed? (first declaration))
-        [docstring attributes tail]
-        (leading-doc-and-attributes (if typed? (next declaration) declaration))
-        _ (when-not (and (or (not typed?)
-                             (and (some? type) (not (contains? #{':- '_} type))))
-                         (= 1 (count tail)))
-            (throw (ex-info "a/defvar expects name [type] [docstring] [attributes] value; an explicit type must precede attributes"
-                            {:form &form :name name})))
-        value (first tail)
+  (let [{:keys [type value attributes] docstring :doc}
+        (emitter/parse-value-declaration &form declaration)
         descriptor (emitter/prepare-declaration
                     *ns*
                     (merge {:kind :var
@@ -812,7 +796,7 @@
                             :declaration-key [:var name]
                             :module (str *ns*)
                             :doc docstring
-                            :type (when-not (= :_ type) type)
+                            :type type
                             :value value
                             :clojure-form &form
                             :source (source-location &form)}
@@ -954,7 +938,7 @@
   "Import a Zig module and expose its named members as real Clojure Vars.
 
       (a/defimport extra-math \"extra_math\" [quadruple])
-      (a/defn four-times :i32 [x :- :i32]
+      (a/defn four-times :i32 [[x :i32]]
         (extra-math/quadruple x))
 
   A member can be `[clojure-name \"zig.nested.path\"]` when its Zig path is not

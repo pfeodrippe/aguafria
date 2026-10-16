@@ -966,7 +966,7 @@
         (eval '(a/defstruct Threshold
                  [[:minimum :f32]
                   [:maximum :f32]
-                  (a/const-decl default {:attrs #{:public}} Threshold
+                  (a/const-decl default Threshold {:attrs #{:public}}
                                 {:minimum 0.25 :maximum 0.75})]))
         (eval '(a/defenum Mode [:active :inactive]))
         (eval '(a/defn append-and-read :!u21 [[initial (std/ArrayList :u21)]]

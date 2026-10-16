@@ -3,6 +3,6 @@
             [aguafria.zig :as a]
             [aguafria.zig.precompile-eager-test-state-fixture :as tests]))
 
-(a/defconst selected {:attrs #{k/pub}} :u32 31)
+(a/defconst selected :u32 {:attrs #{k/pub}}  31)
 
 (a/defconst TestOnly {:attrs #{k/pub}} tests/TestOnly)

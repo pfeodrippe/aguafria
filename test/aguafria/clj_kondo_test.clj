@@ -42,6 +42,17 @@
                [aguafria.std.process :as process :refer [Init]]
                [aguafria.std.process.Init :as process-init]))\n")
 
+(deftest flat-native-parameters-are-rejected-by-the-hook
+  (doseq [bindings ["[x :- :i32]" "[x :i32]"]]
+    (let [findings (lint (str prelude "(a/defn old :i32 " bindings " 1)"))]
+      (is (some #(= :aguafria/invalid-typed-bindings (:type %)) findings)))))
+
+(deftest type-first-declarations-are-linted-with-documentation
+  (is (empty?
+       (lint (str "(ns fixture (:require [aguafria.zig :as a])) "
+                  "(a/defconst answer :i32 \"doc\" {:public true} 42) "
+                  "(a/defvar total :u32 \"doc\" {:public true} 7) answer total")))))
+
 (deftest explain-wrapper-preserves-linting
   (is (empty?
        (lint "(ns fixture (:require [aguafria.zig :as a]))

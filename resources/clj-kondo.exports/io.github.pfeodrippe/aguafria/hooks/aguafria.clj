@@ -198,23 +198,18 @@
          :option-nodes option-nodes
          :options options}))))
 
-(defn- marker-index
-  [nodes]
-  (first
-   (keep-indexed
-    (fn [index node]
-      (when (= :- (sexpr node)) index))
-    nodes)))
-
 (defn- typed-bindings
   [bindings]
   (let [entries (:children bindings)]
     (if (every? #(= :vector (:tag %)) entries)
       {:arguments (mapv #(first (:children %)) entries)
        :types (mapv #(last (:children %)) entries)}
-      (let [entries (partition-all 3 entries)]
-        {:arguments (mapv first entries)
-         :types (mapv last entries)}))))
+      (do
+        (api/reg-finding! (assoc (meta bindings)
+                                 :type :aguafria/invalid-typed-bindings
+                                 :level :error
+                                 :message "Typed bindings require parameter vectors: [[name type] ...]"))
+        {:arguments [] :types []}))))
 
 (defn- process-entry?
   [operator definition-name return-type types options]

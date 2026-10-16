@@ -1645,17 +1645,7 @@
   [form]
   (if-let [operator (get nested-declaration-operators (first form))]
     (with-meta
-      (if (= 'a/defvar (first form))
-        (let [[_ name & declaration] form
-              typed? (and (next declaration)
-                          (not (or (map? (first declaration))
-                                   (string? (first declaration)))))
-              type (when typed? (first declaration))
-              declaration (if typed? (next declaration) declaration)
-              [prefix tail] (split-with #(or (map? %) (string? %)) (butlast declaration))]
-          (apply list operator name (concat prefix (when (and typed? (not= :_ type)) [type])
-                                            tail [(last declaration)])))
-        (apply list operator (rest form)))
+      (apply list operator (rest form))
       (meta form))
     form))
 
@@ -2265,11 +2255,9 @@
                 attributes (cond-> attributes
                              qualifiers (assoc :zig/qualifiers qualifiers))]
             (apply list kind declaration-name
-                   (concat (when (and (= kind 'a/defvar) type) [type])
+                   (concat (when type [type])
                            (when docstring [docstring])
-                           [attributes]
-                           (when (and (= kind 'a/defconst) type) [type])
-                           [(translate-expr context init-node)]))))))))
+                           [attributes (translate-expr context init-node)]))))))))
 
 (defn- translate-test-declaration
   [context node-index order leading]
@@ -2479,7 +2467,8 @@
         (cond (map? (second form)) 1
               (string? (nth form 2 nil)) 3
               :else 2)
-        (= 'a/defvar operator)
+        (#{'a/defconst 'a/defvar 'const-decl 'var-decl
+           'a/const-decl 'a/var-decl} operator)
         (let [declaration (drop 2 form)
               typed? (and (next declaration)
                           (not (or (map? (first declaration))
@@ -3123,10 +3112,14 @@
                                (some-> declaration-name str))
                   doc (or (get declaration-docs zig-name)
                           (get declaration-docs (some-> declaration-name str)))
-                  doc-index (if (contains? #{'a/defn 'a/defn- 'a/defextern}
-                                           (first form))
-                              3
-                              2)]
+                  doc-index (cond
+                              (contains? #{'a/defn 'a/defn- 'a/defextern} (first form)) 3
+                              (contains? #{'a/defconst 'a/defvar} (first form))
+                              (let [tail (drop 2 form)]
+                                (if (and (next tail)
+                                         (not (or (string? (first tail)) (map? (first tail)))))
+                                  3 2))
+                              :else 2)]
               (if (and doc
                        (seq? form)
                        (symbol? declaration-name)

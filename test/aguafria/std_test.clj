@@ -10,7 +10,7 @@
             [clojure.test :refer [deftest is testing]]))
 
 (a/defn std-sqrt :f64
-  [x :- :f64]
+  [[x :f64]]
   (math/sqrt x))
 
 (deftest normal-require-and-docs-test

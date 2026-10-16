@@ -3917,42 +3917,52 @@
        (emit-returning-statements forms 0)))))
 
 (defn parse-typed-bindings
-  "Parse `[x :- :i32 y :- :f64]`, `[x :i32 y :f64]`, or
-  `[[x :i32] [y :f64]]` into `[{:name ... :type ...}]`."
+  "Parse `[[x :i32] [y :f64]]` into `[{:name ... :type ...}]`.
+  Each parameter is [name type] or [name properties type]."
   [bindings]
   (when-not (vector? bindings)
     (fail! "Typed bindings must be a vector" bindings))
-  (cond
-    (every? vector? bindings)
-    (mapv (fn [entry]
-            (case (count entry)
-              2 {:name (first entry) :type (second entry) :properties {}}
-              3 (if (map? (second entry))
-                  {:name (first entry)
-                   :type (nth entry 2)
-                   :properties (keyword/normalize-attributes
-                                (or *keyword-context* *ns*) (second entry))}
-                  (fail! "The middle typed-binding value must be a properties map"
-                         entry))
-              (fail! "Typed binding expects [name type] or [name properties type]"
-                     entry)))
-          bindings)
+  (when-not (every? vector? bindings)
+    (fail! "Typed bindings require parameter vectors: [[name type] ...]" bindings))
+  (mapv (fn [entry]
+          (case (count entry)
+            2 {:name (first entry) :type (second entry) :properties {}}
+            3 (if (map? (second entry))
+                {:name (first entry)
+                 :type (nth entry 2)
+                 :properties (keyword/normalize-attributes
+                              (or *keyword-context* *ns*) (second entry))}
+                (fail! "The middle typed-binding value must be a properties map"
+                       entry))
+            (fail! "Typed binding expects [name type] or [name properties type]"
+                   entry)))
+        bindings))
 
-    (some #{':-} bindings)
-    (do
-      (when-not (zero? (mod (count bindings) 3))
-        (fail! "Typed bindings using :- must contain name :- type triples" bindings))
-      (mapv (fn [[n marker t :as triple]]
-              (when-not (= marker ':-)
-                (fail! "Expected :- in typed binding" triple))
-              {:name n :type t :properties {}})
-            (partition 3 bindings)))
-
-    :else
-    (do
-      (when-not (zero? (mod (count bindings) 2))
-        (fail! "Typed bindings must contain name/type pairs" bindings))
-      (mapv (fn [[n t]] {:name n :type t :properties {}}) (partition 2 bindings)))))
+(defn parse-value-declaration
+  "Parse name [type] [docstring] [attributes] value after the name.
+  An explicit type must precede documentation and attributes. :_ infers it."
+  [form declaration]
+  (let [typed? (and (next declaration)
+                    (not (or (map? (first declaration))
+                             (string? (first declaration)))))
+        type (when typed? (first declaration))
+        tail (if typed? (next declaration) declaration)
+        [doc tail] (if (and (string? (first tail)) (next tail))
+                     [(first tail) (next tail)]
+                     [nil tail])
+        [attributes tail] (if (and (map? (first tail)) (next tail))
+                            [(first tail) (next tail)]
+                            [{} tail])]
+    (when-not (and (or (not typed?)
+                       (and (some? type) (not (contains? #{':- '_} type))))
+                   (= 1 (count tail)))
+      (fail! (str (first form)
+                  " expects name [type] [docstring] [attributes] value; an explicit type must precede documentation and attributes")
+             form))
+    {:type (when-not (= :_ type) type)
+     :doc (or doc (:doc attributes))
+     :attributes attributes
+     :value (first tail)}))
 
 (defn parse-struct-fields
   "Parse Malli-style struct entries.
@@ -4768,8 +4778,9 @@
           (with-meta
             (apply list
                    (if (= :var kind) 'aguafria.zig/var-decl 'aguafria.zig/const-decl)
-                   (symbol (clojure.core/name name)) attributes
-                   (concat (when-not (= :_ type) [type]) [(get properties kind)]))
+                   (symbol (clojure.core/name name))
+                   (concat (when-not (= :_ type) [type])
+                           [attributes (get properties kind)]))
             (meta member)))))))
 
 (defn struct-container-form
@@ -4925,25 +4936,13 @@
         (merge (nested-base :fn-proto name attributes)
                {:doc doc :return return :args (parse-typed-bindings bindings)}))
 
-      const-decl
+      (const-decl var-decl)
       (let [[name & declaration] declaration
-            [doc attributes declaration] (nested-doc-attributes declaration)
-            [type value] (case (count declaration)
-                           1 [nil (first declaration)]
-                           2 [(first declaration) (second declaration)]
-                           (fail! "const-decl expects optional type and one value" form))]
-        (merge (nested-base :const name attributes)
-               {:doc doc :type (when-not (= '_ type) type) :value value}))
-
-      var-decl
-      (let [[name & declaration] declaration
-            [doc attributes declaration] (nested-doc-attributes declaration)
-            [type value] (case (count declaration)
-                           1 [nil (first declaration)]
-                           2 [(first declaration) (second declaration)]
-                           (fail! "var-decl expects optional type and one value" form))]
-        (merge (nested-base :var name attributes)
-               {:doc doc :type (when-not (= '_ type) type) :value value}))
+            {:keys [doc attributes type value]} (parse-value-declaration form declaration)
+            attributes (cond-> attributes
+                         (not (contains? attributes :attrs)) (assoc :attrs #{}))]
+        (merge (nested-base (if (= operator 'const-decl) :const :var) name attributes)
+               {:doc doc :type type :value value}))
 
       extern-var-decl
       (let [[name & declaration] declaration

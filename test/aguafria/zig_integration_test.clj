@@ -44,7 +44,7 @@
 (a/defconst multiplier :i32 3)
 
 (a/defn ^{:export false :public true} sum-point :i32
-  [point :- Point]
+  [[point Point]]
   (+ (field point x) (field point y)))
 
 (a/defn constructed-point-sum :i32
@@ -57,39 +57,39 @@
   (+ x 1))
 
 (a/defn external-quadruple :i32
-  [x :- :i32]
+  [[x :i32]]
   (extra-math/quadruple x))
 
 (a/defn ^{:export false :public true} simd-lane-sum :i32
-  [values :- (ak/Vector 4 :i32)]
+  [[values (ak/Vector 4 :i32)]]
   (ak/reduce :Add values))
 
 (a/defn keyword-int-cast :i32
-  [value :- :i64]
+  [[value :i64]]
   (ak/intCast value))
 
 (a/defn reader-safe-bit-xor :u32
-  [left :- :u32 right :- :u32]
+  [[left :u32] [right :u32]]
   (ak/bit-xor left right))
 
 (a/defn simd-sum4 :i32
-  [a :- :i32 b :- :i32 c :- :i32 d :- :i32]
+  [[a :i32] [b :i32] [c :i32] [d :i32]]
   (simd-lane-sum [a b c d]))
 
 (a/defn composed :i32
-  [x :- :i32]
+  [[x :i32]]
   (* (base x) multiplier))
 
 (a/defn ^{:export false :public true} zig-only-base :i32
-  [x :- :i32]
+  [[x :i32]]
   (+ x 4))
 
 (a/defn zig-only-composed :i32
-  [x :- :i32]
+  [[x :i32]]
   (* (zig-only-base x) 2))
 
 (a/defn ^{:export false :public true} comptime-plus-one :u32
-  [x :- :u32]
+  [[x :u32]]
   (+ x 1))
 
 (a/defconst comptime-answer :u32 (comptime-plus-one 41))
@@ -99,7 +99,7 @@
   comptime-answer)
 
 (a/defn sum-to :i32
-  [n :- :i32]
+  [[n :i32]]
   (var total :i32 0)
   (var i :i32 0)
   (while (< i n)
@@ -108,7 +108,7 @@
   total)
 
 (a/defn abs-i32 :i32
-  [x :- :i32]
+  [[x :i32]]
   (if (< x 0)
     (- x)
     x))
@@ -261,7 +261,7 @@
           (refer 'clojure.core)
           (alias 'a 'aguafria.zig)
           (eval '(a/defn- twice :i32
-                   [value :- :i32]
+                   [[value :i32]]
                    (* value 2))))
         (let [twice (ns-resolve test-ns 'twice)
               before (:requested-generation (a/module-info test-symbol))]
@@ -329,10 +329,10 @@
           (alias 'a 'aguafria.zig)
           (eval '(a/defconst wide :u56 283686952306183))
           (eval '(a/defn identity-wide :u56
-                   [value :- :u56]
+                   [[value :u56]]
                    value))
           (eval '(a/defn identity-u64 :u64
-                   [value :- :u64]
+                   [[value :u64]]
                    value)))
         (reset! input (var-get (ns-resolve test-ns 'wide)))
         (reset! output ((ns-resolve test-ns 'identity-wide) @input))
@@ -470,18 +470,16 @@
                    [[:items [:optional [:slice-const [:optional :u24]]]]
                     [:counts [:array 2 [:optional :u24]]]]))
           (eval '(a/defn echo-nested-items [:optional [:slice-const [:optional :u24]]]
-                   [items :- [:optional [:slice-const [:optional :u24]]]]
+                   [[items [:optional [:slice-const [:optional :u24]]]]]
                    items))
           (eval '(a/defn maybe-nested-result [:error-union [:error-set [:NoValue]]
                                               [:optional :u24]]
-                   [fail :- :bool]
+                   [[fail :bool]]
                    (if fail (a/error-value :NoValue) nil)))
           (eval '(a/defn echo-nested-results [:array 2
                                               [:error-union [:error-set [:NoValue]]
                                                [:optional :u24]]]
-                   [results :- [:array 2
-                                [:error-union [:error-set [:NoValue]]
-                                 [:optional :u24]]]]
+                   [[results [:array 2 [:error-union [:error-set [:NoValue]] [:optional :u24]]]]]
                    results)))
         (let [initial (var-get (ns-resolve test-ns 'initial-maybe-array))
               state (var-get (ns-resolve test-ns 'live-maybe-array))
@@ -541,7 +539,7 @@
                    Flags
                    (Flags {:enabled false :opcode 0 :reserved 0})))
           (eval '(a/defn identity-flags Flags
-                   [flags :- Flags]
+                   [[flags Flags]]
                    flags)))
         (reset! constant (var-get (ns-resolve test-ns 'default-flags)))
         (reset! state-value (var-get (ns-resolve test-ns 'current-flags)))
@@ -594,7 +592,7 @@
                    Point
                    (Point {:x 0 :y 0.0 :enabled 1})))
           (eval '(a/defn identity-point Point
-                   [point :- Point]
+                   [[point Point]]
                    point)))
         (reset! constant (var-get (ns-resolve test-ns 'origin)))
         (is (values= {:x 0 :y 0.0 :enabled 1} (a/value @constant)))
@@ -635,10 +633,10 @@
           (refer 'clojure.core)
           (alias 'a 'aguafria.zig)
           (eval '(a/defn identity-array [:array 3 :u24]
-                   [values :- [:array 3 :u24]]
+                   [[values [:array 3 :u24]]]
                    values))
           (eval '(a/defn identity-vector [:vector 4 :i16]
-                   [values :- [:vector 4 :i16]]
+                   [[values [:vector 4 :i16]]]
                    values)))
         (reset! array-value
                 ((ns-resolve test-ns 'identity-array)
@@ -679,7 +677,7 @@
                    [[:inner Inner]
                     [:tail :u4]]))
           (eval '(a/defn identity-outer Outer
-                   [value :- Outer]
+                   [[value Outer]]
                    value)))
         (let [Outer (var-get (ns-resolve test-ns 'Outer))]
           (reset! constructed
@@ -721,7 +719,7 @@
                      (a/enum-field-decl stopped)])))
           (eval '(a/defconst default-mode Mode :running))
           (eval '(a/defn identity-mode Mode
-                   [mode :- Mode]
+                   [[mode Mode]]
                    mode)))
         (let [Mode (var-get (ns-resolve test-ns 'Mode))]
           (is (a/zig-type? Mode))
@@ -760,7 +758,7 @@
                     [(a/field-decl x :i32)
                      (a/field-decl y :f64)])))
           (eval '(a/defn identity-point Point
-                   [point :- Point]
+                   [[point Point]]
                    point)))
         (let [Point (var-get (ns-resolve test-ns 'Point))]
           (is (a/zig-type? Point))
@@ -798,7 +796,7 @@
                      (a/field-decl floating :f64)
                      (a/field-decl none :void)])))
           (eval '(a/defn identity-value Value
-                   [value :- Value]
+                   [[value Value]]
                    value)))
         (reset! returned
                 ((ns-resolve test-ns 'identity-value) {:floating 2.5}))
@@ -835,7 +833,7 @@
                    [[:count [:optional :u32]]
                     [:ratio [:optional :f64]]]))
           (eval '(a/defn identity-maybe-values MaybeValues
-                   [value :- MaybeValues]
+                   [[value MaybeValues]]
                    value)))
         (reset! returned
                 ((ns-resolve test-ns 'identity-maybe-values)
@@ -868,7 +866,7 @@
           (alias 'a 'aguafria.zig)
           (eval '(a/defconst default-optional [:optional :u32] 42))
           (eval '(a/defn identity-optional [:optional :u32]
-                   [value :- [:optional :u32]]
+                   [[value [:optional :u32]]]
                    value)))
         (reset! constant (var-get (ns-resolve test-ns 'default-optional)))
         (reset! absent ((ns-resolve test-ns 'identity-optional) nil))
@@ -902,7 +900,7 @@
                    []
                    (& pointed)))
           (eval '(a/defn read-pointed :i32
-                   [pointer :- [:* :i32]]
+                   [[pointer [:* :i32]]]
                    (a/deref pointer))))
         (reset! state-value (var-get (ns-resolve test-ns 'pointed)))
         (reset! pointer-value ((ns-resolve test-ns 'pointed-address)))
@@ -934,7 +932,7 @@
           (refer 'clojure.core)
           (alias 'a 'aguafria.zig)
           (eval '(a/defn echo-slice [:slice-const :u24]
-                   [items :- [:slice-const :u24]]
+                   [[items [:slice-const :u24]]]
                    items))
           (eval '(a/defstruct SliceHolder
                    [[:items [:slice-const :u24]]])))
@@ -967,10 +965,10 @@
           (refer 'clojure.core)
           (alias 'a 'aguafria.zig)
           (eval '(a/defn maybe-value [:error-union [:error-set [:NoValue]] :u24]
-                   [fail :- :bool]
+                   [[fail :bool]]
                    (if fail (a/error-value :NoValue) 66051)))
           (eval '(a/defn echo-result [:error-union [:error-set [:NoValue]] :u24]
-                   [result :- [:error-union [:error-set [:NoValue]] :u24]]
+                   [[result [:error-union [:error-set [:NoValue]] :u24]]]
                    result))
           (eval '(a/defstruct ResultHolder
                    [[:result [:error-union [:error-set [:NoValue]] :u24]]])))
@@ -1016,7 +1014,7 @@
                    {:layout :packed :attrs #{:public}}
                    [[:value :u8]]))
           (eval '(a/defn identity-payload Payload
-                   [payload :- Payload]
+                   [[payload Payload]]
                    payload)))
         (let [Payload (var-get (ns-resolve test-ns 'Payload))]
           (reset! old-value (Payload {:value 41})))
@@ -1024,7 +1022,7 @@
         (let [old-generation (:generation (a/value-info @old-value))]
           (binding [*ns* test-ns]
             (eval '(a/defn identity-payload Payload
-                     [payload :- Payload]
+                     [[payload Payload]]
                      (if true payload payload))))
           (reset! returned
                   ((ns-resolve test-ns 'identity-payload) @old-value))
@@ -1161,7 +1159,7 @@
                 0))))
         (binding [*ns* application-ns]
           (alias 'dependency dependency-symbol)
-          (eval '(a/defconst custom_config {:attrs #{:public}} :u32 7))
+          (eval '(a/defconst custom_config :u32 {:attrs #{:public}}  7))
           (eval
            '(a/defn read_context :u32 []
               dependency/selected_config)))
@@ -1456,7 +1454,7 @@
             (alias 'a 'aguafria.zig)))
         (binding [*ns* provider-ns]
           (eval '(a/defstruct Point [[:x :u32]]))
-          (eval '(a/defn ^{:export false :public true} read-point :u32 [point :- Point]
+          (eval '(a/defn ^{:export false :public true} read-point :u32 [[point Point]]
                    (a/field point x)))
           ;; This newest slice deliberately has no reference to Point or
           ;; read-point. Dependency materialization must still use the complete
@@ -1465,7 +1463,7 @@
         (is (:partial-publication? (a/stats provider-symbol)))
         (binding [*ns* caller-ns]
           (alias 'provider provider-symbol)
-          (eval '(a/defn ^{:export false :public true} use-point :u32 [point :- provider/Point]
+          (eval '(a/defn ^{:export false :public true} use-point :u32 [[point provider/Point]]
                    (provider/read-point point))))
         (is (values= :finished (:status (a/stats caller-symbol))))
         (finally
@@ -1502,7 +1500,7 @@
         (binding [*ns* (the-ns 'aguafria.zig-integration-test)]
           (eval
            '(a/defn base :i32
-              [x :- :i32]
+              [[x :i32]]
               (+ x 5))))
         (is (values= 24 (composed 3)))
         (testing "the deferred complete source is exact when inspected"
@@ -1528,7 +1526,7 @@
           (eval
            '(a/defn base :i32
               "Increment an integer in Zig."
-              [x :- :i32]
+              [[x :i32]]
               (+ x 1))))
         (a/await! 'aguafria.zig-integration-test)))))
 
@@ -1542,7 +1540,7 @@
       (binding [*ns* (the-ns 'aguafria.zig-integration-test)]
         (eval
          '(a/defn zig-only-partial-primer :i32
-            [x :- :i32]
+            [[x :i32]]
             (+ x 17))))
       (is (values= 20 ((ns-resolve (the-ns 'aguafria.zig-integration-test)
                                    'zig-only-partial-primer)
@@ -1552,7 +1550,7 @@
         (binding [*ns* (the-ns 'aguafria.zig-integration-test)]
           (eval
            '(a/defn ^{:export false :public true} zig-only-base :i32
-              [x :- :i32]
+              [[x :i32]]
               (+ x 10))))
         (is (values= 26 (zig-only-composed 3)))
         (let [callee-after (declaration-stat "zig-only-base")
@@ -1565,7 +1563,7 @@
         (binding [*ns* (the-ns 'aguafria.zig-integration-test)]
           (eval
            '(a/defn ^{:export false :public true} zig-only-base :i32
-              [x :- :i32]
+              [[x :i32]]
               (+ x 4))))
         (a/await! 'aguafria.zig-integration-test)))))
 
@@ -1574,7 +1572,7 @@
     (binding [*ns* (the-ns 'aguafria.zig-integration-test)]
       (eval
        '(a/defn live-existing-b :i32
-          [x :- :i32]
+          [[x :i32]]
           (+ x 2))))
     (is (values= 5 ((ns-resolve (the-ns 'aguafria.zig-integration-test)
                                 'live-existing-b)
@@ -1582,11 +1580,11 @@
     (binding [*ns* (the-ns 'aguafria.zig-integration-test)]
       (eval
        '(a/defn live-new-a :i32
-          [x :- :i32]
+          [[x :i32]]
           (* x 10)))
       (eval
        '(a/defn live-existing-b :i32
-          [x :- :i32]
+          [[x :i32]]
           (+ (live-new-a x) 2))))
     (is (values= 32 ((ns-resolve (the-ns 'aguafria.zig-integration-test)
                                  'live-existing-b)
@@ -1612,33 +1610,33 @@
           (alias 'dependency-a a-symbol)
           (eval
            '(a/defn existing-b :i32
-              [x :- :i32]
+              [[x :i32]]
               (+ x 2))))
         (is (values= 5 ((ns-resolve b-ns 'existing-b) 3)))
 
         (binding [*ns* a-ns]
           (eval
            '(a/defn new-a :i32
-              [x :- :i32]
+              [[x :i32]]
               (* x 10)))
           (eval
            '(a/defn ^{:export false :public true} zig-only-a :i32
-              [x :- :i32]
+              [[x :i32]]
               (* x 3))))
         (is (values= 30 ((ns-resolve a-ns 'new-a) 3)))
 
         (binding [*ns* b-ns]
           (eval
            '(a/defn existing-b :i32
-              [x :- :i32]
+              [[x :i32]]
               (+ (dependency-a/new-a x) 2)))
           (eval
            '(a/defn new-b :i32
-              [x :- :i32]
+              [[x :i32]]
               (+ (dependency-a/new-a x) 5)))
           (eval
            '(a/defn zig-only-b :i32
-              [x :- :i32]
+              [[x :i32]]
               (dependency-a/zig-only-a x))))
         (is (values= 32 ((ns-resolve b-ns 'existing-b) 3)))
         (is (values= 35 ((ns-resolve b-ns 'new-b) 3)))
@@ -1652,11 +1650,11 @@
           (binding [*ns* a-ns]
             (eval
              '(a/defn new-a :i32
-                [x :- :i32]
+                [[x :i32]]
                 (* x 20)))
             (eval
              '(a/defn ^{:export false :public true} zig-only-a :i32
-                [x :- :i32]
+                [[x :i32]]
                 (* x 4))))
           (a/await! a-symbol)
           (is (values= 62 ((ns-resolve b-ns 'existing-b) 3)))
@@ -1671,7 +1669,7 @@
           (binding [*ns* a-ns]
             (eval
              '(a/defn new-a :i32
-                [x :- :i32 y :- :i32]
+                [[x :i32] [y :i32]]
                 (+ (* x 20) y))))
           (a/await! a-symbol)
           (is (values= 67 ((ns-resolve a-ns 'new-a) 3 7)))
@@ -1687,11 +1685,11 @@
           (binding [*ns* b-ns]
             (eval
              '(a/defn existing-b :i32
-                [x :- :i32]
+                [[x :i32]]
                 (+ (dependency-a/new-a x 7) 2)))
             (eval
              '(a/defn new-b :i32
-                [x :- :i32]
+                [[x :i32]]
                 (+ (dependency-a/new-a x 7) 5))))
           (a/await! b-symbol)
           (is (values= 69 ((ns-resolve b-ns 'existing-b) 3)))
@@ -1740,11 +1738,11 @@
            '(a/defn inline-base :i32
               {:zig/prefix "pub inline"
                :attrs #{:public}}
-              [x :- :i32]
+              [[x :i32]]
               (+ x 1)))
           (eval
            '(a/defn inline-caller :i32
-              [x :- :i32]
+              [[x :i32]]
               (inline-base x))))
         (is (values= 6 ((ns-resolve module-ns 'inline-caller) 5)))
         (let [caller-generation-before
@@ -1756,7 +1754,7 @@
              '(a/defn inline-base :i32
                 {:zig/prefix "pub inline"
                  :attrs #{:public}}
-                [x :- :i32]
+                [[x :i32]]
                 (+ x 2))))
           (is (values= 7 ((ns-resolve module-ns 'inline-caller) 5)))
           (is (not= caller-generation-before
@@ -1793,7 +1791,7 @@
           (alias 'generic generic-symbol)
           (eval
            '(a/defn concrete-caller :i32
-              [x :- :i32]
+              [[x :i32]]
               (generic/generic-add :i32 x))))
         (is (values= 6 ((ns-resolve caller-ns 'concrete-caller) 5)))
         (let [caller-generation-before
@@ -1844,19 +1842,19 @@
           (alias 'generic generic-symbol)
           (eval
            '(a/defn concrete-caller :i32
-              [x :- :i32]
+              [[x :i32]]
               (generic/generic-add :i32 x))))
         (binding [*ns* b-ns]
           (alias 'dependency-a a-symbol)
           (eval
            '(a/defn cycle-peer :i32
-              [x :- :i32]
+              [[x :i32]]
               (+ (dependency-a/concrete-caller x) 10))))
         (binding [*ns* a-ns]
           (alias 'b b-symbol)
           (eval
            '(a/defn cycle-entry :i32
-              [x :- :i32]
+              [[x :i32]]
               (b/cycle-peer x))))
         (is (values= 16 ((ns-resolve a-ns 'cycle-entry) 5)))
         (is (:cyclic-dependency-component? (a/stats a-symbol)))
@@ -1925,7 +1923,7 @@
           (alias 'right right-symbol)
           (eval
            '(a/defn joined-value :i32
-              [x :- :i32]
+              [[x :i32]]
               (+ (left/left-step :i32 x)
                  (right/right-step :i32 x)))))
         (is (values= 42 ((ns-resolve join-ns 'joined-value) 5)))
@@ -1973,22 +1971,22 @@
           (eval '(a/defstruct Pair [[:x :i32] [:y :i32]]))
           (eval
            '(a/defn ^{:export false :public true} sum-pair :i32
-              [pair :- Pair]
+              [[pair Pair]]
               (+ (a/field pair x) (a/field pair y))))
           (eval
            '(a/defn ^{:export false :public true :zig/qualifiers "!"}
               fallible :i32
-              [x :- :i32]
+              [[x :i32]]
               (+ x 1))))
         (binding [*ns* b-ns]
           (alias 'dependency-a a-symbol)
           (eval
            '(a/defn call-pair :i32
-              [x :- :i32 y :- :i32]
+              [[x :i32] [y :i32]]
               (dependency-a/sum-pair (dependency-a/Pair {:x x :y y}))))
           (eval
            '(a/defn call-fallible :i32
-              [x :- :i32]
+              [[x :i32]]
               (catch (dependency-a/fallible x) 0))))
         (is (values= 7 ((ns-resolve b-ns 'call-pair) 3 4)))
         (is (values= 4 ((ns-resolve b-ns 'call-fallible) 3)))
@@ -1999,12 +1997,12 @@
           (binding [*ns* a-ns]
             (eval
              '(a/defn ^{:export false :public true} sum-pair :i32
-                [pair :- Pair]
+                [[pair Pair]]
                 (+ (* (a/field pair x) 10) (a/field pair y))))
             (eval
              '(a/defn ^{:export false :public true :zig/qualifiers "!"}
                 fallible :i32
-                [x :- :i32]
+                [[x :i32]]
                 (+ x 10))))
           (a/await! a-symbol)
           (let [pair-result ((ns-resolve b-ns 'call-pair) 3 4)
@@ -2094,18 +2092,18 @@
           (alias 'b b-symbol)
           (eval
            '(a/defn ^{:export false :public true} inner-a :i32
-              [x :- :i32]
+              [[x :i32]]
               (+ x 1))))
         (binding [*ns* b-ns]
           (alias 'dependency-a a-symbol)
           (eval
            '(a/defn ^{:export false :public true} call-a :i32
-              [x :- :i32]
+              [[x :i32]]
               (+ (dependency-a/inner-a x) 2))))
         (binding [*ns* a-ns]
           (eval
            '(a/defn entry :i32
-              [x :- :i32]
+              [[x :i32]]
               (b/call-a x))))
         (is (values= 8 ((ns-resolve a-ns 'entry) 5)))
         (let [caller-generation-before
@@ -2115,7 +2113,7 @@
           (binding [*ns* a-ns]
             (eval
              '(a/defn ^{:export false :public true} inner-a :i32
-                [x :- :i32]
+                [[x :i32]]
                 (+ x 10))))
           (is (values= 17 ((ns-resolve a-ns 'entry) 5)))
           (let [caller-generation-after
@@ -2463,18 +2461,18 @@
           (alias 'b b-symbol)
           (eval
            '(a/defn ^{:export false :public true} inner-a :i32
-              [x :- :i32]
+              [[x :i32]]
               (+ x 1))))
         (binding [*ns* b-ns]
           (alias 'dependency-a a-symbol)
           (eval
            '(a/defn ^{:export false :public true} call-a :i32
-              [x :- :i32]
+              [[x :i32]]
               (+ (dependency-a/inner-a x) 2))))
         (binding [*ns* a-ns]
           (eval
            '(a/defn entry :i32
-              [x :- :i32]
+              [[x :i32]]
               (b/call-a x))))
         (is (values= 8 ((ns-resolve a-ns 'entry) 5)))
 
@@ -2482,13 +2480,13 @@
               (capture-declaration
                a-ns
                '(a/defn ^{:export false :public true} inner-a :i32
-                  [x :- :i32]
+                  [[x :i32]]
                   (+ x 10)))
               good-b
               (capture-declaration
                b-ns
                '(a/defn ^{:export false :public true} call-a :i32
-                  [x :- :i32]
+                  [[x :i32]]
                   (+ (dependency-a/inner-a x) 5)))]
           (runtime/register-batch! [good-a]
                                    {:module a-symbol :compile? false
@@ -2523,13 +2521,13 @@
                   (capture-declaration
                    a-ns
                    '(a/defn ^{:export false :public true} inner-a :i32
-                      [x :- :i32]
+                      [[x :i32]]
                       (+ x true)))
                   next-b
                   (capture-declaration
                    b-ns
                    '(a/defn ^{:export false :public true} call-a :i32
-                      [x :- :i32]
+                      [[x :i32]]
                       (+ (dependency-a/inner-a x) 7)))]
               (runtime/register-batch! [bad-a]
                                        {:module a-symbol :compile? false
@@ -2591,7 +2589,7 @@
         (binding [*ns* a-ns]
           (eval
            '(a/defn spin :u64
-              [n :- :u64]
+              [[n :u64]]
               (ak/var i :u64 0)
               (while (< i n)
                 (ak/+= i 1))
@@ -2600,7 +2598,7 @@
           (alias 'dependency-a a-symbol)
           (eval
            '(a/defn call-spin :u64
-              [n :- :u64]
+              [[n :u64]]
               (dependency-a/spin n))))
         (let [b-generation-before
               (->> (:declarations (a/stats b-symbol))
@@ -2619,7 +2617,7 @@
           (binding [*ns* a-ns]
             (eval
              '(a/defn spin :u64
-                [n :- :u64]
+                [[n :u64]]
                 (ak/var i :u64 0)
                 (while (< i n)
                   (ak/+= i 1))
@@ -2883,23 +2881,23 @@
         (binding [*ns* dependency-ns]
           (eval
            '(a/defn ^{:export false :public true} combine :i32
-              [x :- :i32 y :- :i32]
+              [[x :i32] [y :i32]]
               (* x y))))
         (binding [*ns* callee-ns]
           (alias 'dependency dependency-symbol)
           (eval
            '(a/defn a :i32
-              [x :- :i32]
+              [[x :i32]]
               (+ x 1)))
           (eval
            '(a/defn old-local-caller :i32
-              [x :- :i32]
+              [[x :i32]]
               (+ (a x) 10))))
         (binding [*ns* caller-ns]
           (alias 'callee callee-symbol)
           (eval
            '(a/defn remote-caller :i32
-              [x :- :i32]
+              [[x :i32]]
               (+ (callee/old-local-caller x) 100))))
 
         (is (values= 116 ((ns-resolve caller-ns 'remote-caller) 5)))
@@ -2917,7 +2915,7 @@
             (eval '(a/defconst local-bias :i32 (+ local-bias-base 1)))
             (eval
              '(a/defn a :i32
-                [x :- :i32 y :- :i32]
+                [[x :i32] [y :i32]]
                 (dependency/combine (+ x local-bias) y))))
 
           (is (values= 20 ((ns-resolve callee-ns 'a) 2 4)))
@@ -2937,7 +2935,7 @@
           (binding [*ns* callee-ns]
             (eval
              '(a/defn old-local-caller :i32
-                [x :- :i32]
+                [[x :i32]]
                 (+ (a x 4) 10))))
           (is (values= 142 ((ns-resolve caller-ns 'remote-caller) 5)))
           (is (values= remote-generation-before
@@ -2968,10 +2966,10 @@
           (eval '(a/defvar counter :i32 1))
           (eval '(a/defn read-counter :i32 [] counter))
           (eval '(a/defn write-counter :void
-                   [value :- :i32]
+                   [[value :i32]]
                    (a/assign "=" counter value)))
           (eval '(a/defn migrate-counter :void {:attrs #{:export}}
-                   [old-address :- :usize new-address :- :usize]
+                   [[old-address :usize] [new-address :usize]]
                    (ak/const old-value [:*const :i32]
                              (ak/ptrFromInt old-address))
                    (ak/const new-value [:* :i64]
@@ -3279,7 +3277,7 @@
           ;; rather than automatic propagation, chooses the migration edge.
           (eval
            '(a/defn migrate-options :void {:attrs #{:export}}
-              [old-address :- :usize new-address :- :usize]
+              [[old-address :usize] [new-address :usize]]
               (ak/const old-options [:*const OldOptions]
                         (ak/ptrFromInt old-address))
               (ak/const new-options [:* (types/OptionsType)]
@@ -3303,7 +3301,7 @@
               (a/object [[:value 11]])))
           (eval
            '(a/defn migrate-options :void {:attrs #{:export}}
-              [old-address :- :usize new-address :- :usize]
+              [[old-address :usize] [new-address :usize]]
               (ak/const old-options [:*const OldOptions]
                         (ak/ptrFromInt old-address))
               (ak/const new-options [:* (types/OptionsType)]
@@ -3363,7 +3361,7 @@
           (eval '(a/defn read-value :i32 []
                    (a/field state value)))
           (eval '(a/defn write-value :void
-                   [value :- :i32]
+                   [[value :i32]]
                    (a/assign "=" (a/field state value) value))))
         ((ns-resolve test-ns 'write-value) 41)
 
@@ -3393,7 +3391,7 @@
         ;; `migrate-state!` is allowed to make that layout reachable.
         (binding [*ns* test-ns]
           (eval '(a/defn migrate-struct-state :void {:attrs #{:export}}
-                   [old-address :- :usize new-address :- :usize]
+                   [[old-address :usize] [new-address :usize]]
                    (ak/const old-state [:*const OldCounterState]
                              (ak/ptrFromInt old-address))
                    (ak/const new-state [:* CounterState]
@@ -3440,13 +3438,13 @@
           (eval '(a/defvar counter :i32 1))
           (eval '(a/defn read-a :i32 [] counter))
           (eval '(a/defn write-a :void
-                   [value :- :i32]
+                   [[value :i32]]
                    (a/assign "=" counter value))))
         (binding [*ns* b-ns]
           (alias 'dependency-a a-symbol)
           (eval '(a/defn read-b :i32 [] dependency-a/counter))
           (eval '(a/defn write-b :void
-                   [value :- :i32]
+                   [[value :i32]]
                    (a/assign "=" dependency-a/counter value))))
 
         ((ns-resolve b-ns 'write-b) 9)
@@ -3642,7 +3640,7 @@
   (binding [*ns* (the-ns 'aguafria.zig-integration-test)]
     (eval
      '(a/defn truthy :bool
-        [x :- :i32]
+        [[x :i32]]
         (> x 0))))
   (let [test-ns (the-ns 'aguafria.zig-integration-test)]
     (is (true? ((ns-resolve test-ns 'truthy) 1)))

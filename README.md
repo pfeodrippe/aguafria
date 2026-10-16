@@ -171,15 +171,23 @@ Container state uses `[:count {:var 0} :u32]`; container constants use
 `[:limit {:const 100} :u32]`. Both are public by default. `:default` still
 specifies an instance-field default, not a container constant.
 
-Variable declarations put the type immediately after the name:
-`(a/defvar count :u32 {:attrs #{ak/threadlocal}} 0)`. Omit the type when it can
-be inferred, e.g. `(a/defvar mouse-down false)`. `:attrs` always takes a set,
+Constants and variables share one declaration order:
+`name [type] [docstring] [attributes] value`. For example,
+`(a/defconst limit :u32 "Maximum count." {:public true} 100)` and
+`(a/defvar count :u32 {:attrs #{ak/threadlocal}} 0)`. An explicit type must
+precede documentation and attributes, including in `const-decl` and `var-decl`.
+Omit the type or use `:_` to infer it, e.g. `(a/defvar mouse-down false)`.
+There is no attributes-before-type compatibility form. `:attrs` always takes a set,
 even for one attribute; both native
 declarations and JVM calls reject single values. Local compile-time variables
 use `(ak/var 1 :i32 {:attrs #{ak/comptime}})`. Thread-local native storage is
 resolved on each calling JVM platform thread; realization from virtual threads
 is rejected because they can migrate between OS threads. Metadata-only inspection
 of a TLS descriptor is allowed and does not materialize thread-local storage.
+
+Function parameters use only `[[name type] ...]` or entries of the form
+`[name properties type]`. Flat parameter lists are rejected, with or without
+`:-`. This applies to functions, private functions, externs, and container methods.
 
 Function Var metadata exposes the authored typed argument vectors and documents
 the return type, including private and external functions, using ordinary Clojure

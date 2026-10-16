@@ -56,7 +56,7 @@
 
  "///"
  {:clojure-source "" :kind :syntax-note
-  :note "Zig declaration documentation. Aguafria declaration macros accept a docstring after the name; ordinary explanatory comments use ;;."}
+  :note "Zig declaration documentation. For functions, the docstring follows the return type; for constants and variables, it follows the explicit type when present, otherwise the name. Named container docstrings follow the name. Ordinary explanatory comments use ;;."}
 
  "////"
  {:clojure-source "" :kind :syntax-note

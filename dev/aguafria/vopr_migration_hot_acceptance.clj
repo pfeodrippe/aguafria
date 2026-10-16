@@ -112,10 +112,10 @@
   []
   (capture-declaration
    '(a/defn aguafria_migrate_log_performance_mode :void
-      [old_address :- :usize new_address :- :usize]
+      [[old_address :usize] [new_address :usize]]
       (ak/const old_value [:*const :bool] (ak/ptrFromInt old_address))
       (ak/const new_value [:* AguafriaLogPerformanceState]
-        (ak/ptrFromInt new_address))
+                (ak/ptrFromInt new_address))
       (set! (a/field (a/deref new_value) enabled) (a/deref old_value))
       (set! (a/field (a/deref new_value) migration_generation) 1))))
 

@@ -14,9 +14,9 @@
                      (into center [radius width])))
                  [:wheel-front-left :wheel-front-right :wheel-rear-left :wheel-rear-right])]
   (eval `(a/defconst ~'wheel-geometry
-           "Four rows: model-space axle X/Y/Z, rolling radius and tire width (metres)."
-           [:array 4 [:array 5 :f32]] ~rows)))
+           [:array 4 [:array 5 :f32]] "Four rows: model-space axle X/Y/Z, rolling radius and tire width (metres)."
+           ~rows)))
 
 (a/defconst chassis-origin-z
-  "Model-space height of the chassis collider centre; subtract when posing art."
-  :f32 0.66)
+  :f32 "Model-space height of the chassis collider centre; subtract when posing art."
+  0.66)

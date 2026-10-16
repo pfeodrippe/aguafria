@@ -102,7 +102,7 @@
     (is (not (str/includes? clojure-source ":_"))))
   (is (= '(var-decl flag false)
          (convert/nested-declaration-form '(a/defvar flag false))))
-  (is (= '(var-decl flag {:public false} :bool false)
+  (is (= '(var-decl flag :bool {:public false}  false)
          (convert/nested-declaration-form '(a/defvar flag :bool {:public false} false)))))
 
 (deftest array-constructor-and-operators-use-the-public-api
