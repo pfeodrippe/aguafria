@@ -111,7 +111,7 @@
     (is (> bottom 0.1))
     (is (< 0.8 top 1.7))
     (doseq [wheel [:wheel-front-left :wheel-front-right
-                  :wheel-rear-left :wheel-rear-right]]
+                   :wheel-rear-left :wheel-rear-right]]
       (let [[low high] (bounds (wheel parts) 2)]
         (is (<= -0.1 low 0.15))
         (is (< 0.8 high 1.1))))))
@@ -150,7 +150,7 @@
               ;; million-element loop spends minutes resolving overloads.
               ^floats stream (.toArray (.asSlice ^java.lang.foreign.MemorySegment buffer
                                                  0 (long (* count 64)))
-                                      java.lang.foreign.ValueLayout/JAVA_FLOAT)]
+                                       java.lang.foreign.ValueLayout/JAVA_FLOAT)]
           (is (< 3000 count capacity) (str "Non-instanced overview vertex count: " count))
           (is (zero? (mod count 3)))
           (is (< (:y raised) (:y origin)))
@@ -236,6 +236,6 @@
     (is (= 3.0 (render3d/damp 3.0 10.0 8.0 -1.0))))
   (let [current (float (Math/toRadians 179.0))
         target (float (Math/toRadians -179.0))
-        result (render3d/damp-angle current target 8.0 (float (/ 1.0 60))) ]
+        result (render3d/damp-angle current target 8.0 (float (/ 1.0 60)))]
     (is (< current result (+ current (Math/toRadians 2.0)))
         "Yaw crosses the seam by two degrees, never turns 358 degrees")))

@@ -1,11 +1,12 @@
 (ns aguafria.zig.discovery-tuple-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as a]))
 
 (a/deftest never-run
-  (let [number (k/i32 42)]
+  (let [number (i32 42)]
     (debug/print "number={} literal={} boolean={}\n" [number 7 true]))
-  (debug/print "quoted=\"{}\"\tλ\n" [(k/f32 1.25)])
-  (k/= :_ (k/== :i32 :i32))
-  (k/unreachable))
+  (debug/print "quoted=\"{}\"\tλ\n" [(f32 1.25)])
+  (= :_ (== :i32 :i32))
+  (unreachable))

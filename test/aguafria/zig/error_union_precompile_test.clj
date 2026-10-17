@@ -35,10 +35,10 @@
                            (fn [cache collected callbacks]
                              {:packs
                               (vec (mapcat (fn [[id artifact]]
-                                              (:packs (finish! cache
-                                                               (atom {:artifacts {id artifact}})
-                                                               callbacks)))
-                                            (:artifacts @collected)))})}
+                                             (:packs (finish! cache
+                                                              (atom {:artifacts {id artifact}})
+                                                              callbacks)))
+                                           (:artifacts @collected)))})}
             (fn []
               (let [report (precompile/precompile!
                             {:analyze ['aguafria.zig.discovery-error-union-fixture]

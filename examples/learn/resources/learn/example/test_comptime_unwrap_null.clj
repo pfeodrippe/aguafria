@@ -1,8 +1,9 @@
 (ns learn.example.test-comptime-unwrap-null
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defcomptime reject-absent-number
-  (let [optional-number (k/as nil [:optional :i32])
+  (let [optional-number (as nil [:optional :i32])
         number (a/unwrap optional-number)]
-    (k/= :_ number)))
+    (= :_ number)))

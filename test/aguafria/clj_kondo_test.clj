@@ -26,6 +26,46 @@
 (defn- lint [source]
   (lint-with-config (io/file (io/resource export-path)) source))
 
+(deftest native-referrals-and-core-syntax-helpers-remain-inspectable
+  (let [prefix "(ns fixture (:refer-clojure :only [])
+                  (:require [aguafria.keyword :as k :refer :all] [aguafria.zig :as a]))\n"
+        lint-native #(lint-with-config (io/file (io/resource export-path))
+                                       (str prefix %) ["src/aguafria/keyword.clj"])]
+    (is (empty? (filter #(= :error (:level %))
+                        (lint-native "(a/defn answer :i32 [[x :i32]]
+                                       (let [y (-> x (+ 1))] (+ y 2)))"))))
+    (is (empty? (filter #(= :error (:level %))
+                        (lint-native "(a/deftest pointers
+                                       (let [xs (a/array [1 2] :i32)]
+                                         (for [(* x) xs] (= @x 3))))"))))
+    (let [findings (lint-native "(a/defstruct Node
+                                   [[:child [:* Node]] [:bytes :i32]
+                                    (a/fn read-bytes :i32 [[self [:* Node]]]
+                                      (a/field self bytes))])
+                                (a/defn nested-bytes :i32 [[p [:* Node]]]
+                                  (a/field (a/field p child) bytes))")]
+      (is (empty? (filter #(= :error (:level %)) findings)))
+      (is (not-any? #(= :unused-referred-var (:type %)) findings)))
+    (is (empty? (filter #(= :error (:level %))
+                        (lint-native "(a/defn classify :bool [[field-index :usize]]
+                                       (let [limit 3]
+                                         (switch field-index
+                                           (k/... 0 (- limit 1))
+                                           (inline (a/with-block :_ [idx] (== idx 1)))
+                                           false)))"))))
+    (is (some #(and (= :unresolved-symbol (:type %))
+                    (re-find #"missing-native-function" (:message %)))
+              (lint-native "(a/defn bad :i32 [] (missing-native-function 1))")))
+    (is (some #(= :unused-referred-var (:type %))
+              (lint "(ns fixture (:refer-clojure :only [])
+                       (:require [aguafria.keyword :refer [+]]))")))
+    (is (some #(and (= :unresolved-symbol (:type %))
+                    (re-find #"map" (:message %)))
+              (lint-native "(map identity [1 2])")))
+    (is (some #(and (= :unresolved-symbol (:type %))
+                    (re-find #"missing-value" (:message %)))
+              (lint-native "(comptime (let [x (+ 1 2)] (+ x missing-value)))")))))
+
 (deftest c-binding-macro-defines-vars-and-checks-host-code
   (is (empty? (lint "(ns fixture (:require [aguafria.c :as ac]))
                      (ac/defbindings api (ac/import! \"fixture\" \"fixture.h\" {})
@@ -159,6 +199,15 @@
                      (k/for [(k/* item) (k/& items) index (a/range 0)]
                        (k/= @item (k/intCast index))))")]
     (is (empty? (filter #(= :error (:level %)) findings)))))
+
+(deftest comptime-is-a-native-scope-for-linting
+  (let [findings (lint "(ns fixture (:require [aguafria.keyword :as k]))
+                        (let [x 3]
+                          (k/comptime (let [y (k/+ x 1)] (k/* y 2))))")]
+    (is (empty? findings) (pr-str findings)))
+  (let [findings (lint "(ns fixture (:require [aguafria.keyword :as k]))
+                        (k/comptime (k/+ missing 1))")]
+    (is (some #(= :unresolved-symbol (:type %)) findings))))
 
 (deftest scoped-native-for-owners-preserve-lexical-uses
   (let [findings

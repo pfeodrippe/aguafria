@@ -40,7 +40,7 @@
         (eval '(a/defn recursive :!u32 [[remaining :u32]]
                  (if (ak/== remaining 0)
                    7
-                   (try (recursive (- remaining 1)))))))
+                   (try (recursive (aguafria.keyword/- remaining 1)))))))
       (let [checked (ns-resolve namespace 'checked)
             checked-void (ns-resolve namespace 'checked-void)
             recursive (ns-resolve namespace 'recursive)]
@@ -267,8 +267,8 @@
                  (ak/compileError "Sibling foo-extra must not be compiled or run")))
         (eval '(a/deftest foo
                  (let [values (a/init [20 22] (pair-type (a/type :i32)))]
-                   (try (testing/expectEqual 2 (try (dependency/checked-length (& values)))))
-                   (try (testing/expectEqual 42 (+ (a/index values 0) (a/index values 1))))))))
+                   (try (testing/expectEqual 2 (try (dependency/checked-length (aguafria.keyword/& values)))))
+                   (try (testing/expectEqual 42 (aguafria.keyword/+ (a/index values 0) (a/index values 1))))))))
       (let [test-var (ns-resolve root 'foo)
             before (:aguafria/declaration (meta test-var))
             {:keys [result failure printed-out printed-err]} (capture-execution test-var)]

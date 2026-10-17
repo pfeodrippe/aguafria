@@ -437,7 +437,7 @@
                     (k/import (a/clj! ~import-expression))))
        ~@(map (fn [member]
                 (located `(a/defconst ~member {:attrs #{k/pub}}
-                            (~(keyword member) ~api-name))))
+                            (~(clojure.core/keyword member) ~api-name))))
               members))))
 
 (defn translate-header!

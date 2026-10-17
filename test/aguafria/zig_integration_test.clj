@@ -45,7 +45,7 @@
 
 (a/defn ^{:export false :public true} sum-point :i32
   [[point Point]]
-  (+ (field point x) (field point y)))
+  (ak/+ (field point x) (field point y)))
 
 (a/defn constructed-point-sum :i32
   []
@@ -54,7 +54,7 @@
 (a/defn base :i32
   "Increment an integer in Zig."
   [[x :i32]]
-  (+ x 1))
+  (ak/+ x 1))
 
 (a/defn external-quadruple :i32
   [[x :i32]]
@@ -78,19 +78,19 @@
 
 (a/defn composed :i32
   [[x :i32]]
-  (* (base x) multiplier))
+  (ak/* (base x) multiplier))
 
 (a/defn ^{:export false :public true} zig-only-base :i32
   [[x :i32]]
-  (+ x 4))
+  (ak/+ x 4))
 
 (a/defn zig-only-composed :i32
   [[x :i32]]
-  (* (zig-only-base x) 2))
+  (ak/* (zig-only-base x) 2))
 
 (a/defn ^{:export false :public true} comptime-plus-one :u32
   [[x :u32]]
-  (+ x 1))
+  (ak/+ x 1))
 
 (a/defconst comptime-answer :u32 (comptime-plus-one 41))
 
@@ -102,15 +102,15 @@
   [[n :i32]]
   (var total :i32 0)
   (var i :i32 0)
-  (while (< i n)
+  (while (ak/< i n)
     (ak/+= total i)
     (ak/+= i 1))
   total)
 
 (a/defn abs-i32 :i32
   [[x :i32]]
-  (if (< x 0)
-    (- x)
+  (if (ak/< x 0)
+    (ak/- x)
     x))
 
 (a/defn ^{:export false :public true} main :void
@@ -141,11 +141,11 @@
                   runtime/*registration-batch* captured]
           (refer 'clojure.core)
           (alias 'a 'aguafria.zig)
-          (eval '(a/defn increment :i32 [[value :i32]] (+ value 1)))
+          (eval '(a/defn increment :i32 [[value :i32]] (ak/+ value 1)))
           (eval '(a/defn- increment-private :i32
                    [[value :i32]]
-                   (when (< value 0) (return 0))
-                   (+ value 2)))
+                   (when (ak/< value 0) (return 0))
+                   (ak/+ value 2)))
           (eval '(a/defn exported :i32
                    {:attrs #{:export}} [[value :i32]] value)))
         (let [by-name (into {} (map (juxt :name identity)) (runtime/collected-declarations captured))
@@ -202,9 +202,9 @@
                  (let [list-value (a/init {:items [20 2 3]} (ShortList :u32 3))
                        payload (a/init {:value 15} Payload)]
                    (set! _ (a/type [:* Handle]))
-                   (+ ((a/field list-value :first-item))
-                      (a/field payload :value)
-                      (ak/intFromEnum (a/field Color :blue)))))))
+                   (ak/+ ((a/field list-value :first-item))
+                         (a/field payload :value)
+                         (ak/intFromEnum (a/field Color :blue)))))))
       (is (values= 42 ((ns-resolve test-ns 'inspect-types))))
       (let [list-type (var-get (ns-resolve test-ns 'ThreeItems))]
         (is (a/zig-type? list-type))
@@ -262,7 +262,7 @@
           (alias 'a 'aguafria.zig)
           (eval '(a/defn- twice :i32
                    [[value :i32]]
-                   (* value 2))))
+                   (ak/* value 2))))
         (let [twice (ns-resolve test-ns 'twice)
               before (:requested-generation (a/module-info test-symbol))]
           (is (var? twice))
@@ -413,7 +413,7 @@
                    7))
           (eval '(a/defvar recent-values
                    [:slice-const :u24]
-                   (& [1 2])))
+                   (ak/& [1 2])))
           (eval '(a/defn missing-value [:error-union [:error-set [:NoValue]] :u24]
                    []
                    (a/error-value :NoValue)))
@@ -898,7 +898,7 @@
           (eval '(a/defvar pointed :i32 42))
           (eval '(a/defn pointed-address [:* :i32]
                    []
-                   (& pointed)))
+                   (ak/& pointed)))
           (eval '(a/defn read-pointed :i32
                    [[pointer [:* :i32]]]
                    (a/deref pointer))))
@@ -1415,7 +1415,7 @@
               :module module
               :args [{:name 'x :type :i32 :properties {}}]
               :return :i32
-              :body [(list '+ 'x amount)]
+              :body [(list 'aguafria.keyword/+ 'x amount)]
               :doc doc
               :export? true
               :public? true
@@ -1501,7 +1501,7 @@
           (eval
            '(a/defn base :i32
               [[x :i32]]
-              (+ x 5))))
+              (ak/+ x 5))))
         (is (values= 24 (composed 3)))
         (testing "the deferred complete source is exact when inspected"
           (let [source (a/source 'aguafria.zig-integration-test)]
@@ -1527,7 +1527,7 @@
            '(a/defn base :i32
               "Increment an integer in Zig."
               [[x :i32]]
-              (+ x 1))))
+              (ak/+ x 1))))
         (a/await! 'aguafria.zig-integration-test)))))
 
 (deftest zig-only-compatible-callee-hot-reload-test
@@ -1541,7 +1541,7 @@
         (eval
          '(a/defn zig-only-partial-primer :i32
             [[x :i32]]
-            (+ x 17))))
+            (ak/+ x 17))))
       (is (values= 20 ((ns-resolve (the-ns 'aguafria.zig-integration-test)
                                    'zig-only-partial-primer)
                        3)))
@@ -1551,7 +1551,7 @@
           (eval
            '(a/defn ^{:export false :public true} zig-only-base :i32
               [[x :i32]]
-              (+ x 10))))
+              (ak/+ x 10))))
         (is (values= 26 (zig-only-composed 3)))
         (let [callee-after (declaration-stat "zig-only-base")
               caller-after (declaration-stat "zig-only-composed")]
@@ -1564,7 +1564,7 @@
           (eval
            '(a/defn ^{:export false :public true} zig-only-base :i32
               [[x :i32]]
-              (+ x 4))))
+              (ak/+ x 4))))
         (a/await! 'aguafria.zig-integration-test)))))
 
 (deftest add-function-and-rewire-existing-caller-test
@@ -1573,7 +1573,7 @@
       (eval
        '(a/defn live-existing-b :i32
           [[x :i32]]
-          (+ x 2))))
+          (ak/+ x 2))))
     (is (values= 5 ((ns-resolve (the-ns 'aguafria.zig-integration-test)
                                 'live-existing-b)
                     3)))
@@ -1581,11 +1581,11 @@
       (eval
        '(a/defn live-new-a :i32
           [[x :i32]]
-          (* x 10)))
+          (ak/* x 10)))
       (eval
        '(a/defn live-existing-b :i32
           [[x :i32]]
-          (+ (live-new-a x) 2))))
+          (ak/+ (live-new-a x) 2))))
     (is (values= 32 ((ns-resolve (the-ns 'aguafria.zig-integration-test)
                                  'live-existing-b)
                      3)))
@@ -1611,29 +1611,29 @@
           (eval
            '(a/defn existing-b :i32
               [[x :i32]]
-              (+ x 2))))
+              (ak/+ x 2))))
         (is (values= 5 ((ns-resolve b-ns 'existing-b) 3)))
 
         (binding [*ns* a-ns]
           (eval
            '(a/defn new-a :i32
               [[x :i32]]
-              (* x 10)))
+              (ak/* x 10)))
           (eval
            '(a/defn ^{:export false :public true} zig-only-a :i32
               [[x :i32]]
-              (* x 3))))
+              (ak/* x 3))))
         (is (values= 30 ((ns-resolve a-ns 'new-a) 3)))
 
         (binding [*ns* b-ns]
           (eval
            '(a/defn existing-b :i32
               [[x :i32]]
-              (+ (dependency-a/new-a x) 2)))
+              (ak/+ (dependency-a/new-a x) 2)))
           (eval
            '(a/defn new-b :i32
               [[x :i32]]
-              (+ (dependency-a/new-a x) 5)))
+              (ak/+ (dependency-a/new-a x) 5)))
           (eval
            '(a/defn zig-only-b :i32
               [[x :i32]]
@@ -1651,11 +1651,11 @@
             (eval
              '(a/defn new-a :i32
                 [[x :i32]]
-                (* x 20)))
+                (ak/* x 20)))
             (eval
              '(a/defn ^{:export false :public true} zig-only-a :i32
                 [[x :i32]]
-                (* x 4))))
+                (ak/* x 4))))
           (a/await! a-symbol)
           (is (values= 62 ((ns-resolve b-ns 'existing-b) 3)))
           (is (values= 65 ((ns-resolve b-ns 'new-b) 3)))
@@ -1670,7 +1670,7 @@
             (eval
              '(a/defn new-a :i32
                 [[x :i32] [y :i32]]
-                (+ (* x 20) y))))
+                (ak/+ (ak/* x 20) y))))
           (a/await! a-symbol)
           (is (values= 67 ((ns-resolve a-ns 'new-a) 3 7)))
           (is (values= 62 ((ns-resolve b-ns 'existing-b) 3)))
@@ -1686,11 +1686,11 @@
             (eval
              '(a/defn existing-b :i32
                 [[x :i32]]
-                (+ (dependency-a/new-a x 7) 2)))
+                (ak/+ (dependency-a/new-a x 7) 2)))
             (eval
              '(a/defn new-b :i32
                 [[x :i32]]
-                (+ (dependency-a/new-a x 7) 5))))
+                (ak/+ (dependency-a/new-a x 7) 5))))
           (a/await! b-symbol)
           (is (values= 69 ((ns-resolve b-ns 'existing-b) 3)))
           (is (values= 72 ((ns-resolve b-ns 'new-b) 3)))
@@ -1739,7 +1739,7 @@
               {:zig/prefix "pub inline"
                :attrs #{:public}}
               [[x :i32]]
-              (+ x 1)))
+              (ak/+ x 1)))
           (eval
            '(a/defn inline-caller :i32
               [[x :i32]]
@@ -1755,7 +1755,7 @@
                 {:zig/prefix "pub inline"
                  :attrs #{:public}}
                 [[x :i32]]
-                (+ x 2))))
+                (ak/+ x 2))))
           (is (values= 7 ((ns-resolve module-ns 'inline-caller) 5)))
           (is (not= caller-generation-before
                     (->> (:declarations (a/stats module-symbol))
@@ -1786,7 +1786,7 @@
            '(a/defn generic-add T
               [[T {:zig/prefix "comptime"} :type]
                [x T]]
-              (+ x 1))))
+              (ak/+ x 1))))
         (binding [*ns* caller-ns]
           (alias 'generic generic-symbol)
           (eval
@@ -1803,7 +1803,7 @@
              '(a/defn generic-add T
                 [[T {:zig/prefix "comptime"} :type]
                  [x T]]
-                (+ x 2))))
+                (ak/+ x 2))))
           (is (values= 7 ((ns-resolve caller-ns 'concrete-caller) 5)))
           (is (< caller-generation-before
                  (->> (:declarations (a/stats caller-symbol))
@@ -1837,7 +1837,7 @@
            '(a/defn generic-add T
               [[T {:zig/prefix "comptime"} :type]
                [x T]]
-              (+ x 1))))
+              (ak/+ x 1))))
         (binding [*ns* a-ns]
           (alias 'generic generic-symbol)
           (eval
@@ -1849,7 +1849,7 @@
           (eval
            '(a/defn cycle-peer :i32
               [[x :i32]]
-              (+ (dependency-a/concrete-caller x) 10))))
+              (ak/+ (dependency-a/concrete-caller x) 10))))
         (binding [*ns* a-ns]
           (alias 'b b-symbol)
           (eval
@@ -1862,7 +1862,7 @@
               generic-var (ns-resolve generic-ns 'generic-add)
               original (:aguafria/declaration (meta generic-var))
               changed (runtime/declaration-info
-                       (assoc original :body '[(+ x 2)]))
+                       (assoc original :body '[(aguafria.keyword/+ x 2)]))
               result (runtime/register-declaration! changed)
               affected (:affected result)
               publication (first (:publications affected))]
@@ -1904,7 +1904,7 @@
            '(a/defn fanout-add T
               [[T {:zig/prefix "comptime"} :type]
                [x T]]
-              (+ x 1))))
+              (ak/+ x 1))))
         (doseq [[target alias-name function-name offset]
                 [[left-ns 'generic-left 'left-step 10]
                  [right-ns 'generic-right 'right-step 20]]]
@@ -1914,7 +1914,7 @@
              (list 'a/defn function-name 'T
                    '[[T {:zig/prefix "comptime"} :type]
                      [x T]]
-                   (list '+
+                   (list 'aguafria.keyword/+
                          (list (symbol (str alias-name) "fanout-add")
                                'T 'x)
                          offset)))))
@@ -1924,13 +1924,13 @@
           (eval
            '(a/defn joined-value :i32
               [[x :i32]]
-              (+ (left/left-step :i32 x)
-                 (right/right-step :i32 x)))))
+              (ak/+ (left/left-step :i32 x)
+                    (right/right-step :i32 x)))))
         (is (values= 42 ((ns-resolve join-ns 'joined-value) 5)))
         (let [generic-var (ns-resolve generic-ns 'fanout-add)
               original (:aguafria/declaration (meta generic-var))
               changed (runtime/declaration-info
-                       (assoc original :body '[(+ x 2)]))
+                       (assoc original :body '[(aguafria.keyword/+ x 2)]))
               result (runtime/register-declaration! changed)
               affected (:affected result)]
           (is (values= 44 ((ns-resolve join-ns 'joined-value) 5)))
@@ -1972,12 +1972,12 @@
           (eval
            '(a/defn ^{:export false :public true} sum-pair :i32
               [[pair Pair]]
-              (+ (a/field pair x) (a/field pair y))))
+              (ak/+ (a/field pair x) (a/field pair y))))
           (eval
            '(a/defn ^{:export false :public true :zig/qualifiers "!"}
               fallible :i32
               [[x :i32]]
-              (+ x 1))))
+              (ak/+ x 1))))
         (binding [*ns* b-ns]
           (alias 'dependency-a a-symbol)
           (eval
@@ -1987,7 +1987,7 @@
           (eval
            '(a/defn call-fallible :i32
               [[x :i32]]
-              (catch (dependency-a/fallible x) 0))))
+              (ak/catch (dependency-a/fallible x) 0))))
         (is (values= 7 ((ns-resolve b-ns 'call-pair) 3 4)))
         (is (values= 4 ((ns-resolve b-ns 'call-fallible) 3)))
         (let [b-generation
@@ -1998,12 +1998,12 @@
             (eval
              '(a/defn ^{:export false :public true} sum-pair :i32
                 [[pair Pair]]
-                (+ (* (a/field pair x) 10) (a/field pair y))))
+                (ak/+ (ak/* (a/field pair x) 10) (a/field pair y))))
             (eval
              '(a/defn ^{:export false :public true :zig/qualifiers "!"}
                 fallible :i32
                 [[x :i32]]
-                (+ x 10))))
+                (ak/+ x 10))))
           (a/await! a-symbol)
           (let [pair-result ((ns-resolve b-ns 'call-pair) 3 4)
                 fallible-result ((ns-resolve b-ns 'call-fallible) 3)
@@ -2093,13 +2093,13 @@
           (eval
            '(a/defn ^{:export false :public true} inner-a :i32
               [[x :i32]]
-              (+ x 1))))
+              (ak/+ x 1))))
         (binding [*ns* b-ns]
           (alias 'dependency-a a-symbol)
           (eval
            '(a/defn ^{:export false :public true} call-a :i32
               [[x :i32]]
-              (+ (dependency-a/inner-a x) 2))))
+              (ak/+ (dependency-a/inner-a x) 2))))
         (binding [*ns* a-ns]
           (eval
            '(a/defn entry :i32
@@ -2114,7 +2114,7 @@
             (eval
              '(a/defn ^{:export false :public true} inner-a :i32
                 [[x :i32]]
-                (+ x 10))))
+                (ak/+ x 10))))
           (is (values= 17 ((ns-resolve a-ns 'entry) 5)))
           (let [caller-generation-after
                 (->> (:declarations (a/stats a-symbol))
@@ -2362,7 +2362,7 @@
           (eval
            '(a/defn sum-color :f32
               [[color Color]]
-              (+ (a/field color r) (a/field color g))))
+              (ak/+ (a/field color r) (a/field color g))))
           (eval
            '(a/defn constructed-sum :f32
               []
@@ -2396,7 +2396,7 @@
         (binding [*ns* generic-ns]
           (eval '(a/defn scale :u32
                    [[value {:zig/prefix "comptime"} :u32]]
-                   (* value 2))))
+                   (ak/* value 2))))
         (is (false?
              (:export?
               (:aguafria/declaration
@@ -2409,7 +2409,7 @@
         (binding [*ns* generic-ns]
           (eval '(a/defn scale :u32
                    [[value {:zig/prefix "comptime"} :u32]]
-                   (* value 3))))
+                   (ak/* value 3))))
         (is (values= 15 ((ns-resolve caller-ns 'answer))))
         (finally
           (a/configure! old-config)
@@ -2462,13 +2462,13 @@
           (eval
            '(a/defn ^{:export false :public true} inner-a :i32
               [[x :i32]]
-              (+ x 1))))
+              (ak/+ x 1))))
         (binding [*ns* b-ns]
           (alias 'dependency-a a-symbol)
           (eval
            '(a/defn ^{:export false :public true} call-a :i32
               [[x :i32]]
-              (+ (dependency-a/inner-a x) 2))))
+              (ak/+ (dependency-a/inner-a x) 2))))
         (binding [*ns* a-ns]
           (eval
            '(a/defn entry :i32
@@ -2481,13 +2481,13 @@
                a-ns
                '(a/defn ^{:export false :public true} inner-a :i32
                   [[x :i32]]
-                  (+ x 10)))
+                  (ak/+ x 10)))
               good-b
               (capture-declaration
                b-ns
                '(a/defn ^{:export false :public true} call-a :i32
                   [[x :i32]]
-                  (+ (dependency-a/inner-a x) 5)))]
+                  (ak/+ (dependency-a/inner-a x) 5)))]
           (runtime/register-batch! [good-a]
                                    {:module a-symbol :compile? false
                                     :replace? false})
@@ -2522,13 +2522,13 @@
                    a-ns
                    '(a/defn ^{:export false :public true} inner-a :i32
                       [[x :i32]]
-                      (+ x true)))
+                      (ak/+ x true)))
                   next-b
                   (capture-declaration
                    b-ns
                    '(a/defn ^{:export false :public true} call-a :i32
                       [[x :i32]]
-                      (+ (dependency-a/inner-a x) 7)))]
+                      (ak/+ (dependency-a/inner-a x) 7)))]
               (runtime/register-batch! [bad-a]
                                        {:module a-symbol :compile? false
                                         :replace? false})
@@ -2591,7 +2591,7 @@
            '(a/defn spin :u64
               [[n :u64]]
               (ak/var i :u64 0)
-              (while (< i n)
+              (while (ak/< i n)
                 (ak/+= i 1))
               i)))
         (binding [*ns* b-ns]
@@ -2619,9 +2619,9 @@
              '(a/defn spin :u64
                 [[n :u64]]
                 (ak/var i :u64 0)
-                (while (< i n)
+                (while (ak/< i n)
                   (ak/+= i 1))
-                (+ i 1))))
+                (ak/+ i 1))))
           (let [during (a/stats a-symbol)
                 b-generation-after
                 (->> (:declarations (a/stats b-symbol))
@@ -2672,7 +2672,7 @@
         (is (values= 2 (:native-generation-count (a/stats module))))
 
         (runtime/register-declaration!
-         (declaration [(list '+ 'x 1)]))
+         (declaration [(list 'aguafria.keyword/+ 'x 1)]))
         (is (values= 8 (runtime/invoke! qualified-name [7])))
         (let [module-stats
               (loop [attempt 0]
@@ -2708,9 +2708,9 @@
              :args [{:name 'n :type :u64 :properties {}}]
              :return :u64
              :body [(list 'var 'i :u64 0)
-                    (list 'while (list '< 'i 'n)
+                    (list 'while (list 'aguafria.keyword/< 'i 'n)
                           (list 'aguafria.keyword/+= 'i 1))
-                    (if (zero? offset) 'i (list '+ 'i offset))]
+                    (if (zero? offset) 'i (list 'aguafria.keyword/+ 'i offset))]
              :export? true
              :public? true
              :implicit-return? true
@@ -2772,11 +2772,11 @@
                       :column 1}})
           v1 (runtime/declaration-info
               (declaration [{:name 'x :type :i32 :properties {}}]
-                           [(list '+ 'x 1)]))
+                           [(list 'aguafria.keyword/+ 'x 1)]))
           v2 (runtime/declaration-info
               (declaration [{:name 'x :type :i32 :properties {}}
                             {:name 'y :type :i32 :properties {}}]
-                           [(list '+ 'x 'y)]))]
+                           [(list 'aguafria.keyword/+ 'x 'y)]))]
       (try
         (a/configure! {:async? false :modules {}})
         (runtime/register-declaration! v1)
@@ -2824,13 +2824,13 @@
           arg-x {:name 'x :type :i32 :properties {}}
           arg-y {:name 'y :type :i32 :properties {}}
           a-v1 (runtime/declaration-info
-                (declaration 'a [arg-x] [(list '+ 'x 1)]))
+                (declaration 'a [arg-x] [(list 'aguafria.keyword/+ 'x 1)]))
           a-v2 (runtime/declaration-info
-                (declaration 'a [arg-x arg-y] [(list '+ 'x 'y)]))
+                (declaration 'a [arg-x arg-y] [(list 'aguafria.keyword/+ 'x 'y)]))
           b-v1 (declaration 'b [arg-x]
-                            [(list '+ (list 'a 'x) 100)])
+                            [(list 'aguafria.keyword/+ (list 'a 'x) 100)])
           b-v2 (declaration 'b [arg-x]
-                            [(list '+ (list 'a 'x 10) 100)])]
+                            [(list 'aguafria.keyword/+ (list 'a 'x 10) 100)])]
       (try
         (a/configure! {:async? true :modules {}})
         (runtime/register-declaration! a-v1)
@@ -2882,23 +2882,23 @@
           (eval
            '(a/defn ^{:export false :public true} combine :i32
               [[x :i32] [y :i32]]
-              (* x y))))
+              (ak/* x y))))
         (binding [*ns* callee-ns]
           (alias 'dependency dependency-symbol)
           (eval
            '(a/defn a :i32
               [[x :i32]]
-              (+ x 1)))
+              (ak/+ x 1)))
           (eval
            '(a/defn old-local-caller :i32
               [[x :i32]]
-              (+ (a x) 10))))
+              (ak/+ (a x) 10))))
         (binding [*ns* caller-ns]
           (alias 'callee callee-symbol)
           (eval
            '(a/defn remote-caller :i32
               [[x :i32]]
-              (+ (callee/old-local-caller x) 100))))
+              (ak/+ (callee/old-local-caller x) 100))))
 
         (is (values= 116 ((ns-resolve caller-ns 'remote-caller) 5)))
         (let [a-v1-abi (-> (ns-resolve callee-ns 'a)
@@ -2912,11 +2912,11 @@
           ;; complete callee module invalid, forcing the breaking live slice.
           (binding [*ns* callee-ns]
             (eval '(a/defconst local-bias-base :i32 2))
-            (eval '(a/defconst local-bias :i32 (+ local-bias-base 1)))
+            (eval '(a/defconst local-bias :i32 (ak/+ local-bias-base 1)))
             (eval
              '(a/defn a :i32
                 [[x :i32] [y :i32]]
-                (dependency/combine (+ x local-bias) y))))
+                (dependency/combine (ak/+ x local-bias) y))))
 
           (is (values= 20 ((ns-resolve callee-ns 'a) 2 4)))
           (is (values= 16 ((ns-resolve callee-ns 'old-local-caller) 5)))
@@ -2936,7 +2936,7 @@
             (eval
              '(a/defn old-local-caller :i32
                 [[x :i32]]
-                (+ (a x 4) 10))))
+                (ak/+ (a x 4) 10))))
           (is (values= 142 ((ns-resolve caller-ns 'remote-caller) 5)))
           (is (values= remote-generation-before
                        (->> (:declarations (a/stats caller-symbol))
@@ -2980,7 +2980,7 @@
         (is (values= 37 ((ns-resolve test-ns 'read-counter))))
 
         (binding [*ns* test-ns]
-          (eval '(a/defn read-counter :i32 [] (+ counter 1))))
+          (eval '(a/defn read-counter :i32 [] (ak/+ counter 1))))
         (is (values= 38 ((ns-resolve test-ns 'read-counter))))
         (is (values= :preserved (:status (last (a/state-versions
                                                 (ns-resolve test-ns 'counter))))))
@@ -3454,12 +3454,12 @@
         ;; Reloading only A keeps B's already-compiled accessor on the same
         ;; canonical address; no dependent recompilation is required.
         (binding [*ns* a-ns]
-          (eval '(a/defn read-a :i32 [] (+ counter 1))))
+          (eval '(a/defn read-a :i32 [] (ak/+ counter 1))))
         (is (values= 10 ((ns-resolve a-ns 'read-a))))
         (is (values= 9 ((ns-resolve b-ns 'read-b))))
 
         (binding [*ns* b-ns]
-          (eval '(a/defn read-b :i32 [] (+ dependency-a/counter 2))))
+          (eval '(a/defn read-b :i32 [] (ak/+ dependency-a/counter 2))))
         (is (values= 11 ((ns-resolve b-ns 'read-b))))
         ((ns-resolve a-ns 'write-a) 20)
         (is (values= 22 ((ns-resolve b-ns 'read-b))))
@@ -3641,7 +3641,7 @@
     (eval
      '(a/defn truthy :bool
         [[x :i32]]
-        (> x 0))))
+        (ak/> x 0))))
   (let [test-ns (the-ns 'aguafria.zig-integration-test)]
     (is (true? ((ns-resolve test-ns 'truthy) 1)))
     (is (false? ((ns-resolve test-ns 'truthy) 0)))

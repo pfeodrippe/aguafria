@@ -126,9 +126,9 @@
     (throw (ex-info "Inline declarations must be a/defconst or a/defcomptime forms"
                     {:forms forms})))
   (let [printed-forms (binding [*print-meta* true
-                               *print-length* nil
-                               *print-level* nil]
-                       (pr-str forms))
+                                *print-length* nil
+                                *print-level* nil]
+                        (pr-str forms))
         digest (.digest (java.security.MessageDigest/getInstance "SHA-256")
                         (.getBytes ^String printed-forms
                                    java.nio.charset.StandardCharsets/UTF_8))
@@ -162,7 +162,7 @@
       (finally
         (remove-ns namespace-symbol)
         (dosync
-          (alter @#'clojure.core/*loaded-libs* disj namespace-symbol))))))
+         (alter @#'clojure.core/*loaded-libs* disj namespace-symbol))))))
 
 (defn emit-mapping
   "Read the displayed forms and pass them through the normal Aguafria emitter.

@@ -1,5 +1,6 @@
 (ns learn.example.test-coerce-tuples-arrays
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defconst Tuple
@@ -8,9 +9,9 @@
     (a/tuple-field-decl :u8)]))
 
 (a/deftest coercion-from-homogeneous-tuple-to-array
-  (let [tuple (k/as [5 6] Tuple)
-        array (k/as tuple [:array 2 :u8])]
-    (k/= :_ array)))
+  (let [tuple (as [5 6] Tuple)
+        array (as tuple [:array 2 :u8])]
+    (= :_ array)))
 
 (comment
   (coercion-from-homogeneous-tuple-to-array))

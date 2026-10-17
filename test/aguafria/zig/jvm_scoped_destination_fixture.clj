@@ -1,24 +1,25 @@
 (ns aguafria.zig.jvm-scoped-destination-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
-(a/defunion Ranked {:attrs #{k/enum}}
+(a/defunion Ranked {:attrs #{enum}}
   [[:first :void]
    [:second :f32]
    (a/fn rank :usize [[self Ranked]]
-     (aguafria.keyword/switch self :first 1 :second 2))])
+     (switch self :first 1 :second 2))])
 
-(a/defunion NumericValue {:attrs #{k/enum}}
+(a/defunion NumericValue {:attrs #{enum}}
   [[:integer :u32] [:float :f32]])
 
 (a/defn convert-number :u32 [[value NumericValue]]
-  (aguafria.keyword/switch value
+  (switch value
 
-    (k/inline (a/with-block :_ [number tag] (if (k/== tag :float) (k/intFromFloat number) number)))))
+    (inline (a/with-block :_ [number tag] (if (== tag :float) (intFromFloat number) number)))))
 
 (a/deftest destination-results
-  (let [first (k/as :first Ranked)
+  (let [first (as :first Ranked)
         second (Ranked {:second 3.5})]
     (try (testing/expectEqual 1 ((:rank first))))
     (try (testing/expectEqual 2 ((:rank second)))))
@@ -29,40 +30,40 @@
 
 (a/deftest peer-results
   (let [source (k/var 0 [:error-union [:error-set [:A :B :C]] :u32])]
-    (k/= :_ (k/& source))
+    (= :_ (k/& source))
     (let [selected (a/if-capture {:payload [value] :error [err]} source
-                                 (k/+ value 3)
-                                 (k/switch err
+                                 (+ value 3)
+                                 (switch err
                                    (a/error-value :A) 0
                                    (a/error-value :B) 1
                                    (a/error-value :C) nil))
           caught (a/catch-capture [err] source
-                                  (k/switch err
+                                  (switch err
                                     (a/error-value :A) 0
                                     (a/error-value :B) 1
                                     (a/error-value :C) nil))]
-      (try (testing/expectEqual (k/as 3 [:optional :u32]) selected))
-      (try (testing/expectEqual (k/as 0 [:optional :u32]) caught)))
-    (k/= source (a/error-value :A))
+      (try (testing/expectEqual (as 3 [:optional :u32]) selected))
+      (try (testing/expectEqual (as 0 [:optional :u32]) caught)))
+    (= source (a/error-value :A))
     (let [selected (a/if-capture {:payload [value] :error [err]} source
-                                 (k/+ value 3)
-                                 (k/switch err
+                                 (+ value 3)
+                                 (switch err
                                    (a/error-value :A) 0
                                    (a/error-value :B) 1
                                    (a/error-value :C) nil))]
-      (try (testing/expectEqual (k/as 0 [:optional :u32]) selected)))
-    (k/= source (a/error-value :B))
+      (try (testing/expectEqual (as 0 [:optional :u32]) selected)))
+    (= source (a/error-value :B))
     (let [caught (a/catch-capture [err] source
-                                  (k/switch err
+                                  (switch err
                                     (a/error-value :A) 0
                                     (a/error-value :B) 1
                                     (a/error-value :C) nil))]
-      (try (testing/expectEqual (k/as 1 [:optional :u32]) caught)))
-    (k/= source (a/error-value :C))
+      (try (testing/expectEqual (as 1 [:optional :u32]) caught)))
+    (= source (a/error-value :C))
     (let [selected (a/if-capture {:payload [value] :error [err]} source
-                                 (k/+ value 3)
-                                 (k/switch err
+                                 (+ value 3)
+                                 (switch err
                                    (a/error-value :A) 0
                                    (a/error-value :B) 1
                                    (a/error-value :C) nil))]
-      (try (testing/expectEqual (k/as nil [:optional :u32]) selected)))))
+      (try (testing/expectEqual (as nil [:optional :u32]) selected)))))

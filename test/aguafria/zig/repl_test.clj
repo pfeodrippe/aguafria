@@ -2,9 +2,38 @@
   (:require [aguafria.zig :as a]
             [aguafria.zig.repl :as repl]
             [clojure.data.json :as json]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is]])
   (:import [java.nio.charset StandardCharsets]
            [java.util Base64]))
+
+(deftest string-literals-whole-body-evaluates-as-the-editor-does
+  ;; Source loading alone does not exercise ordinary let plus individual bridge
+  ;; calls. Evaluate the exact planned text under explain!, not main or a new
+  ;; native block, so this covers aguafria-eval-buffer's execution boundary.
+  (let [path "examples/learn/resources/learn/example/string_literals.clj"
+        namespace 'learn.example.string-literals]
+    (load-file path)
+    (let [rows (:rows (repl/plan (slurp path) (str namespace)))
+          row (first rows)]
+      (is (= 1 (count rows)))
+      (is (= "main" (:declaration row)))
+      (is (nil? (:status row)))
+      (binding [*ns* (the-ns namespace) *file* path]
+        (is (identical? @(ns-resolve *ns* 'let) @#'clojure.core/let))
+        (let [result (atom ::not-evaluated)
+              output (with-out-str
+                       ;; std.debug.print writes stderr; the editor forwards both.
+                       (binding [*err* *out*]
+                         (reset! result
+                                 (eval (with-meta
+                                         (list 'aguafria.zig/explain! (read-string (:expression row)))
+                                         {:line (:line row) :aguafria.explain/source (:expression row)})))))]
+          (is (nil? @result))
+          (is (= ["*const [5:0]u8" "5" "e" "0" "true" "128169" "128175"
+                  "⚡" "true" "true" "0xfe" "0x9f"]
+                 (filterv #(re-matches #"\*const \[5:0\]u8|[0-9]+|e|true|⚡|0x[0-9a-f]+" %)
+                          (str/split-lines output)))))))))
 
 (deftest planner-only-selects-complete-bodies-and-does-not-evaluate-source
   (let [source "(ns user)\n(def seen (atom []))\n(defn main []\n  (let [x (do (swap! seen conj :binding) (atom 0))]\n    (swap! x inc)\n    (if true @x (throw (Exception. \"wrong branch\"))))\n  (swap! seen conj :tail))\n(comment (main))"
@@ -38,7 +67,7 @@
 (deftest multiline-docstrings-do-not-become-function-arguments
   (let [rows (:rows (repl/plan
                      (str "(a/defn main :void \"First line\nSecond line\" [] (run-main))\n"
-                          "(defn helper \"First line\nSecond line\" [] 42)\n"
+                          "(clojure.core/defn helper \"First line\nSecond line\" [] 42)\n"
                           "(a/defconst typed :i32 \"First line\nSecond line\" (value))")
                      "aguafria.zig.repl-test"))]
     (is (= ["(run-main)" "42" "(value)"] (mapv :expression rows)))
@@ -49,7 +78,7 @@
   (let [rows (:rows (repl/plan
                      (str "(a/defn- stop :noreturn [] (must-not-run))\n"
                           "(a/defn entry :noreturn {:zig/qualifiers \"callconv(.naked)\"} [] (stop))\n"
-                          "(defn stop [] 42)\n"
+                          "(clojure.core/defn stop [] 42)\n"
                           "(a/deftest ordinary (check-result))")
                      "aguafria.zig.repl-test"))]
     (is (= [:non-returning-function :non-returning-function nil nil] (mapv :reason rows)))

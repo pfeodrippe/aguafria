@@ -56,7 +56,7 @@
       (binding [*ns* test-ns]
         (refer 'clojure.core)
         (alias 'a 'aguafria.zig)
-        (eval '(a/defn- default-number :i32 [] (+ 1200 34)))
+        (eval '(a/defn- default-number :i32 [] (aguafria.keyword/+ 1200 34)))
         (eval '(a/defstruct Foo
                  [[:a {:default (default-number)} :i32]
                   [:b :i32]]))
@@ -69,7 +69,7 @@
                   [:packed {:default (Packed {:high 2})} Packed]
                   [:inner {:default (Foo {:b 5})} Foo]]))
         (eval '(a/defn sum-fields :i32 [[value Foo]]
-                 (+ (a/field value :a) (a/field value :b))))
+                 (aguafria.keyword/+ (a/field value :a) (a/field value :b))))
         (eval '(a/defn native-constructor-sum :i32 []
                  (let [value (Foo {:b 5})]
                    (sum-fields value))))
@@ -78,7 +78,7 @@
                        Alias Local
                        ^:var value (Alias {:b 5})]
                    (set! (a/field value :b) 6)
-                   (+ (a/field value :a) (a/field value :b))))))
+                   (aguafria.keyword/+ (a/field value :a) (a/field value :b))))))
       (let [Foo (var-get (ns-resolve test-ns 'Foo))
             Packed (var-get (ns-resolve test-ns 'Packed))
             Options (var-get (ns-resolve test-ns 'Options))]

@@ -1,10 +1,11 @@
 (ns aguafria.zig.jvm-map-phase-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
 (a/defn comptime-name-length :usize
-  [[options {:attrs #{k/comptime}} :anytype]]
+  [[options {:attrs #{comptime}} :anytype]]
   (a/field (a/field options :name) :len))
 
 (a/defn runtime-name-length :usize
@@ -16,7 +17,7 @@
   [])
 
 (a/defcomptime export-name
-  (k/export (k/& internal-name) {:name "aguafria_map_phase_fixture_export" :linkage :strong}))
+  (export (k/& internal-name) {:name "aguafria_map_phase_fixture_export" :linkage :strong}))
 
 (a/deftest names-obey-the-parameter-phase
   (try (testing/expectEqual 3 (comptime-name-length {:name "foo"})))

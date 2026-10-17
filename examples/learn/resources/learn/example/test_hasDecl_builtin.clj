@@ -1,5 +1,6 @@
 (ns learn.example.test-hasDecl-builtin
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
@@ -12,11 +13,11 @@
   (k/try (testing/expect (k/hasDecl Foo "blah")))
 
   ;; @hasDecl returns false for private declarations.
-  (k/try (testing/expect (k/! (k/hasDecl Foo "hi"))))
+  (k/try (testing/expect (! (k/hasDecl Foo "hi"))))
 
   ;; @hasDecl is for declarations; not fields.
-  (k/try (testing/expect (k/! (k/hasDecl Foo "nope"))))
-  (k/try (testing/expect (k/! (k/hasDecl Foo "nope1234")))))
+  (k/try (testing/expect (! (k/hasDecl Foo "nope"))))
+  (k/try (testing/expect (! (k/hasDecl Foo "nope1234")))))
 
 (comment
   (hasDecl))

@@ -1,5 +1,6 @@
 (ns aguafria.zig.discovery-comptime-construction-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
@@ -8,7 +9,7 @@
    [:function [:fn {} [{:type :i32}] :i32]]])
 
 (a/defn- increment :i32 [[n :i32]]
-  (k/+ n 1))
+  (+ n 1))
 
 (a/defconst commands
   (a/array [(Command {:name "increment" :function increment})] Command))

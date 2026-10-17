@@ -1,5 +1,6 @@
 (ns aguafria.zig.discovery-recursive-type-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]
             [aguafria.zig.discovery-recursive-link-fixture :as link]))
 
@@ -9,4 +10,4 @@
 
 (a/defn item-size :usize
   []
-  (k/sizeOf Item))
+  (sizeOf Item))

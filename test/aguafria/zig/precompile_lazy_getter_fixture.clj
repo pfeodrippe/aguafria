@@ -1,5 +1,7 @@
 (ns aguafria.zig.precompile-lazy-getter-fixture
-  (:require [aguafria.zig :as a]))
+  (:refer-clojure :only [])
+  (:require [aguafria.zig :as a]
+            [aguafria.keyword :as k :refer :all]))
 
 (a/defstruct Box [[:value :u32]])
 

@@ -1,5 +1,6 @@
 (ns learn.example.test-incorrect-pointer-alignment
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.mem :as mem]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
@@ -8,8 +9,8 @@
   (let [slice4 (a/slice bytes 1 5)
         int-slice (mem/bytesAsSlice
                    :u32
-                   (k/as (k/alignCast slice4)
-                         [:* {:size :slice :align 4} :u8]))]
+                   (as (alignCast slice4)
+                       [:* {:size :slice :align 4} :u8]))]
     (a/get int-slice 0)))
 
 (a/deftest pointer-alignment-safety

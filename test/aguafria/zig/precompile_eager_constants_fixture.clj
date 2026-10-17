@@ -1,5 +1,7 @@
 (ns aguafria.zig.precompile-eager-constants-fixture
-  (:require [aguafria.zig :as a]))
+  (:refer-clojure :only [])
+  (:require [aguafria.zig :as a]
+            [aguafria.keyword :as k :refer :all]))
 
 (a/defconst selected :u32 11)
 (a/defconst required-a 3)

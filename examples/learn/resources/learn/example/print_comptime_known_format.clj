@@ -1,6 +1,8 @@
 (ns learn.example.print-comptime-known-format
+  (:refer-clojure :only [])
   (:require [aguafria.std.debug :as debug]
-            [aguafria.zig :as a]))
+            [aguafria.zig :as a]
+            [aguafria.keyword :as k :refer :all]))
 
 (a/defconst a-number :i32 1234)
 (a/defconst a-string "foobar")

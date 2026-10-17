@@ -13,14 +13,14 @@
      (let [items (aguafria.keyword/var (aguafria.zig/array [1 2] :u8))]
        (aguafria.keyword/for
         [(aguafria.keyword/* item) (aguafria.keyword/& items)]
-        (aguafria.keyword/= (deref item) 0))))))
+         (aguafria.keyword/= (deref item) 0))))))
 
 (defn- logged-proof [value]
   (let [message (str "aguafria.type-source:0:" value)
         encoded (.formatHex (java.util.HexFormat/of)
                             (.getBytes message java.nio.charset.StandardCharsets/UTF_8))]
     {:exit 1 :err (str "error: found compile log statement\nCompile Log Output:\n"
-                      "\"aguafria.operation.hex:" encoded "\"\n")}))
+                       "\"aguafria.operation.hex:" encoded "\"\n")}))
 
 (deftest retained-type-proof-emits-in-its-caller-context
   (let [context (the-ns 'aguafria.zig.jvm-type-source-context-test)

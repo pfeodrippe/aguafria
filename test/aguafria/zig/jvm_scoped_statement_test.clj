@@ -289,7 +289,7 @@
                  (prn {:results results# :events @events#}))))
            (shutdown-agents))
         result (shell/sh (str (System/getProperty "java.home") "/bin/java")
-                         "--enable-native-access=ALL-UNNAMED"
+                         "-Xmx768m" "--enable-native-access=ALL-UNNAMED"
                          "-cp" (System/getProperty "java.class.path")
                          "clojure.main" "-e" (pr-str code))]
     (when-not (zero? (:exit result))

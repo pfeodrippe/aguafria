@@ -21,9 +21,9 @@
     (is (= '(aguafria.keyword/* (aguafria.keyword/sizeOf :usize) 2) (:align prepared)))
     (is (str/includes? (emitter/emit-declaration prepared) "align((@sizeOf(usize) * 2))"))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"[Uu]nresolved|[Uu]nknown"
-                         (emitter/prepare-declaration context
-                           {:kind :var :name 'aligned :type :u8 :value 100
-                            :align 'unknown-alignment}))))
+                          (emitter/prepare-declaration context
+                                                       {:kind :var :name 'aligned :type :u8 :value 100
+                                                        :align 'unknown-alignment}))))
   (doseq [kind [:const :var :fn]]
     (let [descriptor {:kind kind :name 'aligned :module "alignment.fingerprint"
                       :qualified-name 'alignment.fingerprint/aligned
@@ -82,4 +82,4 @@
       (is (= 101 (a/value v)))))
   (doseq [alignment [0 -1 3 nil]]
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"positive power of two"
-                         (k/var 100 :u8 {:align alignment})))))
+                          (k/var 100 :u8 {:align alignment})))))

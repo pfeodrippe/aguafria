@@ -1,10 +1,11 @@
 (ns learn.example.runtime-vs-comptime
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defn- divide :i32
   [[a :i32] [b :i32]]
-  (k// a b))
+  (/ a b))
 
 (comment
   (divide 12 3))

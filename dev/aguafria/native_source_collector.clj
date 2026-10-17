@@ -1,6 +1,7 @@
 (ns aguafria.native-source-collector
   "Allocation-free batch lexical facts from Zig's tokenizer. Developer prototype."
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.mem :as mem]
             [aguafria.std.zig.Tokenizer :as tokenizer]
             [aguafria.zig :as a]))
@@ -31,43 +32,43 @@
                      :external_syntax 0
                      :import_count 0
                      :invalid_count 0})
-    (k/while (k/<= steps length)
+    (while (<= steps length)
       (let [token (tokenizer/next (k/& lexer))
             tag (:tag token)
             start (:start (:loc token))
             end (:end (:loc token))
             text (a/slice source start end)]
-        (when (k/== tag :eof) (k/return 0))
-        (when (k/== tag :invalid)
-          (k/= (:invalid_count facts) 1)
-          (k/return 4))
+        (when (== tag :eof) (return 0))
+        (when (== tag :invalid)
+          (= (:invalid_count facts) 1)
+          (return 4))
         (cond
-          (k/== phase 1)
-          (if (k/== tag :keyword_fn)
-            (k/= phase 2)
-            (do (k/= (:external_exports facts) 1) (k/= phase 0)))
+          (== phase 1)
+          (if (== tag :keyword_fn)
+            (= phase 2)
+            (do (= (:external_exports facts) 1) (= phase 0)))
 
-          (k/== phase 2)
+          (== phase 2)
           (let [index (:export_count facts)]
-            (when (k/>= index max-exports) (k/return 3))
-            (k/= (a/get (:starts facts) index) (k/intCast start))
-            (k/= (a/get (:ends facts) index) (k/intCast end))
-            (k/+= (:export_count facts) 1)
-            (when (or (k/!= tag :identifier)
-                      (k/! (mem/startsWith :u8 text "__aguafria_")))
-              (k/= (:external_exports facts) 1))
-            (k/= phase 0)))
-        (when (k/== tag :keyword_export) (k/= phase 1))
-        (when (k/== tag :keyword_extern) (k/= (:external_syntax facts) 1))
-        (when (k/== tag :builtin)
-          (when (mem/eql :u8 text "@export") (k/= (:dynamic_exports facts) 1))
+            (when (>= index max-exports) (return 3))
+            (= (a/get (:starts facts) index) (intCast start))
+            (= (a/get (:ends facts) index) (intCast end))
+            (+= (:export_count facts) 1)
+            (when (or (!= tag :identifier)
+                      (! (mem/startsWith :u8 text "__aguafria_")))
+              (= (:external_exports facts) 1))
+            (= phase 0)))
+        (when (== tag :keyword_export) (= phase 1))
+        (when (== tag :keyword_extern) (= (:external_syntax facts) 1))
+        (when (== tag :builtin)
+          (when (mem/eql :u8 text "@export") (= (:dynamic_exports facts) 1))
           (when (or (mem/eql :u8 text "@import") (mem/eql :u8 text "@embedFile"))
-            (k/+= (:import_count facts) 1))))
-      (k/+= steps 1))
+            (+= (:import_count facts) 1))))
+      (+= steps 1))
     ;; Every token consumes input, so exhausting this bound indicates invalid input.
     5))
 
-(a/defn collect_batch :u32 {:attrs #{k/export}}
+(a/defn collect_batch :u32 {:attrs #{export}}
   [[buffer [:many-const :u8]]
    [buffer_len :u32]
    [offsets [:many-const :u32]]
@@ -75,23 +76,23 @@
    [file_count :u32]
    [output [:many Facts]]
    [rounds :u32]]
-  (when (or (k/> file_count max-files) (k/> buffer_len max-bytes)
-            (k/== rounds 0) (k/> rounds 1000))
-    (k/return 1))
+  (when (or (> file_count max-files) (> buffer_len max-bytes)
+            (== rounds 0) (> rounds 1000))
+    (return 1))
   (let [round (k/var 0 :u32)]
-    (k/while (k/< round rounds)
+    (while (< round rounds)
       (let [file (k/var 0 :u32)]
-        (k/while (k/< file file_count)
+        (while (< file file_count)
           (let [offset (a/get offsets file)
                 length (a/get lengths file)
-                end (k/+ (k/u64 offset) (k/u64 length))]
-            (when (or (k/>= end buffer_len) (k/!= (a/get buffer end) 0))
-              (k/return 2))
-            (let [status (collect-file (k/+ buffer offset) length
+                end (+ (u64 offset) (u64 length))]
+            (when (or (>= end buffer_len) (!= (a/get buffer end) 0))
+              (return 2))
+            (let [status (collect-file (+ buffer offset) length
                                        (k/& (a/get output file)))]
-              (when (k/!= status 0) (k/return status))))
-          (k/+= file 1)))
-      (k/+= round 1)))
+              (when (!= status 0) (return status))))
+          (+= file 1)))
+      (+= round 1)))
   0)
 
-(a/defn facts_size :u32 {:attrs #{k/export}} [] (k/sizeOf Facts))
+(a/defn facts_size :u32 {:attrs #{export}} [] (sizeOf Facts))

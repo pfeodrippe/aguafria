@@ -10,7 +10,7 @@
 
 (deftest fixed-vector-let-declares-all-leaves
   (let [source (emit/emit-stmt '(let [[left right] (read-pair)]
-                                (consume left right)) 0)]
+                                  (consume left right)) 0)]
     (is (str/includes? source "const left, const right = read_pair();"))
     (is (str/includes? source "consume(left, right);"))
     (is (= 1 (occurrences source "read_pair()")))
@@ -68,7 +68,7 @@
     (is (not (str/includes? source "var ")))))
 
 (deftest destructured-let-can-be-an-expression
-  (let [source (emit/emit-expr '(let [[left right] (read-pair)] (+ left right)))
+  (let [source (emit/emit-expr '(let [[left right] (read-pair)] (aguafria.keyword/+ left right)))
         label (second (re-find #"^(aguafria_let_[0-9a-f]+):" source))]
     (is (some? label))
     (is (str/includes? source "const left, const right = read_pair();"))
@@ -78,7 +78,7 @@
 (deftest destructured-let-supports-implicit-return-and-following-bindings
   (let [source (emit/emit-function-body
                 '((let [[left right] (read-pair)
-                        total (+ left right)]
+                        total (aguafria.keyword/+ left right)]
                     total)) :i32)]
     (is (str/includes? source "const left, const right = read_pair();"))
     (is (str/includes? source "const total = (left + right);"))
@@ -88,15 +88,15 @@
 (deftest nested-let-expression-scopes-keep-separate-break-labels
   (let [source (emit/emit-expr
                 '(let [[left right] (read-pair)]
-                   (+ left (let [[third fourth] (read-other-pair)]
-                             (+ third fourth)))))
+                   (aguafria.keyword/+ left (let [[third fourth] (read-other-pair)]
+                                              (aguafria.keyword/+ third fourth)))))
         labels (map second (re-seq #"(aguafria_let_[0-9a-f]+): \{" source))]
     (is (= 2 (count labels)))
     (is (= 2 (count (set labels))))
     (doseq [label labels]
       (is (= 1 (occurrences source (str "break :" label " "))))))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"result expression"
-                       (emit/emit-expr '(let [[left right] (read-pair)])))))
+                        (emit/emit-expr '(let [[left right] (read-pair)])))))
 
 (deftest clojure-let-patterns-are-supported
   (doseq [pattern '[[[left right] third] [left & remaining] [] [left :as pair]]]
@@ -108,9 +108,9 @@
   (doseq [pattern '[[left {:right right}]]]
     (testing (pr-str pattern)
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"field names must be keywords or strings"
-                           (emit/emit-stmt (list 'let [pattern '(read-values)]) 0)))
+                            (emit/emit-stmt (list 'let [pattern '(read-values)]) 0)))
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"field names must be keywords or strings"
-                           (emit/emit-expr (list 'let [pattern '(read-values)] 1)))))))
+                            (emit/emit-expr (list 'let [pattern '(read-values)] 1)))))))
 
 (deftest unsupported-vector-assignment-patterns-fail-before-zig
   (doseq [pattern '[[[left right] third] [left & remaining] []]]
@@ -123,7 +123,7 @@
                 '(let [^{:var :i32 :zig/prefix "comptime"} count 0
                        ^{:var [:array 4 :u8] :align 16} bytes aguafria.keyword/undefined]
                    (set! count 1)
-                   (consume (& bytes))) 0)]
+                   (consume (aguafria.keyword/& bytes))) 0)]
     (is (str/includes? source "comptime var count: i32 = 0;"))
     (is (str/includes? source "var bytes: [4]u8 align(16) = undefined;"))))
 

@@ -1,5 +1,6 @@
 (ns aguafria.zig.discovery-imported-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std :as std]
             [aguafria.std.SemanticVersion :as version]
             [aguafria.zig :as a]))
@@ -9,6 +10,6 @@
 
 (a/deftest never-run
   (let [v (make-version)]
-    (k/= :_ (version/-major v))
-    (k/= :_ (k/& v)))
-  (k/unreachable))
+    (= :_ (version/-major v))
+    (= :_ (k/& v)))
+  (unreachable))

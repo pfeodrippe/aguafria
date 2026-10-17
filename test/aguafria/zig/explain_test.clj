@@ -190,7 +190,7 @@
                     runtime/*source-only-registration?* true]
             (clojure.core/refer 'clojure.core)
             (eval '(aguafria.zig/explain!
-                    (aguafria.zig/defn increment :i32 [[x :i32]] (+ x 1))))))
+                    (aguafria.zig/defn increment :i32 [[x :i32]] (aguafria.keyword/+ x 1))))))
         cold (with-out-str (a/explain! (runtime/precompile-function! qualified)))
         disk (with-out-str (a/explain! (runtime/precompile-function! qualified)))
         function (ns-resolve ns-object 'increment)

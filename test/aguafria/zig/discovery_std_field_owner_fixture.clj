@@ -1,10 +1,11 @@
 (ns aguafria.zig.discovery-std-field-owner-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.lang.SourceLocation :as source]
             [aguafria.zig :as a]))
 
 (a/defn source-line :u32 []
-  (let [location (k/src)]
+  (let [location (src)]
     (source/-line location)))
 
 (a/defstruct Other

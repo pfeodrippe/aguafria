@@ -9,8 +9,18 @@
   (with-redefs [clojure.core/all-ns
                 (fn [] (throw (ex-info "Unexpected global namespace scan" {})))]
     (let [context (the-ns 'aguafria.keyword-test)]
+      (is (nil? (ak/resolve-token context '+)))
       (is (= 'aguafria.keyword/+ (:symbol (ak/resolve-token context 'ak/+))))
       (is (= 'aguafria.keyword/+ (:symbol (ak/resolve-token context 'aguafria.keyword/+)))))))
+
+(deftest referred-keywords-resolve-without-global-namespace-scans
+  (let [context (create-ns (gensym "aguafria.keyword-referral-"))]
+    (try
+      (binding [*ns* context] (refer 'aguafria.keyword :only '[+]))
+      (with-redefs [clojure.core/all-ns
+                    (fn [] (throw (ex-info "Unexpected global namespace scan" {})))]
+        (is (= 'aguafria.keyword/+ (:symbol (ak/resolve-token context '+)))))
+      (finally (remove-ns (ns-name context))))))
 
 (deftest pointer-capture-is-in-multiplication-documentation
   (let [{:keys [doc arglists]} (meta #'ak/*)]
@@ -39,11 +49,11 @@
       (is (some #(= "if" (:name %)) (ak/language-keywords)))
       (is (var? (get public-vars 'if)))
       (is (= "if" (get-in (meta (get public-vars 'if))
-                           [:aguafria/token :zig-token])))
+                          [:aguafria/token :zig-token])))
       (is (var? (get public-vars 'const)))
       (is (var? (get public-vars 'var)))
       (is (= "var" (get-in (meta (get public-vars 'var))
-                            [:aguafria/token :zig-token])))
+                           [:aguafria/token :zig-token])))
       (is (= :keyword (get-in (meta (get public-vars 'const))
                               [:aguafria/token :kind])))
       (is (some #(= "undefined" (:name %)) (ak/primitives)))

@@ -1,13 +1,14 @@
 (ns aguafria.zig.discovery-entry-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defn main :c_int
-  {:attrs #{k/export}}
+  {:attrs #{export}}
   []
   0)
 
 (a/deftest never-run
-  (let [x (k/i32 1)]
-    (k/= :_ (k/+ x 2)))
-  (k/unreachable))
+  (let [x (i32 1)]
+    (= :_ (+ x 2)))
+  (unreachable))

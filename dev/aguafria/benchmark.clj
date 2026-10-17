@@ -130,22 +130,22 @@
       (binding [*ns* module-ns]
         (refer 'clojure.core)
         (alias 'a 'aguafria.zig)
-        (eval '(a/defn step :u64 [[x :u64]] (+ x 1)))
+        (eval '(a/defn step :u64 [[x :u64]] (aguafria.keyword/+ x 1)))
         (eval
          '(a/defn direct_loop :u64 [[n :u64]]
             (var total :u64 0)
             (var i :u64 0)
-            (while (< i n)
-              (+= total (+ i 1))
-              (+= i 1))
+            (while (aguafria.keyword/< i n)
+              (aguafria.keyword/+= total (aguafria.keyword/+ i 1))
+              (aguafria.keyword/+= i 1))
             total))
         (eval
          '(a/defn composed_loop :u64 [[n :u64]]
             (var total :u64 0)
             (var i :u64 0)
-            (while (< i n)
-              (+= total (step i))
-              (+= i 1))
+            (while (aguafria.keyword/< i n)
+              (aguafria.keyword/+= total (step i))
+              (aguafria.keyword/+= i 1))
             total)))
       (let [source (a/source module-symbol)
             build (a/build! module-symbol
@@ -323,24 +323,24 @@
                   '(a/defn hot-step :u64
                      {:attrs #{:public :implicit-return}}
                      [[x :u64]]
-                     (+ x 1)))
+                     (aguafria.keyword/+ x 1)))
                  (eval
                   '(a/defn direct-loop :u64
                      [[n :u64]]
                      (var total :u64 0)
                      (var i :u64 0)
-                     (while (< i n)
-                       (+= total (+ i 1))
-                       (+= i 1))
+                     (while (aguafria.keyword/< i n)
+                       (aguafria.keyword/+= total (aguafria.keyword/+ i 1))
+                       (aguafria.keyword/+= i 1))
                      total))
                  (eval
                   '(a/defn dispatch-loop :u64
                      [[n :u64]]
                      (var total :u64 0)
                      (var i :u64 0)
-                     (while (< i n)
-                       (+= total (hot-step i))
-                       (+= i 1))
+                     (while (aguafria.keyword/< i n)
+                       (aguafria.keyword/+= total (hot-step i))
+                       (aguafria.keyword/+= i 1))
                      total)))
              clean (compile-measurement module-symbol
                                         (elapsed-ms clean-started))
@@ -354,7 +354,7 @@
                   '(a/defn hot-step :u64
                      {:attrs #{:public :implicit-return}}
                      [[x :u64]]
-                     (+ x 2))))
+                     (aguafria.keyword/+ x 2))))
              incremental (compile-measurement module-symbol
                                               (elapsed-ms incremental-started))
              _ (binding [*ns* module-ns]
@@ -362,7 +362,7 @@
                   '(a/defn hot-step :u64
                      {:attrs #{:public :implicit-return}}
                      [[x :u64]]
-                     (+ x 1))))
+                     (aguafria.keyword/+ x 1))))
              direct-loop (ns-resolve module-ns 'direct-loop)
              dispatch-loop (ns-resolve module-ns 'dispatch-loop)
              expected (direct-loop iterations)

@@ -1,8 +1,8 @@
 (ns racing-game.track
-  "Blender track sampling, paved cross-sections and continuous pit routes.
-  Surface helpers use metres; legacy race poses use kilometres/lane units."
+  "Blender track sampling, paved cross-sections and continuous pit routes.\n  Surface helpers use metres; legacy race poses use kilometres/lane units."
+  (:refer-clojure :only [])
   (:require [aguafria.std]
-            [aguafria.keyword :as ak]
+            [aguafria.keyword :as ak :refer :all]
             [aguafria.std.math :as std-math]
             [aguafria.zig :as a]
             [racing-game.circuit :as circuit]))
@@ -16,7 +16,7 @@
 (a/defconst surface-columns :usize 6)
 
 (a/defn smootherstep :f32 [[value :f32]]
-  (let [t (ak/max 0.0 (ak/min 1.0 value))]
+  (let [t (max 0.0 (min 1.0 value))]
     (* t t t (+ (* t (- (* t 6.0) 15.0)) 10.0))))
 
 (a/defn pit-blend :f32 [[progress :f32]]
@@ -35,16 +35,16 @@
   Inactive verge/apron strips collapse and emit no degenerate triangles." [[progress :f32] [column :usize]]
   (let [blend (pit-blend progress)]
     (cond
-      (ak/== column 0) -35.0
-      (ak/== column 1) -6.5
-      (ak/== column 2) 6.5
+      (== column 0) -35.0
+      (== column 1) -6.5
+      (== column 2) 6.5
       ;; Preserve a 2.5m footprint margin through tapers, not only at full width.
-      (ak/== column 3) (ak/max 6.5 (ak/min (* 13.0 blend) (- (* 17.0 blend) 2.5)))
-      (ak/== column 4) (ak/max 6.5 (ak/max (* 27.0 blend) (+ (* 23.0 blend) 2.5)))
+      (== column 3) (max 6.5 (min (* 13.0 blend) (- (* 17.0 blend) 2.5)))
+      (== column 4) (max 6.5 (max (* 27.0 blend) (+ (* 23.0 blend) 2.5)))
       :else 35.0)))
 
 (a/defn surface-asphalt? :bool [[strip :usize]]
-  (or (ak/== strip 1) (ak/== strip 3)))
+  (or (== strip 1) (== strip 3)))
 
 (a/defn surface-point circuit/Sample [[progress :f32] [column :usize]]
   (circuit/at-distance (* progress circuit/length-metres) (surface-boundary progress column)))
@@ -56,8 +56,8 @@
         after (/ (+ distance 1.0) circuit/length-metres)
         a (circuit/at-distance (- distance 1.0) (pit-offset before work-offset))
         b (circuit/at-distance (+ distance 1.0) (pit-offset after work-offset))]
-    (ak/= (a/field p heading) (std-math/atan2 (- (a/field b y) (a/field a y))
-                                             (- (a/field b x) (a/field a x))))
+    (= (a/field p heading) (std-math/atan2 (- (a/field b y) (a/field a y))
+                                           (- (a/field b x) (a/field a x))))
     p))
 
 (a/defstruct Pose
@@ -98,18 +98,18 @@
   "Physical curvature limit in km/s, using a 3g lateral-acceleration envelope." [[progress :f32] [grip :f32]]
   (let [a (pose (- progress 0.001) 0.0) b (pose (+ progress 0.001) 0.0)
         delta (- (a/field b heading) (a/field a heading))
-        angle (ak/abs (std-math/atan2 (std-math/sin delta) (std-math/cos delta)))
+        angle (abs (std-math/atan2 (std-math/sin delta) (std-math/cos delta)))
         curvature (/ angle 8.618)]
-    (ak/min 0.095 (* 0.001 (std-math/sqrt (/ (* 30.0 grip) (ak/max curvature 0.00001)))))))
+    (min 0.095 (* 0.001 (std-math/sqrt (/ (* 30.0 grip) (max curvature 0.00001)))))))
 
 (a/defn speed-envelope :f32
   "Look 150 metres ahead and brake before a bend instead of clipping speed in it." [[progress :f32] [grip :f32]]
-  (let [^:var limit (ak/f32 (corner-speed progress grip))]
+  (let [^:var limit (f32 (corner-speed progress grip))]
     (dotimes [i 6]
-      (let [distance (* (ak/as (ak/floatFromInt (+ i 1)) :f32) 25.0)
+      (let [distance (* (as (floatFromInt (+ i 1)) :f32) 25.0)
             corner (* 1000.0 (corner-speed (+ progress (/ distance 4309.0)) grip))
             approaching (* 0.001 (std-math/sqrt (+ (* corner corner) (* 60.0 distance))))]
-        (ak/= limit (ak/min limit approaching))))
+        (= limit (min limit approaching))))
     limit))
 
 (a/defn pit-pose Pose
@@ -130,14 +130,14 @@
 (a/defn projection-centers-type [:array projection-samples [:array 2 :f32]]
   "Build the immutable coarse search table at compile time from the authored
   curve. Editing the curve regenerates this dependency; no runtime warm-up." []
-  (ak/setEvalBranchQuota 1000000)
-  (let [^:var points (ak/as ak/undefined [:array projection-samples [:array 2 :f32]])]
+  (setEvalBranchQuota 1000000)
+  (let [^:var points (as undefined [:array projection-samples [:array 2 :f32]])]
     (dotimes [index projection-samples]
-      (let [progress (/ (ak/as (ak/floatFromInt index) :f32)
-                        (ak/as (ak/floatFromInt projection-samples) :f32))
+      (let [progress (/ (as (floatFromInt index) :f32)
+                        (as (floatFromInt projection-samples) :f32))
             center (pose progress 0.0)]
-        (ak/= (a/index points index)
-              (a/init [(a/field center x) (a/field center y)] [:array 2 :f32]))))
+        (= (a/index points index)
+           (a/init [(a/field center x) (a/field center y)] [:array 2 :f32]))))
     points))
 
 (a/defconst projection-centers [:array projection-samples [:array 2 :f32]]
@@ -150,32 +150,32 @@
   [[x :f32]
    [y :f32]]
   (let [sample-count
-        (ak/as (ak/floatFromInt projection-samples) :f32)
-        ^:var best-progress (ak/f32 0.0)
-        ^:var best-distance (ak/f32 1000.0)]
+        (as (floatFromInt projection-samples) :f32)
+        ^:var best-progress (f32 0.0)
+        ^:var best-distance (f32 1000.0)]
     (dotimes [index projection-samples]
       (let [progress
-            (/ (ak/as (ak/floatFromInt index) :f32) sample-count)
+            (/ (as (floatFromInt index) :f32) sample-count)
             center (a/index projection-centers index)
             dx (- x (a/index center 0))
             dy (- y (a/index center 1))
             distance (+ (* dx dx) (* dy dy))]
         (when (< distance best-distance)
-          (ak/= best-progress progress)
-          (ak/= best-distance distance))))
-    (let [^:var step (ak/f32 (/ 1.0 sample-count))]
+          (= best-progress progress)
+          (= best-distance distance))))
+    (let [^:var step (f32 (/ 1.0 sample-count))]
       (dotimes [_ 10]
         (let [left (wrap-progress (- best-progress step))
               right (wrap-progress (+ best-progress step))
               left-distance (center-distance-squared x y left)
               right-distance (center-distance-squared x y right)]
           (when (< left-distance best-distance)
-            (ak/= best-progress left)
-            (ak/= best-distance left-distance))
+            (= best-progress left)
+            (= best-distance left-distance))
           (when (< right-distance best-distance)
-            (ak/= best-progress right)
-            (ak/= best-distance right))
-          (ak/= step (* step 0.5)))))
+            (= best-progress right)
+            (= best-distance right))
+          (= step (* step 0.5)))))
     (let [center (pose best-progress 0.0)
           dx (- x (a/field center x))
           dy (- y (a/field center y))

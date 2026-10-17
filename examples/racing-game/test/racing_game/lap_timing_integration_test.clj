@@ -24,9 +24,9 @@
       (sim/step!)
       (let [paused (sim/lap-timing-view 0)]
         (a/init [(a/field first-lap last_ticks) (a/field first-lap samples)
-           (a/field fresh samples) (a/field fresh observed_tick)
-           (if (a/field fresh started) (ak/as 1 :u64) 0)
-           (if (a/field paused started) (ak/as 1 :u64) 0)] [:array 6 :u64])))))
+                 (a/field fresh samples) (a/field fresh observed_tick)
+                 (if (a/field fresh started) (ak/as 1 :u64) 0)
+                 (if (a/field paused started) (ak/as 1 :u64) 0)] [:array 6 :u64])))))
 
 (deftest sparse-timer-crossings-reset-and-paused-frame-test
   (worker/stop!)

@@ -1,9 +1,10 @@
 (ns learn.example.test-tagName
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
-(a/defunion Small2 {:attrs #{k/enum}}
+(a/defunion Small2 {:attrs #{enum}}
   [[:a :i32]
    [:b :bool]
    [:c :u8]])

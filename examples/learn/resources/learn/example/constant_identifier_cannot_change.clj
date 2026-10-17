@@ -1,5 +1,6 @@
 (ns learn.example.constant-identifier-cannot-change
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defconst x 1234)
@@ -9,7 +10,7 @@
   ;; It works at file scope as well as inside functions.
   (let [y 5678]
     ;; Once assigned, an identifier cannot be changed.
-    (k/+= y 1)))
+    (+= y 1)))
 
 (a/defn main :void
   []

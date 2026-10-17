@@ -1,5 +1,6 @@
 (ns aguafria.zig.precompile-backing-integer-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defenum Code {:type :u8}
@@ -10,12 +11,12 @@
 
 (a/defn from-number Code
   [[number :u8]]
-  (k/as (k/fromBackingInt (k/intCast number)) Code))
+  (as (fromBackingInt (intCast number)) Code))
 
 (a/deftest never-run
-  (let [number (k/u8 8)
-        code (k/as (k/fromBackingInt (k/intCast number)) Code)]
-    (k/= :_ (k/intFromEnum code))
-    (k/= :_ (k/== code :eight))
-    (k/= :_ (k/!= code :zero)))
-  (k/unreachable))
+  (let [number (u8 8)
+        code (as (fromBackingInt (intCast number)) Code)]
+    (= :_ (intFromEnum code))
+    (= :_ (== code :eight))
+    (= :_ (!= code :zero)))
+  (unreachable))

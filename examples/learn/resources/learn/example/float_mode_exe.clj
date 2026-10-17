@@ -1,6 +1,9 @@
 (ns learn.example.float-mode-exe
+  (:refer-clojure :only [])
   (:require [aguafria.std.debug :as debug]
-            [aguafria.zig :as a]))
+            [aguafria.zig :as a]
+            [aguafria.keyword :as k :refer :all]
+            [clojure.core :as c]))
 
 (a/defextern foo_strict :f64
   [[x :f64]])
@@ -15,7 +18,7 @@
     (debug/print "strict = {}\n" [(foo_strict x)])))
 
 (comment
-  (require 'learn.example.float-mode-obj)
+  (c/require 'learn.example.float-mode-obj)
   (let [object (a/build! 'learn.example.float-mode-obj
                          {:kind :object
                           :optimize "fast"
@@ -24,8 +27,8 @@
     (try
       (a/configure!
        {:zig-args-by-module
-        (assoc (:zig-args-by-module config)
-               "learn.example.float-mode-exe" [(:output-path object)])})
+        (c/assoc (:zig-args-by-module config)
+                 "learn.example.float-mode-exe" [(:output-path object)])})
       (main)
       (finally
         (a/configure! config)))))

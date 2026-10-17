@@ -1,7 +1,7 @@
 (ns racing-game.vehicle-driver
-  "Low-level path following translates AI intent into pedals and steering.
-  It never writes a body position, rotation, or velocity."
-  (:require [aguafria.keyword :as ak]
+  "Low-level path following translates AI intent into pedals and steering.\n  It never writes a body position, rotation, or velocity."
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as ak :refer :all]
             [aguafria.std.math :as math]
             [aguafria.zig :as a]
             [racing-game.physics :as physics]
@@ -11,17 +11,17 @@
             [aguafria-examples-native.bindings.box3d :as b3]))
 
 (a/defstruct Control {:layout :extern}
-  [[:throttle :f32] [:brake :f32] [:steering :f32]
-   [:progress :f32] [:lane :f32] [:speed :f32]])
+             [[:throttle :f32] [:brake :f32] [:steering :f32]
+              [:progress :f32] [:lane :f32] [:speed :f32]])
 
 (a/defn clamp-unit :f32 [[value :f32]]
-  (ak/max 0.0 (ak/min 1.0 value)))
+  (max 0.0 (min 1.0 value)))
 
 (a/defn overturned? :bool
   "Body orientation only, independent of race classification. Match the
   retirement observer's support threshold, without its time/finish policy." [[body physics/BodyState]]
   (< (- 1.0 (* 2.0 (+ (* (a/field body qx) (a/field body qx))
-                       (* (a/field body qy) (a/field body qy))))) 0.2))
+                      (* (a/field body qy) (a/field body qy))))) 0.2))
 
 (a/defn stop-if-overturned Control
   "Final pedal safety gate, also during cooldown. Never changes body pose,
@@ -29,36 +29,36 @@
   its ordinary controls; the next tick can resume after a physical recovery." [[control Control] [body physics/BodyState]]
   (let [^:var result control]
     (when (overturned? body)
-      (ak/= (a/field result throttle) 0.0)
-      (ak/= (a/field result brake) 1.0)
-      (ak/= (a/field result steering) 0.0))
+      (= (a/field result throttle) 0.0)
+      (= (a/field result brake) 1.0)
+      (= (a/field result steering) 0.0))
     result))
 
 (a/defn braking-envelope :f32
   "Plan using a tire-force budget, including braking distance. Sampling every
   five metres catches tight bends missed by the old 25m/3g kinematic envelope.
   This controls pedals; exceeding the budget still causes real loss of grip." [[distance :f32] [speed :f32]]
-  (let [^:var limit (ak/f32 100.0)
+  (let [^:var limit (f32 100.0)
         ;; Box3D combines asphalt (1.0) and tire friction geometrically.
         ;; Reserve force for tracking, axle load transfer and combined braking.
-        grip (* 0.60 (ak/sqrt physics/tire-friction))
+        grip (* 0.60 (sqrt physics/tire-friction))
         mass (+ physics/chassis-mass-kg (* 4.0 physics/wheel-mass-kg))
         ;; Horizon covers stopping distance at the 14m/s² planning budget,
         ;; plus 25m. The actual brakes remain torque/contact limited.
-        samples (ak/as (ak/intFromFloat
-                  (ak/min 181.0 (ak/max 41.0 (+ 5.0 (/ (* speed speed) 140.0))))) :usize)]
+        samples (as (intFromFloat
+                     (min 181.0 (max 41.0 (+ 5.0 (/ (* speed speed) 140.0))))) :usize)]
     (dotimes [i samples]
-      (let [ahead (* (ak/as (ak/floatFromInt i) :f32) 5.0)
+      (let [ahead (* (as (floatFromInt i) :f32) 5.0)
             a (circuit/at-distance (- (+ distance ahead) 6.0) 0.0)
             b (circuit/at-distance (+ distance ahead 6.0) 0.0)
             delta (- (a/field b heading) (a/field a heading))
-            curvature (/ (ak/abs (math/atan2 (math/sin delta) (math/cos delta))) 12.0)
+            curvature (/ (abs (math/atan2 (math/sin delta) (math/cos delta))) 12.0)
             ;; m*v²*k <= mu*(m*g + aero*v²), solved for v².
             ;; This is a pedal plan, NOT a lateral force or a velocity setter.
             corner-speed-squared (/ (* grip 9.81)
-                                      (ak/max 0.00001
-                                        (- curvature (/ (* grip physics/downforce-coefficient) mass))))]
-        (ak/= limit (ak/min limit (ak/sqrt (+ corner-speed-squared (* 28.0 ahead)))))))
+                                    (max 0.00001
+                                         (- curvature (/ (* grip physics/downforce-coefficient) mass))))]
+        (= limit (min limit (sqrt (+ corner-speed-squared (* 28.0 ahead)))))))
     limit))
 
 (a/defn follow-route Control
@@ -68,29 +68,29 @@
   (let [body (a/field car chassis)
         state (physics/body-state body)
         projection (track/project (* (a/field state x) 0.001) (* (a/field state y) 0.001))
-        speed (ak/sqrt (+ (* (a/field state vx) (a/field state vx))
-                          (* (a/field state vy) (a/field state vy))))
+        speed (sqrt (+ (* (a/field state vx) (a/field state vx))
+                       (* (a/field state vy) (a/field state vy))))
         ahead (+ 6.0 (* speed 0.16))
         target-distance (+ (* (a/field projection progress) 4309.0) ahead)
         offset (if pit? (track/pit-offset (/ target-distance 4309.0) lane-metres)
-                        (ak/max -4.5 (ak/min 4.5 lane-metres)))
+                   (max -4.5 (min 4.5 lane-metres)))
         target (circuit/at-distance target-distance offset)
         delta (b3/b3InvRotateVector (b3/b3Body_GetRotation body)
-                (b3/b3Vec3 {:x (- (a/field target x) (a/field state x))
-                            :y (- (a/field target y) (a/field state y))
-                            :z 0.0}))
+                                    (b3/b3Vec3 {:x (- (a/field target x) (a/field state x))
+                                                :y (- (a/field target y) (a/field state y))
+                                                :z 0.0}))
         wheelbase (- (a/index (a/index spec/wheel-geometry 0) 0)
-                      (a/index (a/index spec/wheel-geometry 2) 0))
+                     (a/index (a/index spec/wheel-geometry 2) 0))
         steering (math/atan2 (* 2.0 wheelbase (a/field delta y))
-                             (ak/max 1.0 (+ (* (a/field delta x) (a/field delta x))
-                                            (* (a/field delta y) (a/field delta y)))))
+                             (max 1.0 (+ (* (a/field delta x) (a/field delta x))
+                                         (* (a/field delta y) (a/field delta y)))))
         safe-speed (braking-envelope (* (a/field projection progress) 4309.0) speed)
-        speed-error (- (ak/min desired-speed safe-speed) speed)]
+        speed-error (- (min desired-speed safe-speed) speed)]
     (Control {:throttle (clamp-unit (* speed-error 0.3))
-               :brake (clamp-unit (* speed-error -0.18))
-               :steering (ak/max -0.45 (ak/min 0.45 steering))
-               :progress (a/field projection progress)
-               :lane (* (a/field projection lane) 50.0) :speed speed})))
+              :brake (clamp-unit (* speed-error -0.18))
+              :steering (max -0.45 (min 0.45 steering))
+              :progress (a/field projection progress)
+              :lane (* (a/field projection lane) 50.0) :speed speed})))
 
 (a/defn follow Control [[car physics/Vehicle] [desired-speed :f32] [lane-metres :f32]]
   (follow-route car desired-speed lane-metres false))
@@ -103,7 +103,7 @@
 (a/defn lane-plan-state [:array 3 :f32]
   "Lateral position and its first two distance derivatives. Evaluating this
   path never modifies vehicle position or velocity." [[plan [:* LanePlan]] [distance :f32]]
-  (if (ak/! (a/field plan active))
+  (if (! (a/field plan active))
     (a/init [(a/field plan target) 0.0 0.0] [:array 3 :f32])
     (let [delta (- distance (a/field plan origin))
           travelled (cond (< delta -2154.5) (+ delta 4309.0)
@@ -112,12 +112,12 @@
           u (clamp-unit (/ travelled length))
           c (a/field plan coefficients)
           position (+ (a/index c 0) (* u (+ (a/index c 1) (* u (+ (a/index c 2)
-                     (* u (+ (a/index c 3) (* u (+ (a/index c 4) (* u (a/index c 5)))))))))))
+                                                                  (* u (+ (a/index c 3) (* u (+ (a/index c 4) (* u (a/index c 5)))))))))))
           first (/ (+ (a/index c 1) (* u (+ (* 2.0 (a/index c 2))
-                      (* u (+ (* 3.0 (a/index c 3)) (* u (+ (* 4.0 (a/index c 4))
-                      (* u 5.0 (a/index c 5))))))))) length)
+                                            (* u (+ (* 3.0 (a/index c 3)) (* u (+ (* 4.0 (a/index c 4))
+                                                                                  (* u 5.0 (a/index c 5))))))))) length)
           second (/ (+ (* 2.0 (a/index c 2)) (* u (+ (* 6.0 (a/index c 3))
-                       (* u (+ (* 12.0 (a/index c 4)) (* u 20.0 (a/index c 5)))))))
+                                                     (* u (+ (* 12.0 (a/index c 4)) (* u 20.0 (a/index c 5)))))))
                     (* length length))]
       (a/init [position (if (< u 1.0) first 0.0) (if (< u 1.0) second 0.0)] [:array 3 :f32]))))
 
@@ -125,39 +125,39 @@
   "Plan a quintic lane transition. A new request preserves the previous
   path's position/slope/curvature. Once completed, it cannot repeat next lap.
   The 3m/s² lane-change budget is driver planning, not an applied force." [[plan [:* LanePlan]] [distance :f32] [measured-lane :f32]
-            [speed :f32] [requested-lane :f32]]
-  (when (ak/! (a/field plan initialized))
-    (ak/= (a/field plan initialized) true)
-    (ak/= (a/field plan active) false)
-    (ak/= (a/field plan target) measured-lane))
+                                                                           [speed :f32] [requested-lane :f32]]
+  (when (! (a/field plan initialized))
+    (= (a/field plan initialized) true)
+    (= (a/field plan active) false)
+    (= (a/field plan target) measured-lane))
   (when (a/field plan active)
     (let [delta (- distance (a/field plan origin))
           travelled (if (< delta -2154.5) (+ delta 4309.0) delta)]
       (when (>= travelled (a/field plan length))
-        (ak/= (a/field plan active) false))))
-  (let [target (ak/max -4.5 (ak/min 4.5 requested-lane))]
-    (when (> (ak/abs (- target (a/field plan target))) 0.0001)
+        (= (a/field plan active) false))))
+  (let [target (max -4.5 (min 4.5 requested-lane))]
+    (when (> (abs (- target (a/field plan target))) 0.0001)
       (let [previous (lane-plan-state plan distance)
             displacement (- target (a/index previous 0))
-            duration (ak/max 1.5 (ak/sqrt (/ (* 5.773503 (ak/abs displacement)) 3.0)))
-            length (ak/max 12.0 (* (ak/max speed 5.0) duration))
+            duration (max 1.5 (sqrt (/ (* 5.773503 (abs displacement)) 3.0)))
+            length (max 12.0 (* (max speed 5.0) duration))
             slope (* (a/index previous 1) length)
             curvature (* 0.5 (a/index previous 2) length length)]
-        (ak/= (a/field plan coefficients)
-          (a/init [(a/index previous 0) slope curvature
-             (- (* 10.0 displacement) (* 6.0 slope) (* 3.0 curvature))
-             (+ (* -15.0 displacement) (* 8.0 slope) (* 3.0 curvature))
-             (- (* 6.0 displacement) (* 3.0 slope) curvature)] [:array 6 :f32]))
-        (ak/= (a/field plan origin) distance)
-        (ak/= (a/field plan length) length)
-        (ak/= (a/field plan target) target)
-        (ak/= (a/field plan active) true)))))
+        (= (a/field plan coefficients)
+           (a/init [(a/index previous 0) slope curvature
+                    (- (* 10.0 displacement) (* 6.0 slope) (* 3.0 curvature))
+                    (+ (* -15.0 displacement) (* 8.0 slope) (* 3.0 curvature))
+                    (- (* 6.0 displacement) (* 3.0 slope) curvature)] [:array 6 :f32]))
+        (= (a/field plan origin) distance)
+        (= (a/field plan length) length)
+        (= (a/field plan target) target)
+        (= (a/field plan active) true)))))
 
 (a/defn follow-lane-plan Control
   "Opt-in controller candidate: follow a committed, continuous lateral path
   rather than jumping the pursuit target across the road. Not yet used by the
   live simulation; validate with the physical lane-change/cornering fixtures." [[car physics/Vehicle] [desired-speed :f32] [lane-metres :f32]
-               [plan [:* LanePlan]]]
+                                                                                [plan [:* LanePlan]]]
   (let [^:var control (follow car desired-speed lane-metres)
         distance (* (a/field control progress) 4309.0)
         ahead (+ 6.0 (* (a/field control speed) 0.16))]
@@ -166,19 +166,19 @@
           target (circuit/at-distance (+ distance ahead) offset)
           state (physics/body-state (a/field car chassis))
           delta (b3/b3InvRotateVector (b3/b3Body_GetRotation (a/field car chassis))
-                  (b3/b3Vec3 {:x (- (a/field target x) (a/field state x))
-                              :y (- (a/field target y) (a/field state y)) :z 0.0}))
+                                      (b3/b3Vec3 {:x (- (a/field target x) (a/field state x))
+                                                  :y (- (a/field target y) (a/field state y)) :z 0.0}))
           wheelbase (- (a/index (a/index spec/wheel-geometry 0) 0)
                        (a/index (a/index spec/wheel-geometry 2) 0))
           steering (math/atan2 (* 2.0 wheelbase (a/field delta y))
-                     (ak/max 1.0 (+ (* (a/field delta x) (a/field delta x))
-                                   (* (a/field delta y) (a/field delta y)))))]
-      (ak/= (a/field control steering) (ak/max -0.45 (ak/min 0.45 steering))))
+                               (max 1.0 (+ (* (a/field delta x) (a/field delta x))
+                                           (* (a/field delta y) (a/field delta y)))))]
+      (= (a/field control steering) (max -0.45 (min 0.45 steering))))
     control))
 
 (a/defn follow-pit Control
   "Follow the physical pit apron using pedals and steering; cap at 80km/h." [[car physics/Vehicle] [desired-speed :f32] [work-offset :f32]]
-  (follow-route car (ak/min desired-speed (/ 80.0 3.6)) work-offset true))
+  (follow-route car (min desired-speed (/ 80.0 3.6)) work-offset true))
 
 (a/defn yield-to-traffic Control
   "Reflex braking for an occupied lane. AI still chooses steering and pace;
@@ -186,16 +186,16 @@
   measured forward arc distance in metres, not a rank difference." [[control Control] [gap :f32] [front-speed :f32]]
   (let [^:var result control
         speed (a/field control speed)
-        space (ak/max 0.0 (- gap 6.0 (* speed 0.3)))
-        safe-speed (ak/sqrt (+ (* front-speed front-speed) (* 20.0 space)))
+        space (max 0.0 (- gap 6.0 (* speed 0.3)))
+        safe-speed (sqrt (+ (* front-speed front-speed) (* 20.0 space)))
         excess (- speed safe-speed)]
     (when (or (> excess 0.0) (<= space 0.01))
-      (ak/= (a/field result throttle) 0.0)
-      (ak/= (a/field result brake)
-            (ak/max (a/field result brake)
-                    (if (and (< gap 6.0) (< front-speed 0.2))
-                      (ak/as 1.0 :f32)
-                      (clamp-unit (* excess 0.18))))))
+      (= (a/field result throttle) 0.0)
+      (= (a/field result brake)
+         (max (a/field result brake)
+              (if (and (< gap 6.0) (< front-speed 0.2))
+                (as 1.0 :f32)
+                (clamp-unit (* excess 0.18))))))
     result))
 
 (a/defn apply! :void [[car physics/Vehicle] [control Control]]
@@ -208,13 +208,13 @@
   This does not choose a lane: it lets the AI's existing steering take effect.
   Contacts still constrain motion; only throttle/brake outputs are adjusted." [[control Control] [gap :f32] [front-speed :f32] [side-distance :f32]]
   (if (and (< (a/field control speed) 2.0) (< front-speed 0.2)
-           (> gap 0.0) (> (ak/abs side-distance) 2.0)
+           (> gap 0.0) (> (abs side-distance) 2.0)
            (< (* (a/field control steering) side-distance) -0.08))
     (let [^:var result control]
-      (ak/= (a/field result throttle)
-            (if (< (a/field control speed) 1.5)
-              (ak/min (a/field control throttle) 0.15) 0.0))
-      (ak/= (a/field result brake)
-            (clamp-unit (* (- (a/field control speed) 1.5) 0.5)))
+      (= (a/field result throttle)
+         (if (< (a/field control speed) 1.5)
+           (min (a/field control throttle) 0.15) 0.0))
+      (= (a/field result brake)
+         (clamp-unit (* (- (a/field control speed) 1.5) 0.5)))
       result)
     (yield-to-traffic control gap front-speed)))

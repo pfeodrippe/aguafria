@@ -1,11 +1,13 @@
 (ns racing-game.asset-probe
   "JVM-free offline release-asset validation executable."
+  (:refer-clojure :only [])
   (:require [aguafria.std]
             [aguafria.std.debug :as std-debug]
             [aguafria.std.process :as std-process]
             [aguafria.zig :as a]
             [racing-game.assets :as assets]
-            [racing-game.inference :as inference]))
+            [racing-game.inference :as inference]
+            [aguafria.keyword :as k :refer :all]))
 
 (a/defn main :void
   []

@@ -1,5 +1,7 @@
 (ns aguafria.zig.precompile-lazy-reference-leaf-fixture
-  (:require [aguafria.zig :as a]))
+  (:refer-clojure :only [])
+  (:require [aguafria.zig :as a]
+            [aguafria.keyword :as k :refer :all]))
 
 (a/defenum Command [:version :other])
 

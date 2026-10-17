@@ -1,5 +1,7 @@
 (ns learn.example.struct-default-value
-  (:require [aguafria.zig :as a]))
+  (:refer-clojure :only [])
+  (:require [aguafria.zig :as a]
+            [aguafria.keyword :as k :refer :all]))
 
 (a/defstruct Threshold
   [[:minimum :f32]

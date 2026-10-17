@@ -1,5 +1,6 @@
 (ns learn.example.test-structs
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
@@ -22,7 +23,7 @@
      [[self Vec3] [other Vec3]]
      (let [{:keys [x y z]} self
            {ox :x oy :y oz :z} other]
-       (k/+ (k/* x ox) (k/* y oy) (k/* z oz))))])
+       (+ (* x ox) (* y oy) (* z oz))))])
 
 (a/deftest dot-product
   (let [v1 ((:init Vec3) 1.0 0.0 0.0)
@@ -40,17 +41,17 @@
 
 (a/deftest struct-namespaced-variable
   (k/try (testing/expectEqual 3.14 (:PI Empty)))
-  (k/try (testing/expectEqual 0 (k/sizeOf Empty)))
+  (k/try (testing/expectEqual 0 (sizeOf Empty)))
   ;; Empty structs can be instantiated the same as usual.
   (let [does-nothing (Empty {})]
-    (k/= :_ does-nothing)))
+    (= :_ does-nothing)))
 
 ;; Struct field order is determined by the compiler, however, a base pointer
 ;; can be computed from a field pointer:
 (a/defn setYBasedOnX :void
   [[x [:* :f32]] [y :f32]]
-  (let [point (k/as (k/fieldParentPtr "x" x) [:* Point])]
-    (k/= (:y point) y)))
+  (let [point (as (fieldParentPtr "x" x) [:* Point])]
+    (= (:y point) y)))
 
 (a/deftest field-parent-pointer
   (let [point (k/var (Point {:x 0.1234 :y 0.5678}))]
@@ -58,9 +59,9 @@
     (k/try (testing/expectEqual 0.9 (:y point)))))
 
 ;; Structs can be returned from functions.
-(a/defn LinkedList :type [[T {:attrs #{k/comptime}} :type]]
+(a/defn LinkedList :type [[T {:attrs #{comptime}} :type]]
   (a/struct
-   [(a/struct-decl Node {:attrs #{k/pub}}
+   [(a/struct-decl Node {:attrs #{pub}}
                    [[:prev [:optional [:* Node]]]
                     [:next [:optional [:* Node]]]
                     [:data T]])

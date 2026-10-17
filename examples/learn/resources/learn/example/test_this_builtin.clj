@@ -1,10 +1,11 @@
 (ns learn.example.test-this-builtin
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
 (a/defn- List :type
-  [[T {:attrs #{k/comptime}} :type]]
+  [[T {:attrs #{comptime}} :type]]
   (a/struct
    [[:Self {:const (k/This)} :type]
     [:items [:slice T]]

@@ -1,5 +1,6 @@
 (ns learn.example.runtime-invalid-error-set-cast
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as a]))
 
@@ -7,7 +8,7 @@
 (a/defconst Set2 (a/type [:error-set [:A :C]]))
 
 (a/defn- foo :void [[set1 Set1]]
-  (let [x (k/as (k/errorCast set1) Set2)]
+  (let [x (as (errorCast set1) Set2)]
     (debug/print "value: {}\n" [x])))
 
 (a/defn main :void []

@@ -852,7 +852,7 @@
                   (let [events# (atom [])
                         evaluate# (find-var 'aguafria.zig.discovery-aggregate-address-fixture/evaluate)
                         retains-storage?# (atom false)
-                        backing-type# ((deref (ns-resolve 'aguafria.zig.jvm (symbol "contextual-address-backing-type")))
+                        backing-type# ((clojure.core/deref (clojure.core/ns-resolve 'aguafria.zig.jvm (clojure.core/symbol "contextual-address-backing-type")))
                                        [:slice-const :i32] 2)
                         length# (find-var 'aguafria.zig.discovery-aggregate-address-fixture/length)
                         retain# (find-var 'aguafria.zig.discovery-aggregate-address-fixture/retain-slice)
@@ -1428,7 +1428,7 @@
                    outputs# (binding [aguafria.zig.explain/*reporter* #(swap! events# conj %)]
                               (mapv (fn [number#]
                                       (aguafria.zig/value
-                                       ((resolve 'aguafria.zig.discovery-generic-parameter-fixture/parse-value)
+                                       ((clojure.core/resolve 'aguafria.zig.discovery-generic-parameter-fixture/parse-value)
                                         :u16 (aguafria.keyword/u16 number#) {})))
                                     [42 0 99]))]
                (assert (= [{:ok 42} {:error {:name "InvalidNumber"}} {:ok 99}] outputs#))
@@ -2850,7 +2850,7 @@
                                   'aguafria.zig.discovery-member-literals-fixture
                                   'aguafria.zig.discovery-vector-shift-fixture
                                   'aguafria.zig.discovery-nested-fields-fixture)
-                         (with-open [exchange# ((resolve 'aguafria.zig.discovery-nested-fields-fixture/make-exchange))]
+                         (with-open [exchange# ((clojure.core/resolve 'aguafria.zig.discovery-nested-fields-fixture/make-exchange))]
                            (assert (= 7 (aguafria.zig/value (:actor (:request (:result exchange#)))))))
                          (let [text# (var-get (resolve 'aguafria.zig.discovery-member-literals-fixture/Text))]
                            (with-open [hello# (aguafria.keyword/++ "he" "llo")
@@ -2870,7 +2870,7 @@
                            (assert (= 4.0 (aguafria.zig/value
                                            (aguafria.keyword// left# right#)))))
                          (doseq [[type# number#] [[:i32 42] [:u16 7] [:i32 15]]]
-                           (let [box-type# ((resolve 'aguafria.zig.discovery-generic-type-fixture/Box) type#)
+                           (let [box-type# ((clojure.core/resolve 'aguafria.zig.discovery-generic-type-fixture/Box) type#)
                                  box# (aguafria.zig/init {:value number#} box-type#)]
                              (assert (= number# (aguafria.zig/value (:value box#))))))
                          (let [counter# (var-get (resolve 'aguafria.zig.discovery-methods-fixture/Counter))]
@@ -2881,7 +2881,7 @@
                              (assert (= 13 (aguafria.zig/value ((:plus constant#) increment#))))
                              ((:increment mutable#))
                              (assert (= 24 (aguafria.zig/value ((:plus mutable#) increment#))))))
-                         (with-open [version# ((resolve 'aguafria.zig.discovery-imported-fixture/make-version))]
+                         (with-open [version# ((clojure.core/resolve 'aguafria.zig.discovery-imported-fixture/make-version))]
                            (assert (= 1 (aguafria.zig/value (aguafria.zig/field version# :major))))
                            (assert (= [:*const 'aguafria.std/SemanticVersion]
                                       (aguafria.zig.value/qualified-type (aguafria.keyword/& version#)))))
@@ -3004,12 +3004,12 @@
                          (require 'aguafria.zig.discovery-fixture
                                   'aguafria.zig.discovery-nominal-fixture)
                          (assert (= 42 (aguafria.zig/value
-                                        ((resolve 'aguafria.zig.discovery-fixture/add-literal) 35))))
-                         (let [point# ((resolve 'aguafria.zig.discovery-fixture/Point) {:x 1 :y 2})]
+                                        ((clojure.core/resolve 'aguafria.zig.discovery-fixture/add-literal) 35))))
+                         (let [point# ((clojure.core/resolve 'aguafria.zig.discovery-fixture/Point) {:x 1 :y 2})]
                            (assert (= 1 (aguafria.zig/value (:x point#)))))
                          (let [tag# (var-get (resolve 'aguafria.zig.discovery-nominal-fixture/Tag))
-                               payload# ((resolve 'aguafria.zig.discovery-nominal-fixture/Payload) {:integer 42})
-                               raw# ((resolve 'aguafria.zig.discovery-nominal-fixture/Raw) {:integer 12})
+                               payload# ((clojure.core/resolve 'aguafria.zig.discovery-nominal-fixture/Payload) {:integer 42})
+                               raw# ((clojure.core/resolve 'aguafria.zig.discovery-nominal-fixture/Raw) {:integer 12})
                                counter# (var-get (resolve 'aguafria.zig.discovery-nominal-fixture/Counter))]
                            (assert (= :integer (aguafria.zig/value (:integer tag#))))
                            (assert (= 42 (aguafria.zig/value (:integer payload#))))

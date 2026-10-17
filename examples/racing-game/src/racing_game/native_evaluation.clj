@@ -29,10 +29,10 @@
   (with-open [arena (Arena/ofConfined)]
     (try
       (when-not (:valid (a/value (inference/load-model!
-                                   (.allocateFrom arena (str (model/model-file))))))
+                                  (.allocateFrom arena (str (model/model-file))))))
         (throw (ex-info "Native model failed to load" {})))
       (when-not (:valid (a/value (inference/load-action-head!
-                                   (.allocateFrom arena (str (model/action-head-file))))))
+                                  (.allocateFrom arena (str (model/action-head-file))))))
         (throw (ex-info "Driver head failed to load" {})))
       (when-not (inference/initialize-sequences!)
         (throw (ex-info "Native sequence allocation failed" {})))
@@ -49,7 +49,7 @@
           _ (.copyFrom memory (MemorySegment/ofArray prompt))
           started (System/nanoTime)
           result (a/value (inference/forward-compact-prompt!
-                            slot memory (alength prompt) true))
+                           slot memory (alength prompt) true))
           elapsed (/ (- (System/nanoTime) started) 1e6)
           action (- (:best_token result) 32)
           row {:id (:id case) :suite (:suite case) :action action
@@ -81,9 +81,9 @@
                team-offset (a/value protocol/racer-count)]
            (try
              (let [warmups (mapv (fn [kind]
-                                  (.get (submit (if (= kind :team) team-offset 0)
-                                                (first (filter #(= kind (:kind %)) cases)))))
-                                [:driver :team])
+                                   (.get (submit (if (= kind :team) team-offset 0)
+                                                 (first (filter #(= kind (:kind %)) cases)))))
+                                 [:driver :team])
                    results
                    (vec (mapcat
                          (fn [kind]
@@ -101,7 +101,7 @@
                             (partition-all concurrency (filter #(= kind (:kind %)) cases))))
                          [:driver :team]))]
                (write-edn! output-name {:warmups warmups :concurrency concurrency
-                                       :native-output :process-streams :results results})
+                                        :native-output :process-streams :results results})
                {:completed (count results)})
              (finally
                (.shutdown ^ExecutorService pool)

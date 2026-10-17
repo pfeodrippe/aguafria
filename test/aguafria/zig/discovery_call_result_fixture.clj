@@ -1,11 +1,12 @@
 (ns aguafria.zig.discovery-call-result-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.mem :as mem]
             [aguafria.zig :as a]))
 
 (a/deftest do-not-execute
-  (let [input (k/as "one,two" [:slice-const :u8])
+  (let [input (as "one,two" [:slice-const :u8])
         iterator (k/var (mem/splitScalar :u8 input \,))]
-    (k/= :_ ((:next iterator)))
-    (k/= :_ ((:next iterator))))
-  (k/unreachable))
+    (= :_ ((:next iterator)))
+    (= :_ ((:next iterator))))
+  (unreachable))

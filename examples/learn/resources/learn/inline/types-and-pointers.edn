@@ -11,34 +11,34 @@
   :note "A field-access suffix: (:len value), with value supplied by the surrounding expression."}
 
  "a >= b"
- {:clojure-source "(>= a b)"
+ {:clojure-source "(k/>= a b)"
   :kind :expr
   :note "Greater-than-or-equal comparison."}
 
  "(2 >= 1) == true"
- {:clojure-source "(k/== (>= 2 1) true)"
+ {:clojure-source "(k/== (k/>= 2 1) true)"
   :kind :expr
   :standalone? true
   :note "Two is greater than or equal to one."}
 
  "a < b"
- {:clojure-source "(< a b)"
+ {:clojure-source "(k/< a b)"
   :kind :expr
   :note "Strict less-than comparison."}
 
  "(1 < 2) == true"
- {:clojure-source "(k/== (< 1 2) true)"
+ {:clojure-source "(k/== (k/< 1 2) true)"
   :kind :expr
   :standalone? true
   :note "One is strictly less than two."}
 
  "a <= b"
- {:clojure-source "(<= a b)"
+ {:clojure-source "(k/<= a b)"
   :kind :expr
   :note "Less-than-or-equal comparison."}
 
  "(1 <= 2) == true"
- {:clojure-source "(k/== (<= 1 2) true)"
+ {:clojure-source "(k/== (k/<= 1 2) true)"
   :kind :expr
   :standalone? true
   :note "One is less than or equal to two."}
@@ -49,7 +49,13 @@
   :note "Concatenate arrays whose lengths are known at compile time."}
 
  "const mem = @import(\"std\").mem;\nconst array1 = [_]u32{1,2};\nconst array2 = [_]u32{3,4};\nconst together = array1 ++ array2;\nmem.eql(u32, &together, &[_]u32{1,2,3,4})"
- {:clojure-source "(let [mem (:mem (k/import \"std\"))\n      array1 (a/array [1 2] :u32)\n      array2 (a/array [3 4] :u32)\n      together (k/++ array1 array2)]\n  ((:eql mem) :u32\n    (k/& together)\n    (k/& (a/array [1 2 3 4] :u32))))"
+ {:clojure-source "(let [mem (:mem (k/import \"std\"))
+      array1 (a/array [1 2] :u32)
+      array2 (a/array [3 4] :u32)
+      together (k/++ array1 array2)]
+  ((:eql mem) :u32
+    (k/& together)
+    (k/& (a/array [1 2 3 4] :u32))))"
   :kind :expr
   :standalone? true
   :note "Import std.mem locally and compare the concatenated array element by element."}
@@ -60,7 +66,9 @@
   :note "Repeat an array; its length and the repetition count must be comptime-known."}
 
  "const mem = @import(\"std\").mem;\nconst pattern = \"ab\" ** 3;\nmem.eql(u8, pattern, \"ababab\")"
- {:clojure-source "(let [mem (:mem (k/import \"std\"))\n      pattern (k/** \"ab\" 3)]\n  ((:eql mem) :u8 pattern \"ababab\"))"
+ {:clojure-source "(let [mem (:mem (k/import \"std\"))
+      pattern (k/** \"ab\" 3)]
+  ((:eql mem) :u8 pattern \"ababab\"))"
   :kind :expr
   :standalone? true
   :note "Repeat the string three times and check its bytes with std.mem.eql."}
@@ -71,7 +79,9 @@
   :note "Reader dereference syntax accesses the pointed-to value."}
 
  "const x: u32 = 1234;\nconst ptr = &x;\nptr.* == 1234"
- {:clojure-source "(let [x (k/as 1234 :u32)\n      ptr (k/& x)]\n  (k/== @ptr 1234))"
+ {:clojure-source "(let [x (k/as 1234 :u32)
+      ptr (k/& x)]
+  (k/== @ptr 1234))"
   :kind :expr
   :standalone? true
   :note "Take the address of a typed local and read it through the pointer."}
@@ -87,7 +97,10 @@
   :note "Merge two error set types."}
 
  "const A = error{One};\nconst B = error{Two};\n(A || B) == error{One, Two}"
- {:clojure-source "(let [A (a/type [:error-set [:One]])\n      B (a/type [:error-set [:Two]])]\n  (k/== (k/|| A B)\n      (a/type [:error-set [:One :Two]])))"
+ {:clojure-source "(let [A (a/type [:error-set [:One]])
+      B (a/type [:error-set [:Two]])]
+  (k/== (k/|| A B)
+      (a/type [:error-set [:One :Two]])))"
   :kind :expr
   :standalone? true
   :note "Merging error sets produces the set containing both error names."}
@@ -108,7 +121,8 @@
   :note "Division; vector operands are divided element by element."}
 
  "*"
- {:clojure-source "*\na/pointer-capture"
+ {:clojure-source "*
+a/pointer-capture"
   :kind :reference
   :alternatives? true
   :note "The arithmetic operator is clojure.core/*. In switch captures, Zig's leading * instead corresponds to a/pointer-capture."}
@@ -174,7 +188,7 @@
   :note "Slice the one element addressed by ptr."}
 
  "ptr - ptr"
- {:clojure-source "(- ptr ptr)"
+ {:clojure-source "(k/- ptr ptr)"
   :kind :expr
   :note "Pointer subtraction measures the distance in elements."}
 
@@ -199,12 +213,12 @@
   :note "Advance a many-item pointer without providing an end index."}
 
  "ptr + int"
- {:clojure-source "(+ ptr int)"
+ {:clojure-source "(k/+ ptr int)"
   :kind :expr
   :note "Advance a many-item pointer by an integer number of elements."}
 
  "ptr - int"
- {:clojure-source "(- ptr int)"
+ {:clojure-source "(k/- ptr int)"
   :kind :expr
   :note "Move a many-item pointer backward by an integer number of elements."}
 
@@ -229,7 +243,7 @@
   :note "The pointed-to array's length is part of its type."}
 
  "array_ptr - array_ptr"
- {:clojure-source "(- array_ptr array_ptr)"
+ {:clojure-source "(k/- array_ptr array_ptr)"
   :kind :expr
   :note "Array pointers support pointer subtraction."}
 

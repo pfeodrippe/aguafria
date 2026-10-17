@@ -1,5 +1,6 @@
 (ns learn.example.runtime-unwrap-error
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as a]))
 
@@ -7,7 +8,7 @@
   (a/error-value :UnableToReturnNumber))
 
 (a/defn main :void []
-  (let [number (catch (getNumberOrFail) (k/unreachable))]
+  (let [number (k/catch (getNumberOrFail) (unreachable))]
     (debug/print "value: {}\n" [number])))
 
 (comment

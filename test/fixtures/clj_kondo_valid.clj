@@ -1,5 +1,6 @@
 (ns clj-kondo-valid
-  (:require [aguafria.keyword :as ak]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as ak :refer :all]
             [aguafria.zig :as a]))
 
 (a/defconst capacity :usize 8)
@@ -19,10 +20,10 @@
   [[T {:zig/prefix "comptime"} :type]
    [length {:zig/prefix "comptime"} :usize]]
   (a/struct
-    [[:items [:array length T]]
-     (a/fn-decl first-item T
-       [[items [:array length T]]]
-       (a/index items 0))]))
+   [[:items [:array length T]]
+    (a/fn-decl first-item T
+               [[items [:array length T]]]
+               (a/index items 0))]))
 
 (a/defconst TaggedValue
   (a/union {:enum? true} [[:value :i32] [:empty :void]]))
@@ -41,7 +42,7 @@
 
 (a/defcomptime fixture-comptime
   (when false
-    (ak/compileError "unreachable fixture branch")))
+    (compileError "unreachable fixture branch")))
 
 (a/defextern puts :c_int
   [[message [:c-pointer :c_char]]])
@@ -61,19 +62,19 @@
   (let [typed (a/cast opaque [:c-pointer :u8])]
     (set! counter (+ counter 1))
     (+ (add-components point)
-       (ak/as (a/index typed 0) :f32))))
+       (as (a/index typed 0) :f32))))
 
 (a/defconst structural-values
   (a/container
-    {:kind :struct}
-    [(a/field-decl value :u8 1)
-     (a/enum-field-decl ready 0)
-     (a/field-decl object :u8
-       (a/object [[:value capacity]]))]))
+   {:kind :struct}
+   [(a/field-decl value :u8 1)
+    (a/enum-field-decl ready 0)
+    (a/field-decl object :u8
+                  (a/object [[:value capacity]]))]))
 
 (a/deftest clj-kondo-fixture
   "A named Zig test and an inspectable Clojure Var."
-  (inspect-point (Point {:x 1.0 :y 2.0}) ak/null))
+  (inspect-point (Point {:x 1.0 :y 2.0}) null))
 
 (def fixture-test-var #'clj-kondo-fixture)
 

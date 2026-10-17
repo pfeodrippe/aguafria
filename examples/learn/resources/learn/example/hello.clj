@@ -1,5 +1,6 @@
 (ns learn.example.hello
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.Io.File :as std-file]
             [aguafria.std.process :as process]
             [aguafria.std.process.Init :as process-init]

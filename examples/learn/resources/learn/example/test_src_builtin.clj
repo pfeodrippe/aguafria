@@ -1,5 +1,6 @@
 (ns learn.example.test-src-builtin
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.lang.SourceLocation :as source-location]
             [aguafria.std.mem :as mem]
             [aguafria.std.testing :as testing]
@@ -11,10 +12,10 @@
   []
   (let [src (k/src)
         next-location (k/src)]
-    (k/try (testing/expectEqual (k/+ (source-location/-line src) 1)
+    (k/try (testing/expectEqual (+ (source-location/-line src) 1)
                                 (source-location/-line next-location)))
     ;; The longer binding name shifts the builtin's source column.
-    (k/try (testing/expectEqual (k/+ (source-location/-column src) 10)
+    (k/try (testing/expectEqual (+ (source-location/-column src) 10)
                                 (source-location/-column next-location)))
     (k/try (testing/expect (mem/endsWith :u8 (source-location/-fn_name src) "doTheTest")))
     (k/try (testing/expect (mem/endsWith :u8 (source-location/-file src) "test_src_builtin.zig")))))

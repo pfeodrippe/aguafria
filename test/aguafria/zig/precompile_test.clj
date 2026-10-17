@@ -231,7 +231,7 @@
                         result# (binding [aguafria.zig.explain/*reporter* #(swap! events# conj %)]
                                   (require '~module)
                                   (aguafria.zig/value
-                                   ((resolve '~(symbol (str module) "selected-value")))))]
+                                   ((clojure.core/resolve '~(symbol (str module) "selected-value")))))]
                     (prn {:result result# :events @events#})))
                 (shutdown-agents))
         result (shell/sh (str (System/getProperty "java.home") "/bin/java")
@@ -418,15 +418,15 @@
                         result#
                         (binding [aguafria.zig.explain/*reporter* #(swap! events# conj %)]
                           (require 'aguafria.zig.precompile-private-payload-fixture)
-                          (let [holder# ((resolve 'aguafria.zig.precompile-private-payload-fixture/Holder)
+                          (let [holder# ((clojure.core/resolve 'aguafria.zig.precompile-private-payload-fixture/Holder)
                                          {:maybe {:value 13}})
-                                command# ((resolve 'aguafria.zig.precompile-private-payload-fixture/Command)
+                                command# ((clojure.core/resolve 'aguafria.zig.precompile-private-payload-fixture/Command)
                                           {:payload {:value 23}})]
                             [(aguafria.zig/value holder#) (aguafria.zig/value command#)
                              (aguafria.zig/value
-                              ((resolve 'aguafria.zig.precompile-private-payload-fixture/read-holder) holder#))
+                              ((clojure.core/resolve 'aguafria.zig.precompile-private-payload-fixture/read-holder) holder#))
                              (aguafria.zig/value
-                              ((resolve 'aguafria.zig.precompile-private-payload-fixture/read-command) command#))]))]
+                              ((clojure.core/resolve 'aguafria.zig.precompile-private-payload-fixture/read-command) command#))]))]
                     (prn {:result result# :events @events#})))
                 (shutdown-agents))
         result (shell/sh (str (System/getProperty "java.home") "/bin/java")
@@ -487,7 +487,7 @@
                         results#
                         (binding [aguafria.zig.explain/*reporter* #(swap! events# conj %)]
                           (require 'aguafria.zig.discovery-object-initializer-fixture)
-                          (let [T# ((resolve 'aguafria.zig.discovery-object-initializer-fixture/Record)
+                          (let [T# ((clojure.core/resolve 'aguafria.zig.discovery-object-initializer-fixture/Record)
                                     :u32)]
                             (mapv aguafria.zig/value
                                   [(aguafria.zig/init (aguafria.zig/object []) T#)
@@ -819,9 +819,9 @@
                                              (:clojure.error/source (ex-data failure#))
                                              "precompile_noreturn_fixture.clj"))))
                                 (assert (= 42 (aguafria.zig/value
-                                               ((resolve 'aguafria.zig.precompile-fixture/increment) 41))))
+                                               ((clojure.core/resolve 'aguafria.zig.precompile-fixture/increment) 41))))
                                 (assert (= 42 (aguafria.zig/value
-                                               ((resolve 'aguafria.zig.precompile-fixture/subtract) 50 8))))
+                                               ((clojure.core/resolve 'aguafria.zig.precompile-fixture/subtract) 50 8))))
                                 (assert (= 42 (aguafria.zig/value
                                                (aguafria.keyword/+ (aguafria.keyword/i32 20)
                                                                    (aguafria.keyword/i32 22))))))))]
@@ -887,7 +887,7 @@
                       (do
                         (require '~(:namespace fixture))
                         (doseq [[type# initial#] '~(:constructors fixture)]
-                          (with-open [value# ((resolve type#) initial#)]
+                          (with-open [value# ((clojure.core/resolve type#) initial#)]
                             (assert (= initial# (aguafria.zig/value value#)))))
                         (doseq [[function# arguments# expected#] '~(:calls fixture)
                                 typed?# ~(if (:coerce-arguments? fixture) [false true] [false])]
@@ -970,7 +970,7 @@
                           (callback#)
                           ((:join first-thread#))
                           ((:join second-thread#))
-                          (aguafria.zig/value ((ns-resolve namespace# (symbol "current-count"))))))))]
+                          (aguafria.zig/value ((clojure.core/ns-resolve namespace# (clojure.core/symbol "current-count"))))))))]
               (prn {:result result# :events @events#}))
             (shutdown-agents)))
         output (Files/createTempFile "aguafria-callable-snapshot-" ".log"

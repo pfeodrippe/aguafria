@@ -1,5 +1,6 @@
 (ns learn.example.destructuring-mixed
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as a]))
 
@@ -11,9 +12,9 @@
         y (k/var y :u32)]
     (debug/print "x = {}, y = {}, z = {}\n" [x y z])
     ;; y is mutable
-    (k/= y 100)
+    (= y 100)
     ;; You can use _ to throw away unwanted values.
-    (k/= [:_ x :_] tuple)
+    (= [:_ x :_] tuple)
     (debug/print "x = {}\n" [x])))
 
 (comment

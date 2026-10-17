@@ -532,7 +532,7 @@
                        :qualified-name (symbol module (str release-name))
                        :declaration-key [:fn release-name]
                        :return :void :args [{:name release-address :type :usize}]
-                       :body [(list (list 'field helper-name :release) release-address)]}
+                       :body [(list (list 'aguafria.zig/field helper-name :release) release-address)]}
                       {:kind :fn :name release-native-name
                        :qualified-name (symbol module (str release-native-name))
                        :declaration-key [:fn release-native-name]
@@ -540,7 +540,7 @@
                        :args [{:name release-address :type :usize}
                               {:name release-size :type :usize}
                               {:name release-alignment :type :usize}]
-                       :body [(list (list 'field helper-name :releaseNative)
+                       :body [(list (list 'aguafria.zig/field helper-name :releaseNative)
                                     release-address release-size release-alignment)]}
                       {:kind :fn :name call-name
                        :qualified-name (symbol module (str call-name))
@@ -550,8 +550,8 @@
                                    (for [condition preconditions]
                                      (list 'if (list 'aguafria.keyword/! condition)
                                            (list 'return
-                                                 (list (list 'field helper-name :scopedCaptureMismatch)))))
-                                   [(apply list (list 'field helper-name (keyword writer))
+                                                 (list (list 'aguafria.zig/field helper-name :scopedCaptureMismatch)))))
+                                   [(apply list (list 'aguafria.zig/field helper-name (keyword writer))
                                            expression writer-arguments)]))}]
        :helper-source helper-source :helper-reference helper-name
        :function (symbol module (str call-name))
@@ -730,7 +730,7 @@
 (defn- inspection-expression [type]
   (list 'if
         (list 'aguafria.keyword/comptime
-              (list '(field __aguafria_jvm :requiresComptime)
+              (list '(aguafria.zig/field __aguafria_jvm :requiresComptime)
                     (list 'aguafria.zig/type type)))
         nil
         (list 'aguafria.zig/deref
@@ -978,7 +978,7 @@
                               (second receiver) receiver)]
                ;; These are alternate spellings of the same emitted member
                ;; projection, not a guess that two nominal types are equal.
-               (with-meta (list 'field receiver (emitter/identifier (nth form 2))) (meta form)))
+               (with-meta (list 'aguafria.zig/field receiver (emitter/identifier (nth form 2))) (meta form)))
              (if-let [parameters
                       (when (and (seq? form) (qualified-symbol? (first form)))
                         (some-> (find-var (first form)) meta
@@ -1101,28 +1101,28 @@
         (walk/postwalk-replace
          {'Target (list 'aguafria.zig/type type)
           'Input (list 'aguafria.zig/type input-type)}
-         '(or ((field __aguafria_jvm :enumCoercionRequiresConstant) Target Input)
-              (let [target-info (aguafria.keyword/typeInfo Target)
-                    input-info (aguafria.keyword/typeInfo Input)]
-                (if (and (aguafria.keyword/== target-info :int)
-                         (aguafria.keyword/== input-info :int))
-                  (let [target (aguafria.zig/field target-info :int)
-                        input (aguafria.zig/field input-info :int)]
-                    (if (aguafria.keyword/== (aguafria.zig/field target :signedness)
-                                             (aguafria.zig/field input :signedness))
-                      (aguafria.keyword/< (aguafria.zig/field target :bits)
-                                          (aguafria.zig/field input :bits))
-                      (or (aguafria.keyword/== (aguafria.zig/field target :signedness) :unsigned)
-                          (aguafria.keyword/<= (aguafria.zig/field target :bits)
-                                               (aguafria.zig/field input :bits)))))
-                  (if (and (aguafria.keyword/== target-info :float)
-                           (aguafria.keyword/== input-info :float))
-                    (aguafria.keyword/< (aguafria.zig/field (aguafria.zig/field target-info :float) :bits)
-                                        (aguafria.zig/field (aguafria.zig/field input-info :float) :bits))
-                    (and (or (aguafria.keyword/== target-info :int)
-                             (aguafria.keyword/== target-info :float))
-                         (or (aguafria.keyword/== input-info :int)
-                             (aguafria.keyword/== input-info :float))))))))
+         '(aguafria.keyword/or ((aguafria.zig/field __aguafria_jvm :enumCoercionRequiresConstant) Target Input)
+                               (let [target-info (aguafria.keyword/typeInfo Target)
+                                     input-info (aguafria.keyword/typeInfo Input)]
+                                 (if (aguafria.keyword/and (aguafria.keyword/== target-info :int)
+                                                           (aguafria.keyword/== input-info :int))
+                                   (let [target (aguafria.zig/field target-info :int)
+                                         input (aguafria.zig/field input-info :int)]
+                                     (if (aguafria.keyword/== (aguafria.zig/field target :signedness)
+                                                              (aguafria.zig/field input :signedness))
+                                       (aguafria.keyword/< (aguafria.zig/field target :bits)
+                                                           (aguafria.zig/field input :bits))
+                                       (aguafria.keyword/or (aguafria.keyword/== (aguafria.zig/field target :signedness) :unsigned)
+                                                            (aguafria.keyword/<= (aguafria.zig/field target :bits)
+                                                                                 (aguafria.zig/field input :bits)))))
+                                   (if (aguafria.keyword/and (aguafria.keyword/== target-info :float)
+                                                             (aguafria.keyword/== input-info :float))
+                                     (aguafria.keyword/< (aguafria.zig/field (aguafria.zig/field target-info :float) :bits)
+                                                         (aguafria.zig/field (aguafria.zig/field input-info :float) :bits))
+                                     (aguafria.keyword/and (aguafria.keyword/or (aguafria.keyword/== target-info :int)
+                                                                                (aguafria.keyword/== target-info :float))
+                                                           (aguafria.keyword/or (aguafria.keyword/== input-info :int)
+                                                                                (aguafria.keyword/== input-info :float))))))))
         module (symbol (str "aguafria.jvm.coercion-profile-" (token [type input-type])))
         default (or (find-ns module) (create-ns module))
         context (private-adapter-context default [type input-type expression])]
@@ -1190,8 +1190,8 @@
                  (let [error-type (nth argument 2)
                        field (second argument)]
                    (and (vector? error-type) (= :error-set (first error-type))
-                        (seq? field) (= 'field (first field))
-                        (= (list 'type error-type) (second field))
+                        (seq? field) (contains? #{'field 'aguafria.zig/field} (first field))
+                        (= (list 'aguafria.zig/type error-type) (second field))
                         (some #{(nth field 2 nil)} (second error-type))))))]
     (binding [runtime/*source-only-registration?* true]
       (register! context
@@ -1217,7 +1217,7 @@
         module (symbol (str "aguafria.jvm.construction-profile-" (token type)))
         context (or (find-ns module) (create-ns module))]
     (prepare-expression! context
-                         (list '(field __aguafria_jvm :requiresComptime)
+                         (list '(aguafria.zig/field __aguafria_jvm :requiresComptime)
                                (list 'aguafria.zig/type type))
                          [] 'inspectResult)))
 
@@ -1765,7 +1765,7 @@
   (let [schema (constructor-type schema)]
     (if (or (keyword? schema) (symbol? schema))
       schema
-      (list 'type schema))))
+      (list 'aguafria.zig/type schema))))
 
 (defn- unsigned-integer-width [argument]
   (when (and (not (comptime-expression argument))
@@ -1782,8 +1782,8 @@
         (let [context (or (find-ns 'aguafria.jvm.integer-width)
                           (create-ns 'aguafria.jvm.integer-width))]
           (invoke-expression! context
-                              (list '(field __aguafria_jvm :unsignedIntegerBits)
-                                    (list 'type type))
+                              (list '(aguafria.zig/field __aguafria_jvm :unsignedIntegerBits)
+                                    (list 'aguafria.zig/type type))
                               [] [] 'inspectResult))))))
 
 (defn- floating-operand!
@@ -1793,7 +1793,7 @@
                     (create-ns 'aguafria.jvm.floating-operand))
         expression (list 'aguafria.keyword/as
                          (list 'aguafria.keyword/floatCast
-                               (list '(field __aguafria_jvm :parseComptimeFloat) 'text))
+                               (list '(aguafria.zig/field __aguafria_jvm :parseComptimeFloat) 'text))
                          type)]
     (invoke-expression! context expression
                         [{:name 'text :type [:slice-const :u8]}]
@@ -2069,7 +2069,7 @@
                  ;; slice, so changing its digits never changes adapter source.
                  (list 'aguafria.keyword/as
                        (list 'aguafria.keyword/floatCast
-                             (list '(field __aguafria_jvm :parseComptimeFloat)
+                             (list '(aguafria.zig/field __aguafria_jvm :parseComptimeFloat)
                                    (lift (str argument) [:slice-const :u8] false))) type)
                  (or (= "comptime" (:zig/prefix properties))
                      (#{:type 'type :comptime_int :comptime_float} type))
@@ -2119,7 +2119,7 @@
                 (and (seq? form) (#{'try 'aguafria.keyword/try} (first form)) (= 2 (count form)))
                 (do
                   (vreset! propagates? true)
-                  (list 'catch (visit (second form)) 'aguafria.keyword/undefined))
+                  (list 'aguafria.keyword/catch (visit (second form)) 'aguafria.keyword/undefined))
                 (coll? form) (walk/walk visit identity form)
                 :else form))]
       (let [type-expression (visit expression)]
@@ -2319,7 +2319,7 @@
         (when result?
           (mapv (fn [[entry argument]]
                   (when-let [candidate (get retained (:name entry))]
-                    (list (list 'field '__aguafria_jvm :scopedCaptureMatches)
+                    (list (list 'aguafria.zig/field '__aguafria_jvm :scopedCaptureMatches)
                           argument (list 'aguafria.zig/raw (:native-source candidate)))))
                 (filter #(contains? retained (:name (first %)))
                         (map vector entries expression-arguments))))
@@ -2327,9 +2327,10 @@
                      (apply list 'aguafria.zig/block (concat guards [expression]))
                      expression)
         _ (when (and (seq mutations) (not unevaluated?)
-                     (or result? (scoped-result-type-expression expression result-context)))
-            (throw (ex-info "Mutable comptime captures currently require a non-propagating statement scope"
+                     (scoped-result-type-expression expression result-context))
+            (throw (ex-info "Mutable comptime captures currently require a non-propagating scope"
                             {:reason :unsupported-comptime-mutation-result})))
+        mutation-result? (and result? (seq mutations) (not unevaluated?))
         expression (if (seq mutations)
                      (apply list 'let
                             (vec (mapcat (fn [[entry argument]]
@@ -2337,11 +2338,31 @@
                                             (list 'var argument (:type entry) {:zig/prefix "comptime"})])
                                          (filter #(contains? mutation-names (:name (first %)))
                                                  (map vector entries expression-arguments))))
-                            (if unevaluated?
-                              [expression]
-                              [expression
-                               (list '(field __aguafria_jvm :result)
-                                     (mapv #(get mutation-names (:name %)) mutations))]))
+                            (concat
+                             ;; These are mutable capture cells even when this
+                             ;; particular body only reads them. Taking their
+                             ;; address preserves that contract without guessing
+                             ;; whether an arbitrary native call mutates them.
+                             (map (fn [entry]
+                                    (list 'aguafria.keyword/= :_
+                                          (list 'aguafria.keyword/&
+                                                (get mutation-names (:name entry)))))
+                                  mutations)
+                             (cond
+                               unevaluated? [expression]
+                               mutation-result?
+                               [(list 'let
+                                      ['__aguafria_scoped_result
+                                       (if result-context
+                                         (list 'aguafria.keyword/as expression result-context)
+                                         expression)]
+                                      (list '(aguafria.zig/field __aguafria_jvm :scopedMutationResult)
+                                            '__aguafria_scoped_result
+                                            (mapv #(get mutation-names (:name %)) mutations)))]
+                               :else
+                               [expression
+                                (list '(aguafria.zig/field __aguafria_jvm :result)
+                                      (mapv #(get mutation-names (:name %)) mutations))])))
                      expression)
         ;; A capture-only TypeOf does not depend on its JVM caller namespace.
         ;; Keep module-local declarations, raw source and observable @src in
@@ -2370,6 +2391,7 @@
                       (if result? queried :void))]
     {:context context :function function :parameters parameters
      :mutation-captures (if unevaluated? [] (mapv :name mutations))
+     :mutation-result? (boolean mutation-result?)
      :retained-captures retained
      :result-preconditions result-preconditions
      :declaration
@@ -2381,10 +2403,11 @@
                             :return [:error-union :anyerror result-type]
                             :body (if result? [(list 'return expression)] [expression]))))
      :propagates-errors? (some? result-type)
-     :inspection-type (when (and result? result-context (not result-type)) result-context)
+     :inspection-type (when (and result? result-context (not result-type)
+                                 (not mutation-result?)) result-context)
      :expression (cond
                    result-type (apply list name (map :name parameters))
-                   result-context
+                   (and result-context (not mutation-result?))
                    (with-meta (list 'aguafria.keyword/as expression result-context)
                      {:aguafria/jvm-result-type result-context})
                    :else expression)}))
@@ -2511,7 +2534,7 @@
                                 :else v))
                             (map vector entries values))
              inputs (call-inputs (scoped-argument-declarations entries) operands)
-             {:keys [context expression parameters function propagates-errors? transport-plan mutation-captures]}
+             {:keys [context expression parameters function propagates-errors? transport-plan mutation-captures mutation-result?]}
              (prepare-scoped-plan! caller form entries inputs result? result-context)]
          (try
            (let [result (if transport-plan
@@ -2519,11 +2542,14 @@
                           (runtime/invoke! function (:arguments inputs)))]
              (if (seq mutation-captures)
                (do
-                 (when-not (and (vector? result) (= (count mutation-captures) (count result)))
+                 (when-not (and (vector? result)
+                                (= (+ (count mutation-captures) (if mutation-result? 1 0))
+                                   (count result)))
                    (throw (ex-info "Invalid comptime mutation result" {:captures mutation-captures})))
-                 (doseq [[name value] (map vector mutation-captures result)]
+                 (doseq [[name value] (map vector mutation-captures
+                                           (if mutation-result? (rest result) result))]
                    (value/update-comptime-mutable! (get locals name) value))
-                 nil)
+                 (when mutation-result? (first result)))
                (if propagates-errors? (value/try-value! result) result)))
            (catch clojure.lang.ExceptionInfo failure
              (if (and (not result?)
@@ -2567,7 +2593,7 @@
         adapter-context (or (some-> owner symbol find-ns)
                             (find-ns adapter-name)
                             (create-ns adapter-name))
-        description (invoke-expression! adapter-context (list 'type type) [] [] 'describeResult)]
+        description (invoke-expression! adapter-context (list 'aguafria.zig/type type) [] [] 'describeResult)]
     (-> description
         (update :kind keyword)
         (update :fields #(mapv (fn [field] (update field :name keyword)) %))
@@ -2631,8 +2657,8 @@
         receiver (constructor-type (if context (emitter/qualify-type context receiver) receiver))
         address (constructor-type (if context (emitter/qualify-type context address) address))
         member-name (native-member-name member)
-        ordinary (list '(field __aguafria_jvm :fieldView) 'input_0 member-name)
-        type (list 'type container)
+        ordinary (list '(aguafria.zig/field __aguafria_jvm :fieldView) 'input_0 member-name)
+        type (list 'aguafria.zig/type container)
         declaration-method? (list 'aguafria.keyword/==
                                   (list 'aguafria.keyword/typeInfo
                                         (list 'aguafria.keyword/TypeOf
@@ -2668,10 +2694,10 @@
      ;; An unknown member is a compiler error, not an absent-method fallback.
      :expression (if context
                    (list 'if (list 'aguafria.keyword/comptime method?)
-                         '((field __aguafria_jvm :boundMethod))
+                         '((aguafria.zig/field __aguafria_jvm :boundMethod))
                          ordinary)
                    ordinary)
-     :writer ['borrowedFieldResult (list 'type receiver)
+     :writer ['borrowedFieldResult (list 'aguafria.zig/type receiver)
               (type-source-data receiver) (artifact/print-data member-name)]
      :types [address]}))
 
@@ -2729,7 +2755,7 @@
                             (token [receiver-type member mutable? native?])))
         callable (list 'aguafria.zig/field target member)
         arguments (if native? expression-arguments (rest expression-arguments))
-        receiver-schema (list 'type receiver-type)
+        receiver-schema (list 'aguafria.zig/type receiver-type)
         receiver-info (list 'aguafria.keyword/typeInfo receiver-schema)
         pointer-info (list 'aguafria.zig/field receiver-info :pointer)
         container (when native?
@@ -2762,7 +2788,7 @@
                                       (keyword (str "." kind))))
                         pair? (fn [target-kind input-kind]
                                 (list 'aguafria.keyword/comptime
-                                      (list 'and (kind? target-name target-kind)
+                                      (list 'aguafria.keyword/and (kind? target-name target-kind)
                                             (kind? (list 'aguafria.keyword/TypeOf argument) input-kind))))]
                     ;; A concrete JVM call converts scalar inputs to its ABI
                     ;; parameter types. Ask Zig for the member's types too;
@@ -2771,7 +2797,7 @@
                     (list 'let [target-name target-type]
                           (list 'if (pair? "int" "int")
                                 (list 'aguafria.keyword/orelse
-                                      (list '(field (field (aguafria.keyword/import "std") :math) :cast)
+                                      (list '(aguafria.zig/field (aguafria.zig/field (aguafria.keyword/import "std") :math) :cast)
                                             target-name argument)
                                       (list 'aguafria.keyword/panic "Zig integer argument is out of range"))
                                 (list 'if (pair? "float" "float")
@@ -2862,7 +2888,7 @@
                             (or type (list 'aguafria.keyword/TypeOf field)) false)))
 
 (defn- comptime-field-expression [receiver member]
-  (with-meta (list '(field __aguafria_jvm :lookupField) receiver (native-member-name member))
+  (with-meta (list '(aguafria.zig/field __aguafria_jvm :lookupField) receiver (native-member-name member))
     {:aguafria/jvm-value-expression (list 'aguafria.zig/field receiver member)}))
 
 (defn variable-view!
@@ -2884,7 +2910,7 @@
   [receiver member]
   (let [type (constructor-type receiver)
         owner (:module (value/type-info receiver))
-        field (list 'aguafria.zig/field (list 'type type) member)]
+        field (list 'aguafria.zig/field (list 'aguafria.zig/type type) member)]
     (variable-storage-view!
      (or owner (str "aguafria.jvm.container-" (token type))) field
      (or (:type (container-variable receiver member))
@@ -2901,7 +2927,7 @@
         context (or (find-ns module) (create-ns module))
         {:keys [expression-arguments parameters arguments]}
         (call-inputs [{:type :anytype}] [pointer])
-        expression (cond-> (list '(field __aguafria_jvm :dereferenceView) (first expression-arguments))
+        expression (cond-> (list '(aguafria.zig/field __aguafria_jvm :dereferenceView) (first expression-arguments))
                      (and (vector? type) (#{:* :*const :pointer} (first type)))
                      (with-meta {:aguafria/jvm-borrowed-type (peek type)}))]
     (value/retain-owners!
@@ -2935,7 +2961,7 @@
         element (when (and (= :arrayIndexView operation) (vector? pointer-type))
                   (peek pointer-type))]
     (assoc plan :module 'aguafria.jvm.array-storage
-           :expression (cond-> (apply list (list 'field '__aguafria_jvm operation) expression-arguments)
+           :expression (cond-> (apply list (list 'aguafria.zig/field '__aguafria_jvm operation) expression-arguments)
                          element (with-meta {:aguafria/jvm-borrowed-type element
                                              :aguafria/jvm-result-type element})))))
 
@@ -2973,14 +2999,14 @@
   (if (and (vector? type) (= :array (first type)) (= 3 (count type)))
     (nth type 2)
     (let [info (list 'aguafria.keyword/typeInfo type)
-          field (fn [value member] (list 'aguafria.zig/field value member))
-          child (fn [tag] (field (field info tag) :child))
+          field-form (fn [value member] (list 'aguafria.zig/field value member))
+          child (fn [tag] (field-form (field-form info tag) :child))
           pointer-child (child :pointer)]
       (list 'if (list 'aguafria.keyword/== info :pointer)
             (list 'if
-                  (list 'and (list 'aguafria.keyword/== (field (field info :pointer) :size) :one)
+                  (list 'aguafria.keyword/and (list 'aguafria.keyword/== (field-form (field-form info :pointer) :size) :one)
                         (list 'aguafria.keyword/== (list 'aguafria.keyword/typeInfo pointer-child) :array))
-                  (field (field (list 'aguafria.keyword/typeInfo pointer-child) :array) :child)
+                  (field-form (field-form (list 'aguafria.keyword/typeInfo pointer-child) :array) :child)
                   pointer-child)
             (list 'if (list 'aguafria.keyword/== info :array) (child :array)
                   (list 'if (list 'aguafria.keyword/== info :vector) (child :vector)
@@ -2993,7 +3019,7 @@
     (assoc inputs
            :module (symbol (str "aguafria.jvm.index-" (token type)))
            :expression (cond-> (apply list
-                                      (list 'field '__aguafria_jvm
+                                      (list 'aguafria.zig/field '__aguafria_jvm
                                             (if comptime-index? :tupleIndexView :indexView))
                                       (:expression-arguments inputs))
                          (not comptime-index?)
@@ -3023,7 +3049,7 @@
         module (symbol (str "aguafria.jvm.index-" (token type)))
         context (or (find-ns module) (create-ns module))]
     (prepare-expression! context
-                         (list '(field __aguafria_jvm :indexRequiresComptime) (list 'type type))
+                         (list '(aguafria.zig/field __aguafria_jvm :indexRequiresComptime) (list 'aguafria.zig/type type))
                          [] 'inspectResult)))
 
 (defn- tuple-length-plan [type]
@@ -3033,11 +3059,11 @@
         expression
         (list 'if
               (list 'aguafria.keyword/comptime
-                    (list '(field __aguafria_jvm :indexRequiresComptime) (list 'type type)))
+                    (list '(aguafria.zig/field __aguafria_jvm :indexRequiresComptime) (list 'aguafria.zig/type type)))
               (list 'aguafria.zig/field
                     (list 'aguafria.zig/field
                           (list 'aguafria.zig/field
-                                (list 'aguafria.keyword/typeInfo (list 'type type)) :struct)
+                                (list 'aguafria.keyword/typeInfo (list 'aguafria.zig/type type)) :struct)
                           "field_types")
                     :len)
               nil)]
@@ -3380,7 +3406,7 @@
           (call-expression-plan {:aguafria/syntax syntax}
                                 (assoc inputs :comptime-storage? comptime-storage?) handler-plan)
           expression (if (and native-field? (not comptime-storage?))
-                       (list '(field __aguafria_jvm :lookupField)
+                       (list '(aguafria.zig/field __aguafria_jvm :lookupField)
                              (first expression-arguments) (name member))
                        expression)
           result (invoke-expression! context expression parameters arguments
@@ -3628,7 +3654,7 @@
                        (:context (member-owner receiver-type)))
                      (find-ns module) (create-ns module))
          expression-arguments (if (:float-literals? handler-plan)
-                                (mapv #(list '(field __aguafria_jvm :parseComptimeFloat) %)
+                                (mapv #(list '(aguafria.zig/field __aguafria_jvm :parseComptimeFloat) %)
                                       expression-arguments)
                                 expression-arguments)
          function (cond
@@ -3800,7 +3826,7 @@
         (precompile-operand-readers! [(prepared-operand receiver nil)])
         (if variable
           (let [owner (:module (value/type-info type-value))
-                field (list 'aguafria.zig/field (list 'type type) member)
+                field (list 'aguafria.zig/field (list 'aguafria.zig/type type) member)
                 field-type (or (:type variable) (list 'aguafria.keyword/TypeOf field))]
             (runtime/precompile-function!
              (prepare-variable-storage! owner field field-type true)))
@@ -3847,7 +3873,7 @@
             (case kind
               :deref
               {:module (symbol (str "aguafria.jvm.pointee-" (token receiver)))
-               :expression (cond-> '((field __aguafria_jvm :dereferenceView) input_0)
+               :expression (cond-> '((aguafria.zig/field __aguafria_jvm :dereferenceView) input_0)
                              (and (vector? receiver) (#{:* :*const :pointer} (first receiver)))
                              (with-meta {:aguafria/jvm-borrowed-type (peek receiver)}))
                :types [receiver]}

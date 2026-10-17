@@ -1,5 +1,6 @@
 (ns aguafria.zig.precompile-owner-layout-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defconst address :u32 7)
@@ -16,6 +17,6 @@
 
 (a/deftest never-run
   (let [record (PrivateRecord {:slice 42 :const 9})]
-    (k/= :_ (a/field record :slice))
-    (k/= :_ (a/field record :const)))
-  (k/unreachable))
+    (= :_ (a/field record :slice))
+    (= :_ (a/field record :const)))
+  (unreachable))

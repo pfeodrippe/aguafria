@@ -1,8 +1,9 @@
 (ns learn.example.test-comptime-out-of-bounds-float-to-integer-cast
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defcomptime reject-out-of-range-float
-  (let [float (k/f32 4294967296)
-        int (k/i32 (k/intFromFloat float))]
-    (k/= :_ int)))
+  (let [float (f32 4294967296)
+        int (i32 (intFromFloat float))]
+    (= :_ int)))

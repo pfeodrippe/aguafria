@@ -1,5 +1,6 @@
 (ns aguafria.zig.precompile-comptime-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defstruct Metadata
@@ -7,17 +8,17 @@
    [:count :usize]])
 
 (a/defn metadata Metadata
-  [[T {:attrs #{k/comptime}} :type]]
+  [[T {:attrs #{comptime}} :type]]
   (Metadata {:element T :count 3}))
 
 (a/defn increment :i32
   [[value :i32]]
-  (k/+ value 1))
+  (+ value 1))
 
 (a/defstruct CallbackBox
-  [[:function (k/TypeOf increment)]])
+  [[:function (TypeOf increment)]])
 
 (a/defn callable CallbackBox
-  [[T {:attrs #{k/comptime}} :type]]
-  (k/= :_ T)
+  [[T {:attrs #{comptime}} :type]]
+  (= :_ T)
   (CallbackBox {:function increment}))

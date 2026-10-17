@@ -1,12 +1,13 @@
 (ns learn.example.test-locally-scoped-global-variable
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
 (a/defn- foo :i32
   []
   (let [S (a/struct [[:x {:var 1234} :i32]])]
-    (k/+= (:x S) 1)
+    (+= (:x S) 1)
     (:x S)))
 
 (a/deftest static-local-variable

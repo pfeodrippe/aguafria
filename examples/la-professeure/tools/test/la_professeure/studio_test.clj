@@ -56,10 +56,10 @@
 
 (a/defn ime-without-window-contract! :bool []
   ((a/field studio/gestures-api :lp_studio_ime_cancel) ak/null)
-  (and (ak/! ((a/field studio/gestures-api :lp_studio_ime_active) ak/null))
-       (ak/! ((a/field studio/gestures-api :lp_studio_ime_focus) ak/null 60.0 625.0 24.0))
-       (ak/! ((a/field ime-probe-api :lp_studio_ime_probe_mark) ak/null "test"))
-       (ak/! ((a/field ime-probe-api :lp_studio_ime_probe_commit) ak/null "test"))))
+  (ak/and (ak/! ((a/field studio/gestures-api :lp_studio_ime_active) ak/null))
+          (ak/! ((a/field studio/gestures-api :lp_studio_ime_focus) ak/null 60.0 625.0 24.0))
+          (ak/! ((a/field ime-probe-api :lp_studio_ime_probe_mark) ak/null "test"))
+          (ak/! ((a/field ime-probe-api :lp_studio_ime_probe_commit) ak/null "test"))))
 
 (deftest ime-without-native-window-is-safe
   (is (ime-without-window-contract!)))
@@ -82,10 +82,10 @@
     (set! studio/output-mute-state -1)
     (when (ak/!= (studio/selected-output-mute) -1) (ak/return 3))
     (set! studio/output-mute-state 1)
-    (set! studio/output-mute-index (+ studio/headphones 1))
+    (set! studio/output-mute-index (ak/+ studio/headphones 1))
     (when (ak/!= (studio/selected-output-mute) -1) (ak/return 4))
     (set! studio/output-mute-index studio/headphones)
-    (set! studio/output-mute-checked-at (- (glfw/glfwGetTime) 3.0))
+    (set! studio/output-mute-checked-at (ak/- (glfw/glfwGetTime) 3.0))
     (when (ak/!= (studio/selected-output-mute) -1) (ak/return 5))
     0))
 
@@ -104,10 +104,10 @@
 (a/defn game-input-state-qa :u32 []
   (when (ak/== scene/window ak/null)
     (ak/return 0))
-  (+ (ak/as (if (ak/== (glfw/glfwGetWindowAttrib scene/window glfw/GLFW_FOCUSED)
-                       glfw/GLFW_TRUE) 1 0) :u32)
-     (ak/as (if (ak/== (glfw/glfwGetInputMode scene/window glfw/GLFW_STICKY_KEYS)
-                       glfw/GLFW_TRUE) 2 0) :u32)))
+  (ak/+ (ak/as (if (ak/== (glfw/glfwGetWindowAttrib scene/window glfw/GLFW_FOCUSED)
+                          glfw/GLFW_TRUE) 1 0) :u32)
+        (ak/as (if (ak/== (glfw/glfwGetInputMode scene/window glfw/GLFW_STICKY_KEYS)
+                          glfw/GLFW_TRUE) 2 0) :u32)))
 
 (defmacro set-studio-state! [bindings]
   ;; Exercise the production macro without exposing it as another public API.
@@ -116,10 +116,10 @@
 (a/defn ime-keyboard-qa-contract! :u32
   "Opt-in, render-thread only: actual GLFW marked text and character callback.
   No OS keyboard/layout changes, audio activity or persisted take rename." []
-  (when (or (ak/== studio/studio-window ak/null)
-            (studio/busy?)
-            (studio/composing-name?)
-            (ak/!= studio/pending 0))
+  (when (ak/or (ak/== studio/studio-window ak/null)
+               (studio/busy?)
+               (studio/composing-name?)
+               (ak/!= studio/pending 0))
     (ak/return 1))
   (let [draft (studio/name-draft)
         focus studio/name-focus
@@ -149,34 +149,34 @@
     (when (ak/! ((a/field studio/gestures-api :lp_studio_ime_focus) window 60.0 625.0 24.0))
       (ak/return 22))
     ;; First-responder key delivery, not a direct call to typed!: one character.
-    (when (or (ak/! ((a/field ime-probe-api :lp_studio_ime_probe_key) window 0 "a"))
-              (ak/! (mem/eql (a/type :u8) (studio/entered-name) "QAa")))
+    (when (ak/or (ak/! ((a/field ime-probe-api :lp_studio_ime_probe_key) window 0 "a"))
+                 (ak/! (mem/eql (a/type :u8) (studio/entered-name) "QAa")))
       (ak/return 24))
     (studio/name! "QA")
-    (when (or (ak/! (ime-probe! false)) (ak/! (studio/composing-name?)))
+    (when (ak/or (ak/! (ime-probe! false)) (ak/! (studio/composing-name?)))
       (ak/return 2))
     (when (ak/! ((a/field ime-probe-api :lp_studio_ime_probe_presentation)
                  window "e" 60.0 625.0 ak/null))
       (ak/return 23))
-    (when (or (ak/! ((a/field ime-probe-api :lp_studio_ime_probe_mark) window "かな é 中文"))
-              (ak/! ((a/field ime-probe-api :lp_studio_ime_probe_presentation)
-                     window "かな é 中文" 60.0 625.0 "/tmp/professeure-ime-native-preedit.png")))
+    (when (ak/or (ak/! ((a/field ime-probe-api :lp_studio_ime_probe_mark) window "かな é 中文"))
+                 (ak/! ((a/field ime-probe-api :lp_studio_ime_probe_presentation)
+                        window "かな é 中文" 60.0 625.0 "/tmp/professeure-ime-native-preedit.png")))
       (ak/return 25))
     (let [keys (ak/as [257 259 261 263 262 256] (a/type [:array 6 :i32]))]
       (dotimes [i 6]
         (studio/key-event! studio/studio-window (a/index keys i) 0 1 0)
-        (when (or (ak/!= studio/pending 0)
-                  (ak/! studio/name-focus)
-                  (ak/! (mem/eql (a/type :u8) (studio/entered-name) "QA")))
-          (ak/return (+ 10 (ak/as (ak/intCast i) :u32))))))
-    (when (or (ak/! (ime-probe! true))
-              (studio/composing-name?)
-              (ak/! (mem/eql (a/type :u8) (studio/entered-name) "QAé")))
+        (when (ak/or (ak/!= studio/pending 0)
+                     (ak/! studio/name-focus)
+                     (ak/! (mem/eql (a/type :u8) (studio/entered-name) "QA")))
+          (ak/return (ak/+ 10 (ak/as (ak/intCast i) :u32))))))
+    (when (ak/or (ak/! (ime-probe! true))
+                 (studio/composing-name?)
+                 (ak/! (mem/eql (a/type :u8) (studio/entered-name) "QAé")))
       (ak/return 20))
     ;; Only a subsequent Enter after commit submits Rename.
     (when (ak/! ((a/field ime-probe-api :lp_studio_ime_probe_key) window 36 "\r"))
       (ak/return 26))
-    (when (or (ak/!= studio/pending 9) studio/name-focus)
+    (when (ak/or (ak/!= studio/pending 9) studio/name-focus)
       (ak/return 21))
     0))
 
@@ -202,17 +202,17 @@
                         recorder/input-check-held 0
                         recorder/input-check-frames 0])
     (recorder/process-input-check! (ak/& samples) 2)
-    (when (or (ak/!= recorder/input-check-peak 500000)
-              (ak/!= recorder/input-check-held 500000)
-              (ak/!= recorder/input-check-frames 2))
+    (when (ak/or (ak/!= recorder/input-check-peak 500000)
+                 (ak/!= recorder/input-check-held 500000)
+                 (ak/!= recorder/input-check-frames 2))
       (ak/return 2))
     (recorder/process-input-check! ak/null 4)
-    (when (or (ak/!= recorder/input-check-peak 0)
-              (ak/!= recorder/input-check-held 500000)
-              (ak/!= recorder/input-check-frames 6))
+    (when (ak/or (ak/!= recorder/input-check-peak 0)
+                 (ak/!= recorder/input-check-held 500000)
+                 (ak/!= recorder/input-check-frames 6))
       (ak/return 3))
-    (when (or (ak/!= dry-frames recorder/dry-frames)
-              (ak/!= wet-frames recorder/recorded-frames))
+    (when (ak/or (ak/!= dry-frames recorder/dry-frames)
+                 (ak/!= wet-frames recorder/recorded-frames))
       (ak/return 4)))
   0)
 
@@ -231,9 +231,9 @@
 
 (a/defn interrupt-fx-source-device-qa! :bool
   "Opt-in fault injection: stop this recorder's source/send, never the OS device." []
-  (and recorder/source-running
-       (ak/== ((a/field recorder/api :ma_device_stop) (ak/& recorder/source-device))
-              0)))
+  (ak/and recorder/source-running
+          (ak/== ((a/field recorder/api :ma_device_stop) (ak/& recorder/source-device))
+                 0)))
 
 (defn interrupt-owned-device-qa! [preflight?]
   (assert preflight? "Live recording forbids arbitrary extension commands; use the isolated capture test")
@@ -260,11 +260,11 @@
     (ak/== ((a/field recorder/api ma_device_stop) device) 0)))
 
 (a/defn separate-window-contract? :bool []
-  (and studio/attached (ak/!= studio/studio-window scene/window)
-       gpu/initialized (a/field studio/renderer initialized)
-       (ak/!= gpu/device (a/field studio/renderer device))
-       (ak/!= gpu/surface (a/field studio/renderer surface))
-       (ak/!= gpu/mapped-mesh-vertices (a/field studio/renderer mapped-mesh-vertices))))
+  (ak/and studio/attached (ak/!= studio/studio-window scene/window)
+          gpu/initialized (a/field studio/renderer initialized)
+          (ak/!= gpu/device (a/field studio/renderer device))
+          (ak/!= gpu/surface (a/field studio/renderer surface))
+          (ak/!= gpu/mapped-mesh-vertices (a/field studio/renderer mapped-mesh-vertices))))
 
 (a/defn resize-extent-contract :u32 []
   (let [^{:var glfw/VkSurfaceCapabilitiesKHR} caps (mem/zeroes (a/type glfw/VkSurfaceCapabilitiesKHR))]
@@ -275,19 +275,19 @@
           low (gpu/choose-extent caps (glfw/VkExtent2D {:width 50 :height 40}))
           high (gpu/choose-extent caps (glfw/VkExtent2D {:width 8000 :height 4000}))
           normal (gpu/choose-extent caps (glfw/VkExtent2D {:width 2200 :height 1520}))]
-      (when (or (ak/!= (a/field zero width) 0) (ak/!= (a/field zero height) 0)) (ak/return 1))
-      (when (or (ak/!= (a/field low width) 100) (ak/!= (a/field low height) 80)) (ak/return 2))
-      (when (or (ak/!= (a/field high width) 4096) (ak/!= (a/field high height) 2160)) (ak/return 3))
-      (when (or (ak/!= (a/field normal width) 2200) (ak/!= (a/field normal height) 1520)) (ak/return 4)))
+      (when (ak/or (ak/!= (a/field zero width) 0) (ak/!= (a/field zero height) 0)) (ak/return 1))
+      (when (ak/or (ak/!= (a/field low width) 100) (ak/!= (a/field low height) 80)) (ak/return 2))
+      (when (ak/or (ak/!= (a/field high width) 4096) (ak/!= (a/field high height) 2160)) (ak/return 3))
+      (when (ak/or (ak/!= (a/field normal width) 2200) (ak/!= (a/field normal height) 1520)) (ak/return 4)))
     (set! (a/field caps currentExtent) (glfw/VkExtent2D {:width 1600 :height 1000}))
     (let [fixed (gpu/choose-extent caps (glfw/VkExtent2D {:width 2200 :height 1520}))
           zero (gpu/choose-extent caps (glfw/VkExtent2D {:width 2200 :height 0}))]
-      (when (or (ak/!= (a/field fixed width) 1600) (ak/!= (a/field fixed height) 1000)) (ak/return 5))
-      (when (or (ak/!= (a/field zero width) 0) (ak/!= (a/field zero height) 0)) (ak/return 6))))
-  (when (or (ak/! (gpu/resize-result? glfw/VK_SUBOPTIMAL_KHR))
-            (ak/! (gpu/resize-result? glfw/VK_ERROR_OUT_OF_DATE_KHR))
-            (gpu/resize-result? glfw/VK_SUCCESS)
-            (gpu/resize-result? glfw/VK_ERROR_DEVICE_LOST)) (ak/return 7))
+      (when (ak/or (ak/!= (a/field fixed width) 1600) (ak/!= (a/field fixed height) 1000)) (ak/return 5))
+      (when (ak/or (ak/!= (a/field zero width) 0) (ak/!= (a/field zero height) 0)) (ak/return 6))))
+  (when (ak/or (ak/! (gpu/resize-result? glfw/VK_SUBOPTIMAL_KHR))
+               (ak/! (gpu/resize-result? glfw/VK_ERROR_OUT_OF_DATE_KHR))
+               (gpu/resize-result? glfw/VK_SUCCESS)
+               (gpu/resize-result? glfw/VK_ERROR_DEVICE_LOST)) (ak/return 7))
   0)
 
 (deftest swapchain-extent-and-result-contract
@@ -433,28 +433,28 @@
     (set! studio/routing-visible true)
     (set! studio/editor-top 444.0)
     (set! studio/window-width 1100.0) (set! studio/window-height 760.0)
-    (when (or (ak/!= (studio/timeline-width) 642.0) (ak/!= (studio/timeline-center) 563.0)
-              (ak/!= (studio/right-x 906.0) 906.0) (ak/!= (studio/bottom-y 621.0) 621.0)) (ak/return 1))
+    (when (ak/or (ak/!= (studio/timeline-width) 642.0) (ak/!= (studio/timeline-center) 563.0)
+                 (ak/!= (studio/right-x 906.0) 906.0) (ak/!= (studio/bottom-y 621.0) 621.0)) (ak/return 1))
     (set! studio/window-width 1400.0) (set! studio/window-height 900.0)
-    (when (or (ak/!= (studio/timeline-width) 942.0) (ak/!= (studio/main-width) 1168.0)
-              (ak/!= (studio/right-x 906.0) 1206.0) (ak/!= (studio/bottom-y 621.0) 761.0)
-              (ak/!= (studio/editor-text-height) 236.0)) (ak/return 2))
+    (when (ak/or (ak/!= (studio/timeline-width) 942.0) (ak/!= (studio/main-width) 1168.0)
+                 (ak/!= (studio/right-x 906.0) 1206.0) (ak/!= (studio/bottom-y 621.0) 761.0)
+                 (ak/!= (studio/editor-text-height) 236.0)) (ak/return 2))
     (set! studio/timeline-start 0.0) (set! studio/timeline-seconds 30.0)
-    (when (> (ak/abs (- (studio/time-at (studio/timeline-center)) 15.0)) 0.0001) (ak/return 3))
-    (when (or (ak/!= (studio/time-at 242.0) 0.0)
-              (ak/!= (studio/time-at (studio/right-x 884.0)) 30.0)) (ak/return 4))
+    (when (ak/> (ak/abs (ak/- (studio/time-at (studio/timeline-center)) 15.0)) 0.0001) (ak/return 3))
+    (when (ak/or (ak/!= (studio/time-at 242.0) 0.0)
+                 (ak/!= (studio/time-at (studio/right-x 884.0)) 30.0)) (ak/return 4))
     (set! studio/mouse-x 1215.0) (set! studio/mouse-y 160.0)
-    (when (or (ak/! (studio/inside? (studio/right-x 906.0) 148.0 170.0 28.0))
-              (studio/inside? 906.0 148.0 170.0 28.0)) (ak/return 5))
+    (when (ak/or (ak/! (studio/inside? (studio/right-x 906.0) 148.0 170.0 28.0))
+                 (studio/inside? 906.0 148.0 170.0 28.0)) (ak/return 5))
     (set! studio/mouse-x 40.0) (set! studio/mouse-y 770.0)
-    (when (or (ak/! (studio/inside? 28.0 (studio/bottom-y 621.0) 192.0 28.0))
-              (studio/inside? 28.0 621.0 192.0 28.0)) (ak/return 6))
+    (when (ak/or (ak/! (studio/inside? 28.0 (studio/bottom-y 621.0) 192.0 28.0))
+                 (studio/inside? 28.0 621.0 192.0 28.0)) (ak/return 6))
     (set! scene/canvas-width 1400.0) (set! scene/canvas-height 900.0)
     (set! scene/vertices (ak/& (a/index vertices 0))) (set! scene/vertex-count 0)
     (scene/rect! 20.0 20.0 100.0 30.0 0xffffff 0.0)
-    (let [w (* 700.0 (- (a/field (a/index vertices 1) x) (a/field (a/index vertices 0) x)))
-          h (* 450.0 (- (a/field (a/index vertices 2) y) (a/field (a/index vertices 0) y)))]
-      (when (or (> (ak/abs (- w 100.0)) 0.001) (> (ak/abs (- h 30.0)) 0.001)) (ak/return 7))))
+    (let [w (ak/* 700.0 (ak/- (a/field (a/index vertices 1) x) (a/field (a/index vertices 0) x)))
+          h (ak/* 450.0 (ak/- (a/field (a/index vertices 2) y) (a/field (a/index vertices 0) y)))]
+      (when (ak/or (ak/> (ak/abs (ak/- w 100.0)) 0.001) (ak/> (ak/abs (ak/- h 30.0)) 0.001)) (ak/return 7))))
   0)
 
 (deftest responsive-layout-and-pointer-contract
@@ -481,24 +481,24 @@
     (set! studio/route-menu 2) (set! studio/clicked true) (set! studio/route-click true)
     (set! studio/trim-drag 1)
     (studio/show-routing! false)
-    (when (or studio/routing-visible (ak/!= studio/route-menu 0) studio/clicked studio/route-click
-              (ak/!= studio/trim-drag 0)) (ak/return 2))
-    (when (or (ak/!= (studio/timeline-width) 844.0) (ak/!= (studio/content-x 884.0) 1086.0)
-              (ak/!= (studio/right-x 896.0) 896.0)
-              (ak/! (studio/inside? 16.0 143.0 (studio/main-width) 299.0))) (ak/return 3))
+    (when (ak/or studio/routing-visible (ak/!= studio/route-menu 0) studio/clicked studio/route-click
+                 (ak/!= studio/trim-drag 0)) (ak/return 2))
+    (when (ak/or (ak/!= (studio/timeline-width) 844.0) (ak/!= (studio/content-x 884.0) 1086.0)
+                 (ak/!= (studio/right-x 896.0) 896.0)
+                 (ak/! (studio/inside? 16.0 143.0 (studio/main-width) 299.0))) (ak/return 3))
     (set! studio/window-width 1400.0)
-    (when (or (ak/!= (studio/timeline-width) 1144.0) (ak/!= (studio/content-x 884.0) 1386.0)) (ak/return 8))
+    (when (ak/or (ak/!= (studio/timeline-width) 1144.0) (ak/!= (studio/content-x 884.0) 1386.0)) (ak/return 8))
     (set! studio/window-width 1100.0)
     (set! studio/timeline-start 0.0) (set! studio/timeline-seconds 30.0)
-    (when (> (ak/abs (- (studio/time-at (studio/timeline-center)) 15.0)) 0.0001) (ak/return 4))
+    (when (ak/> (ak/abs (ak/- (studio/time-at (studio/timeline-center)) 15.0)) 0.0001) (ak/return 4))
     (studio/zoom-at! 0.5 (studio/timeline-center))
-    (when (> (ak/abs (- (studio/time-at (studio/timeline-center)) 15.0)) 0.0001) (ak/return 5))
+    (when (ak/> (ak/abs (ak/- (studio/time-at (studio/timeline-center)) 15.0)) 0.0001) (ak/return 5))
     (studio/show-routing! true)
     (when (ak/!= (studio/timeline-width) 642.0) (ak/return 6))
-    (when (or (ak/!= studio/microphone mic) (ak/!= studio/effects-output send)
-              (ak/!= studio/return-input return-device) (ak/!= studio/headphones headphones)
-              (ak/!= studio/monitor-enabled monitoring) (ak/!= studio/selected selected)
-              (ak/!= studio/capture-phase phase) (ak/!= studio/seek-seconds seek)) (ak/return 7)))
+    (when (ak/or (ak/!= studio/microphone mic) (ak/!= studio/effects-output send)
+                 (ak/!= studio/return-input return-device) (ak/!= studio/headphones headphones)
+                 (ak/!= studio/monitor-enabled monitoring) (ak/!= studio/selected selected)
+                 (ak/!= studio/capture-phase phase) (ak/!= studio/seek-seconds seek)) (ak/return 7)))
   0)
 
 (deftest routing-panel-is-layout-only
@@ -520,31 +520,31 @@
     (set! studio/workspace-mode 0)
     (set! studio/window-height 760.0) (set! studio/window-width 1100.0)
     (studio/set-editor-top! 444.0)
-    (when (or (ak/!= (studio/visible-row-count) 4) (ak/!= (studio/track-height) 262.0)
-              (ak/!= (studio/editor-text-height) 96.0)) (ak/return 1))
+    (when (ak/or (ak/!= (studio/visible-row-count) 4) (ak/!= (studio/track-height) 262.0)
+                 (ak/!= (studio/editor-text-height) 96.0)) (ak/return 1))
     (studio/set-editor-top! -1000.0)
-    (when (or (ak/!= studio/editor-top 316.0) (ak/!= (studio/visible-row-count) 2)) (ak/return 2))
+    (when (ak/or (ak/!= studio/editor-top 316.0) (ak/!= (studio/visible-row-count) 2)) (ak/return 2))
     (studio/set-editor-top! 10000.0)
-    (when (or (ak/!= studio/editor-top 460.0) (< (studio/editor-text-height) 80.0)) (ak/return 3))
+    (when (ak/or (ak/!= studio/editor-top 460.0) (ak/< (studio/editor-text-height) 80.0)) (ak/return 3))
     (set! studio/window-height 900.0) (studio/set-editor-top! 444.0)
     (set! studio/route-menu 0) (set! studio/double-clicked false) (set! studio/mouse-down true)
     (set! studio/clicked true) (set! studio/mouse-x 300.0) (set! studio/mouse-y 445.0)
     (studio/divider-input!)
-    (when (or (ak/! studio/divider-drag) studio/clicked (ak/!= studio/editor-top 444.0)) (ak/return 4))
+    (when (ak/or (ak/! studio/divider-drag) studio/clicked (ak/!= studio/editor-top 444.0)) (ak/return 4))
     (set! studio/mouse-y 601.0) (studio/divider-input!)
-    (when (or (ak/!= studio/editor-top 600.0) (ak/!= (studio/visible-row-count) 7)
-              (ak/!= (studio/editor-y 489.0) 645.0)) (ak/return 5))
+    (when (ak/or (ak/!= studio/editor-top 600.0) (ak/!= (studio/visible-row-count) 7)
+                 (ak/!= (studio/editor-y 489.0) 645.0)) (ak/return 5))
     (set! studio/mouse-down false) (studio/divider-input!)
     (when studio/divider-drag (ak/return 6))
     (set! studio/clicked true) (set! studio/double-clicked true) (studio/divider-input!)
-    (when (or (ak/!= studio/editor-top 444.0) studio/divider-drag) (ak/return 7))
+    (when (ak/or (ak/!= studio/editor-top 444.0) studio/divider-drag) (ak/return 7))
     (set! studio/route-menu 2) (set! studio/clicked true) (set! studio/mouse-y 444.0)
     (studio/divider-input!)
-    (when (or studio/divider-drag (ak/!= studio/editor-top 444.0)) (ak/return 8))
+    (when (ak/or studio/divider-drag (ak/!= studio/editor-top 444.0)) (ak/return 8))
     (set! studio/window-height 4000.0) (studio/set-editor-top! 9999.0)
     (when (ak/!= (studio/visible-row-count) 32) (ak/return 9))
-    (when (or (ak/!= studio/selected selected) (ak/!= studio/headphones headphones)
-              (ak/!= studio/capture-phase phase)) (ak/return 10)))
+    (when (ak/or (ak/!= studio/selected selected) (ak/!= studio/headphones headphones)
+                 (ak/!= studio/capture-phase phase)) (ak/return 10)))
   0)
 
 (a/defn clip-viewport-buffer-contract :u32 []
@@ -553,8 +553,8 @@
     (studio/clip! 31 2.5 7) (studio/clip-start! 31 3.0) (studio/clip-bin! 31 127 0.75)
     (studio/clip! 32 99.0 99) (studio/clip-bin! 31 128 99.0)
     (let [row (a/index studio/clip-viewport 31)]
-      (when (or (ak/!= (a/field row seconds) 2.5) (ak/!= (a/field row start) 3.0)
-                (ak/!= (a/field row count) 7) (ak/!= (a/index (a/field row wave) 127) 0.75)) (ak/return 1))))
+      (when (ak/or (ak/!= (a/field row seconds) 2.5) (ak/!= (a/field row start) 3.0)
+                   (ak/!= (a/field row count) 7) (ak/!= (a/index (a/field row wave) 127) 0.75)) (ak/return 1))))
   0)
 
 (deftest editor-divider-and-viewport-bounds
@@ -1025,9 +1025,9 @@
     cursor))
 
 (a/defn game-voice-playing? :bool []
-  (and scene/voice-ready
-       (ak/!= (audio/ma_sound_is_playing
-               (ak/& (a/index scene/voices scene/voice-slot))) 0)))
+  (ak/and scene/voice-ready
+          (ak/!= (audio/ma_sound_is_playing
+                  (ak/& (a/index scene/voices scene/voice-slot))) 0)))
 
 (a/defn place-windows! :void []
   (glfw/glfwSetWindowPos scene/window 0 60)
@@ -1037,21 +1037,21 @@
   (glfw/glfwSetWindowShouldClose studio/studio-window 1))
 
 (a/defn studio-visible? :bool []
-  (and (ak/!= studio/studio-window ak/null)
-       (ak/!= (glfw/glfwGetWindowAttrib studio/studio-window glfw/GLFW_VISIBLE) 0)))
+  (ak/and (ak/!= studio/studio-window ak/null)
+          (ak/!= (glfw/glfwGetWindowAttrib studio/studio-window glfw/GLFW_VISIBLE) 0)))
 
 (a/defn studio-focused? :bool []
-  (and (ak/!= studio/studio-window ak/null)
-       (ak/!= (glfw/glfwGetWindowAttrib studio/studio-window glfw/GLFW_FOCUSED) 0)))
+  (ak/and (ak/!= studio/studio-window ak/null)
+          (ak/!= (glfw/glfwGetWindowAttrib studio/studio-window glfw/GLFW_FOCUSED) 0)))
 
 (a/defn held-scroll-modifiers :u32 []
   (when (ak/== studio/studio-window ak/null) (ak/return 0))
-  (| (if (or (ak/== (glfw/glfwGetKey studio/studio-window glfw/GLFW_KEY_LEFT_ALT) glfw/GLFW_PRESS)
-             (ak/== (glfw/glfwGetKey studio/studio-window glfw/GLFW_KEY_RIGHT_ALT) glfw/GLFW_PRESS))
-       (ak/as 4 :u32) (ak/as 0 :u32))
-     (if (or (ak/== (glfw/glfwGetKey studio/studio-window glfw/GLFW_KEY_LEFT_SHIFT) glfw/GLFW_PRESS)
-             (ak/== (glfw/glfwGetKey studio/studio-window glfw/GLFW_KEY_RIGHT_SHIFT) glfw/GLFW_PRESS))
-       (ak/as 1 :u32) (ak/as 0 :u32))))
+  (ak/| (if (ak/or (ak/== (glfw/glfwGetKey studio/studio-window glfw/GLFW_KEY_LEFT_ALT) glfw/GLFW_PRESS)
+                   (ak/== (glfw/glfwGetKey studio/studio-window glfw/GLFW_KEY_RIGHT_ALT) glfw/GLFW_PRESS))
+          (ak/as 4 :u32) (ak/as 0 :u32))
+        (if (ak/or (ak/== (glfw/glfwGetKey studio/studio-window glfw/GLFW_KEY_LEFT_SHIFT) glfw/GLFW_PRESS)
+                   (ak/== (glfw/glfwGetKey studio/studio-window glfw/GLFW_KEY_RIGHT_SHIFT) glfw/GLFW_PRESS))
+          (ak/as 1 :u32) (ak/as 0 :u32))))
 
 (a/defn game-suppressed? :bool [] scene/studio-audio-suppressed)
 
@@ -1085,13 +1085,13 @@
   (let [^{:zig/type [:c-pointer :f32]} samples (ak/ptrCast (ak/alignCast output))]
     (dotimes [i frames]
       (dotimes [channel 16]
-        (set! (a/index samples (+ (* i 16) channel)) 0.0))
-      (let [time (/ (ak/as (ak/floatFromInt test-tone-frame) :f64) 48000.0)]
-        (set! (a/index samples (+ (* i 16) test-tone-offset))
-              (ak/floatCast (* 0.08 (ak/sin (* 1382.300768 time)))))
-        (set! (a/index samples (+ (* i 16) test-tone-offset 1))
-              (ak/floatCast (* 0.06 (ak/sin (* 2073.451151 time))))))
-      (set! test-tone-frame (+ test-tone-frame 1)))))
+        (set! (a/index samples (ak/+ (ak/* i 16) channel)) 0.0))
+      (let [time (ak// (ak/as (ak/floatFromInt test-tone-frame) :f64) 48000.0)]
+        (set! (a/index samples (ak/+ (ak/* i 16) test-tone-offset))
+              (ak/floatCast (ak/* 0.08 (ak/sin (ak/* 1382.300768 time)))))
+        (set! (a/index samples (ak/+ (ak/* i 16) test-tone-offset 1))
+              (ak/floatCast (ak/* 0.06 (ak/sin (ak/* 2073.451151 time))))))
+      (set! test-tone-frame (ak/+ test-tone-frame 1)))))
 
 (a/defn stop-test-tone! :void []
   (when test-tone-running
@@ -1099,11 +1099,11 @@
     (set! test-tone-running false)))
 
 (a/defn start-test-tone! :bool [[output-index :u32] [offset :u32]]
-  (when (or test-tone-running
-            (ak/! recorder/initialized)
-            (>= output-index recorder/playback-count)
-            (and (ak/!= offset 0) (ak/!= offset 4))
-            (ak/! (mem/eql :u8 (recorder/device-name false output-index) "BlackHole 16ch")))
+  (when (ak/or test-tone-running
+               (ak/! recorder/initialized)
+               (ak/>= output-index recorder/playback-count)
+               (ak/and (ak/!= offset 0) (ak/!= offset 4))
+               (ak/! (mem/eql :u8 (recorder/device-name false output-index) "BlackHole 16ch")))
     (ak/return false))
   (let [^:var config ((a/field volume-api ma_device_config_init)
                       (a/field volume-api ma_device_type_playback))]
@@ -1137,23 +1137,23 @@
     ((a/field volume-api ma_sound_get_volume) (ak/ptrCast (ak/& (a/index studio/voices studio/voice-slot)))) -1.0))
 
 (a/defn independent-playback? :bool []
-  (and studio/playback-ready
-       (ak/!= (ak/& studio/playback-engine) (ak/& scene/engine))
-       (ak/!= ((a/field volume-api ma_engine_get_device) (ak/ptrCast (ak/& studio/playback-engine)))
-              ((a/field volume-api ma_engine_get_device) (ak/ptrCast (ak/& scene/engine))))))
+  (ak/and studio/playback-ready
+          (ak/!= (ak/& studio/playback-engine) (ak/& scene/engine))
+          (ak/!= ((a/field volume-api ma_engine_get_device) (ak/ptrCast (ak/& studio/playback-engine)))
+                 ((a/field volume-api ma_engine_get_device) (ak/ptrCast (ak/& scene/engine))))))
 
 (a/defn actual-playback-device [:slice-const :u8] []
   (when (ak/! studio/playback-ready) (ak/return ""))
   (let [^{:zig/type [:* recorder/Device]} device (ak/ptrCast ((a/field volume-api ma_engine_get_device) (ak/ptrCast (ak/& studio/playback-engine))))
         ^{:var :usize} length 0]
-    (ak/while (and (< length 255) (ak/!= (a/index (a/field (a/field device playback) name) length) 0))
-      (set! length (+ length 1)))
+    (ak/while (ak/and (ak/< length 255) (ak/!= (a/index (a/field (a/field device playback) name) length) 0))
+      (set! length (ak/+ length 1)))
     (a/slice (a/field (a/field device playback) name) 0 length)))
 
 (a/defn actual-mix-device [:slice-const :u8] []
   (let [device (ak/& mixer/device) ^{:var :usize} length 0]
-    (ak/while (and (< length 255) (ak/!= (a/index (a/field (a/field device playback) name) length) 0))
-      (set! length (+ length 1)))
+    (ak/while (ak/and (ak/< length 255) (ak/!= (a/index (a/field (a/field device playback) name) length) 0))
+      (set! length (ak/+ length 1)))
     (a/slice (a/field (a/field device playback) name) 0 length)))
 
 (deftest audition-gain-is-bounded-and-opt-in
@@ -1272,15 +1272,15 @@
       (set! (a/index output i) 0.5))
     (recorder/hold-capture!)
     (recorder/process-block! (ak/& output) (ak/& input) 4)
-    (when (or (ak/!= frames recorder/recorded-frames)
-              (ak/!= peak recorder/input-peak-ppm))
+    (when (ak/or (ak/!= frames recorder/recorded-frames)
+                 (ak/!= peak recorder/input-peak-ppm))
       (ak/return 1))
     (dotimes [i 64]
       (when (ak/!= (a/index output i) 0.0) (ak/return 2))
       (set! (a/index output i) 0.5))
     (recorder/process-source! (ak/& output) (ak/& input) 4)
-    (when (or (ak/!= source recorder/source-frames)
-              (ak/!= peak recorder/input-peak-ppm))
+    (when (ak/or (ak/!= source recorder/source-frames)
+                 (ak/!= peak recorder/input-peak-ppm))
       (ak/return 3))
     (dotimes [i 64]
       (when (ak/!= (a/index output i) 0.0) (ak/return 4)))
@@ -1447,12 +1447,12 @@
       ;; Background + 128 bars + a cursor, plus two trim handles only in Edit.
       (when (ak/!= scene/vertex-count (ak/as (if (ak/== mode-index 0) 792 780) :u32))
         (ak/return 1))
-      (let [first (a/index vertices (- scene/vertex-count 6))
-            second (a/index vertices (- scene/vertex-count 5))
-            expected (- (/ (* 2.0 (studio/take-playhead-x 3.0 6.0)) 1100.0) 1.0)]
-        (when (> (ak/abs (- (a/field first x) expected)) 0.00001)
+      (let [first (a/index vertices (ak/- scene/vertex-count 6))
+            second (a/index vertices (ak/- scene/vertex-count 5))
+            expected (ak/- (ak// (ak/* 2.0 (studio/take-playhead-x 3.0 6.0)) 1100.0) 1.0)]
+        (when (ak/> (ak/abs (ak/- (a/field first x) expected)) 0.00001)
           (ak/return 2))
-        (when (> (ak/abs (- (- (a/field second x) (a/field first x)) (/ 4.0 1100.0))) 0.00001)
+        (when (ak/> (ak/abs (ak/- (ak/- (a/field second x) (a/field first x)) (ak// 4.0 1100.0))) 0.00001)
           (ak/return 3))))
     0))
 
@@ -1596,10 +1596,10 @@
     (set! (a/index input 2) 0.5) (set! (a/index input 3) -4.0)
     (ak/atomicStore :u32 (ak/& recorder/monitor-gain) 100 :release)
     (recorder/process-monitor! (ak/& output) (ak/& input) 1)
-    (when (or (ak/!= (a/index output 0) 0.25) (ak/!= (a/index output 1) -0.5)) (ak/return false))
+    (when (ak/or (ak/!= (a/index output 0) 0.25) (ak/!= (a/index output 1) -0.5)) (ak/return false))
     (recorder/process-monitor! (ak/& output) ak/null 1)
     (ak/atomicStore :u32 (ak/& recorder/monitor-gain) 15 :release)
-    (and (ak/== (a/index output 0) 0.0) (ak/== (a/index output 1) 0.0))))
+    (ak/and (ak/== (a/index output 0) 0.0) (ak/== (a/index output 1) 0.0))))
 
 (deftest monitoring-and-native-checkpoints
   (require-isolated-recorder!)
@@ -1670,9 +1670,9 @@
     (set! studio/route-menu 2) (set! studio/clicked true)
     (studio/set-workspace-mode! true)
     (when (ak/!= studio/workspace-mode 1) (ak/return 1))
-    (when (or (ak/!= studio/record-enabled 1) (ak/!= studio/workspace-record-prior 0)) (ak/return 6))
-    (when (or (ak/!= studio/trim-drag 0) studio/divider-drag studio/name-focus studio/name-drag
-              (ak/!= studio/route-menu 0) studio/clicked) (ak/return 2))
+    (when (ak/or (ak/!= studio/record-enabled 1) (ak/!= studio/workspace-record-prior 0)) (ak/return 6))
+    (when (ak/or (ak/!= studio/trim-drag 0) studio/divider-drag studio/name-focus studio/name-drag
+                 (ak/!= studio/route-menu 0) studio/clicked) (ak/return 2))
     (set! studio/mouse-x 300.0) (set! studio/mouse-y 210.0)
     (set! studio/record-text-height 2000.0) (set! studio/record-scroll 0.0)
     (studio/scroll-by! 2.0 -2.0 true true)
@@ -1680,7 +1680,7 @@
     (set! studio/mouse-y 200.0)
     (studio/scroll-by! 0.0 -1.0 false false)
     (when (ak/!= studio/record-scroll 48.0) (ak/return 11))
-    (set! studio/mouse-y (+ 203.0 (studio/record-pane-height)))
+    (set! studio/mouse-y (ak/+ 203.0 (studio/record-pane-height)))
     (studio/scroll-by! 0.0 -1.0 false false)
     (when (ak/!= studio/record-scroll 72.0) (ak/return 12))
     (set! studio/mouse-x 100.0) (set! studio/window-height 760.0)
@@ -1697,7 +1697,7 @@
     (studio/set-workspace-mode! true)
     (when (ak/!= studio/record-enabled 0) (ak/return 7))
     (studio/set-workspace-mode! false)
-    (when (or (ak/!= studio/workspace-mode 0) (ak/!= studio/record-enabled 0)) (ak/return 5))
+    (when (ak/or (ak/!= studio/workspace-mode 0) (ak/!= studio/record-enabled 0)) (ak/return 5))
     (set! studio/record-enabled 1)
     (studio/set-workspace-mode! true)
     (set! studio/record-enabled 0)
@@ -1873,29 +1873,29 @@
       (ak/return 1))
     (dotimes [i 6]
       (let [vertex (a/index scratch i)
-            x (* 500.0 (+ 1.0 (a/field vertex x)))
-            y (* 500.0 (+ 1.0 (a/field vertex y)))]
-        (when (or (< x 19.99) (> x 40.01) (< y 99.99) (> y 130.01))
+            x (ak/* 500.0 (ak/+ 1.0 (a/field vertex x)))
+            y (ak/* 500.0 (ak/+ 1.0 (a/field vertex y)))]
+        (when (ak/or (ak/< x 19.99) (ak/> x 40.01) (ak/< y 99.99) (ak/> y 130.01))
           (ak/return 2))))
     (let [first (a/index scratch 0)]
-      (when (or (> (ak/abs (- (a/field first wx) 68.0)) 0.01)
-                (> (ak/abs (- (a/field first wy) 180.0)) 0.01))
+      (when (ak/or (ak/> (ak/abs (ak/- (a/field first wx) 68.0)) 0.01)
+                   (ak/> (ak/abs (ak/- (a/field first wy) 180.0)) 0.01))
         (ak/return 3)))
     (set! scene/vertex-count 0)
     (set! _ (studio/paragraph! "A" 20.0 80.5 20.0 1.0 100.0 130.0 0xffffff))
-    (when (or (ak/!= scene/vertex-count 6)
-              (> (ak/abs (- (a/field (a/index scratch 0) wy) 179.5)) 0.01))
+    (when (ak/or (ak/!= scene/vertex-count 6)
+                 (ak/> (ak/abs (ak/- (a/field (a/index scratch 0) wy) 179.5)) 0.01))
       (ak/return 4))
     (set! scene/vertex-count 0)
     (set! _ (studio/paragraph! "A" 20.0 200.0 20.0 1.0 100.0 130.0 0xffffff))
     (when (ak/!= scene/vertex-count 0)
       (ak/return 5))
-    (let [width (* 1.5 (a/index scene/glyph-advances 201))]
-      (when (<= width 0.0)
+    (let [width (ak/* 1.5 (a/index scene/glyph-advances 201))]
+      (when (ak/<= width 0.0)
         (ak/return 6))
       (let [end (studio/paragraph! "ÉÉÉ" 20.0 0.0 width 1.0 0.0 500.0 0xffffff)]
-        (when (or (> (ak/abs (- end 195.0)) 0.01)
-                  (ak/!= scene/vertex-count 18))
+        (when (ak/or (ak/> (ak/abs (ak/- end 195.0)) 0.01)
+                     (ak/!= scene/vertex-count 18))
           (ak/return 7)))))
   0)
 
@@ -1912,10 +1912,10 @@
 (a/defn grouped-state-order-contract :u32 []
   (let [^{:var :u32} counter 0
         ^{:var :u32} observed 0]
-    (set-studio-state! [counter (+ counter 1)
-                        observed (+ counter 4)
-                        counter (+ counter observed)])
-    (+ (* counter 10) observed)))
+    (set-studio-state! [counter (ak/+ counter 1)
+                        observed (ak/+ counter 4)
+                        counter (ak/+ counter observed)])
+    (ak/+ (ak/* counter 10) observed)))
 
 (deftest grouped-state-preserves-native-evaluation-order
   (is (= 65 (a/value (grouped-state-order-contract)))))
@@ -1940,7 +1940,7 @@
        (ak/atomicStore :u8 (ak/& studio/busy) old-busy :release)
        (ak/atomicStore :u32 (ak/& studio/pending) old-pending :release)))
     (dotimes [i scene/passage-entity-count]
-      (when (> (a/field (studio/node-id (ak/intCast i)) len) 0)
+      (when (ak/> (a/field (studio/node-id (ak/intCast i)) len) 0)
         (if (ak/== first-index 4294967295)
           (set! first-index (ak/intCast i))
           (when (ak/== second-index 4294967295)
@@ -2968,12 +2968,12 @@
     (when (studio/take-editable?) (ak/return 7))
     (set! studio/busy 0)
     (set! studio/selected 3)
-    (when (or (studio/selected-waveform?)
-              (studio/take-editable?)
-              (ak/!= (studio/selected-take-seconds) 0.0))
+    (when (ak/or (studio/selected-waveform?)
+                 (studio/take-editable?)
+                 (ak/!= (studio/selected-take-seconds) 0.0))
       (ak/return 2))
-    (when (or (ak/!= studio/preview-node preview)
-              (ak/!= (a/index studio/wave 0) sample))
+    (when (ak/or (ak/!= studio/preview-node preview)
+                 (ak/!= (a/index studio/wave 0) sample))
       (ak/return 3))
     (set! studio/selected 1)
     (when (ak/!= (studio/selected-take-seconds) 12.0) (ak/return 4)))
@@ -3063,20 +3063,20 @@
     (set-studio-state! [studio/workspace-mode 1
                         studio/capture-phase 2
                         studio/selected 3])
-    (when (or (ak/! (studio/capture-passage? 1))
-              (studio/capture-passage? 3)
-              (ak/! (mem/eql (a/type :u8) (studio/record-script) "Captured words"))
-              (ak/! (mem/eql (a/type :u8) (studio/waveform-passage-id) (studio/node-id 1))))
+    (when (ak/or (ak/! (studio/capture-passage? 1))
+                 (studio/capture-passage? 3)
+                 (ak/! (mem/eql (a/type :u8) (studio/record-script) "Captured words"))
+                 (ak/! (mem/eql (a/type :u8) (studio/waveform-passage-id) (studio/node-id 1))))
       (ak/return 2))
     ;; Simulate a Markdown reorder atomically, before any frame can observe it.
     (set! (a/index (a/field data nodes) 1) second-node)
     (set! (a/index (a/field data nodes) 3) first-node)
-    (when (or (studio/capture-passage? 1) (ak/! (studio/capture-passage? 3)))
+    (when (ak/or (studio/capture-passage? 1) (ak/! (studio/capture-passage? 3)))
       (ak/return 3))
     ;; Even removal cannot erase the script being spoken or redirect the PCM.
     (set! scene/passage-entity-count 0)
-    (when (or (studio/capture-passage? 3)
-              (ak/! (mem/eql (a/type :u8) (studio/record-script) "Captured words")))
+    (when (ak/or (studio/capture-passage? 3)
+                 (ak/! (mem/eql (a/type :u8) (studio/record-script) "Captured words")))
       (ak/return 4))
     (set! scene/passage-entity-count count)
     (set! studio/workspace-mode 0)
@@ -3109,7 +3109,7 @@
     (when (ak/! (mem/eql (a/type :u8) (studio/passage-freshness-label index) "Changed - review take"))
       (ak/return 1))
     (studio/set-passage-freshness! index "different-id" revision 3)
-    (studio/set-passage-freshness! index id (+ revision 1) 3)
+    (studio/set-passage-freshness! index id (ak/+ revision 1) 3)
     (when (ak/! (mem/eql (a/type :u8) (studio/passage-freshness-label index) "Changed - review take"))
       (ak/return 2))
     (studio/set-passage-freshness! index id revision 3)
@@ -3138,15 +3138,15 @@
     (studio/reset-frame-timings!)
     (set! studio/frame-build-ms 2.0)
     (dotimes [i 301]
-      (let [started (+ 1.0 (* 0.01 (ak/as (ak/floatFromInt i) :f64)))]
-        (studio/record-frame-timing! started (+ started 0.003))))
-    (when (or (ak/!= studio/frame-timing-count 240)
-              (ak/!= studio/frame-timing-index 60))
+      (let [started (ak/+ 1.0 (ak/* 0.01 (ak/as (ak/floatFromInt i) :f64)))]
+        (studio/record-frame-timing! started (ak/+ started 0.003))))
+    (when (ak/or (ak/!= studio/frame-timing-count 240)
+                 (ak/!= studio/frame-timing-index 60))
       (ak/return 1))
     (let [sample (a/index studio/frame-timings 59)]
-      (when (or (> (ak/abs (- (a/field sample interval-ms) 10.0)) 0.001)
-                (> (ak/abs (- (a/field sample build-ms) 2.0)) 0.001)
-                (> (ak/abs (- (a/field sample render-ms) 3.0)) 0.001))
+      (when (ak/or (ak/> (ak/abs (ak/- (a/field sample interval-ms) 10.0)) 0.001)
+                   (ak/> (ak/abs (ak/- (a/field sample build-ms) 2.0)) 0.001)
+                   (ak/> (ak/abs (ak/- (a/field sample render-ms) 3.0)) 0.001))
         (ak/return 2)))
     (studio/reset-frame-timings!)
     (studio/record-frame-timing! 100.0 100.003)
@@ -3172,8 +3172,8 @@
                         recorder/input-check-running 0
                         studio/clicked true])
     (studio/show-routing-tools! true)
-    (when (or (ak/! studio/routing-tools-visible) studio/clicked
-              (ak/! (studio/routing-controls-available?)))
+    (when (ak/or (ak/! studio/routing-tools-visible) studio/clicked
+                 (ak/! (studio/routing-controls-available?)))
       (ak/return 1))
     (set! studio/busy 1)
     (when (studio/routing-controls-available?) (ak/return 2))
@@ -3182,7 +3182,7 @@
     (set-studio-state! [studio/busy 0
                         recorder/input-check-running 1])
     (when (studio/routing-controls-available?) (ak/return 4))
-    (when (or (ak/!= pending studio/pending) (ak/!= route studio/route-menu))
+    (when (ak/or (ak/!= pending studio/pending) (ak/!= route studio/route-menu))
       (ak/return 5)))
   0)
 
@@ -3211,9 +3211,9 @@
                            studio/monitor-level-drag dragging
                            studio/routing-visible visible
                            studio/route-menu menu])))
-    (when (or (ak/!= (studio/monitor-level-at (studio/right-x 800.0)) 0)
-              (ak/!= (studio/monitor-level-at (studio/right-x 992.0)) 25)
-              (ak/!= (studio/monitor-level-at (studio/right-x 1200.0)) 50))
+    (when (ak/or (ak/!= (studio/monitor-level-at (studio/right-x 800.0)) 0)
+                 (ak/!= (studio/monitor-level-at (studio/right-x 992.0)) 25)
+                 (ak/!= (studio/monitor-level-at (studio/right-x 1200.0)) 50))
       (ak/return 1))
     (set-studio-state! [studio/routing-visible true
                         studio/route-menu 0
@@ -3222,8 +3222,8 @@
                         studio/clicked true
                         studio/mouse-down true])
     (studio/update-monitor-level!)
-    (when (or (ak/!= (studio/monitor-level) 10) studio/clicked
-              (ak/! studio/monitor-level-drag))
+    (when (ak/or (ak/!= (studio/monitor-level) 10) studio/clicked
+                 (ak/! studio/monitor-level-drag))
       (ak/return 2))
     (set-studio-state! [studio/mouse-x (studio/right-x 800.0)
                         studio/mouse-y 550.0])
@@ -3236,15 +3236,15 @@
                         studio/route-menu 4
                         studio/mouse-x (studio/right-x 1200.0)])
     (studio/update-monitor-level!)
-    (when (or studio/monitor-level-drag (ak/!= (studio/monitor-level) 0))
+    (when (ak/or studio/monitor-level-drag (ak/!= (studio/monitor-level) 0))
       (ak/return 5))
     (set-studio-state! [studio/route-menu 0
                         studio/routing-visible false
                         studio/monitor-level-drag true])
     (studio/update-monitor-level!)
-    (when (or studio/monitor-level-drag (ak/!= (studio/monitor-level) 0)
-              (ak/!= enabled studio/monitor-enabled)
-              (ak/!= audition studio/audition-gain))
+    (when (ak/or studio/monitor-level-drag (ak/!= (studio/monitor-level) 0)
+                 (ak/!= enabled studio/monitor-enabled)
+                 (ak/!= audition studio/audition-gain))
       (ak/return 6)))
   0)
 
@@ -3253,7 +3253,7 @@
       "Click/drag/release, off-track clamp, hidden/menu cancellation; no enable or take gain change"))
 
 (a/defn monitor-meter-contract :u32 []
-  (when (or recorder/running recorder/source-running recorder/monitoring) (ak/return 1))
+  (when (ak/or recorder/running recorder/source-running recorder/monitoring) (ak/return 1))
   (let [peak recorder/return-peak-ppm held recorder/return-held-ppm gain recorder/monitor-gain
         ^{:var [:array 32 :f32]} input (mem/zeroes (a/type [:array 32 :f32]))
         ^{:var [:array 4 :f32]} output (mem/zeroes (a/type [:array 4 :f32]))]
@@ -3263,20 +3263,20 @@
     (set! (a/index input 0) 0.9) ; Send channels must never feed the return meter.
     (set! (a/index input 2) 0.25) (set! (a/index input 19) -0.5)
     (recorder/process-monitor! (ak/& output) (ak/& input) 2)
-    (when (> (ak/abs (- (recorder/signal-peak false false) 0.5)) 0.00001) (ak/return 2))
-    (when (or (> (ak/abs (- (a/index output 0) 0.0375)) 0.00001)
-              (> (ak/abs (+ (a/index output 3) 0.075)) 0.00001)) (ak/return 3))
+    (when (ak/> (ak/abs (ak/- (recorder/signal-peak false false) 0.5)) 0.00001) (ak/return 2))
+    (when (ak/or (ak/> (ak/abs (ak/- (a/index output 0) 0.0375)) 0.00001)
+                 (ak/> (ak/abs (ak/+ (a/index output 3) 0.075)) 0.00001)) (ak/return 3))
     (studio/set-monitor-level! 0)
     (recorder/process-monitor! (ak/& output) (ak/& input) 2)
-    (when (or (ak/!= (a/index output 0) 0.0)
-              (ak/!= (a/index output 3) 0.0))
+    (when (ak/or (ak/!= (a/index output 0) 0.0)
+                 (ak/!= (a/index output 3) 0.0))
       (ak/return 5))
     (studio/set-monitor-level! 100)
     (recorder/process-monitor! (ak/& output) (ak/& input) 2)
-    (when (or (ak/!= (studio/monitor-level) 50)
-              (> (ak/abs (- (a/index output 0) 0.125)) 0.00001)
-              (> (ak/abs (+ (a/index output 3) 0.25)) 0.00001)
-              (> (ak/abs (- (recorder/signal-peak false false) 0.5)) 0.00001))
+    (when (ak/or (ak/!= (studio/monitor-level) 50)
+                 (ak/> (ak/abs (ak/- (a/index output 0) 0.125)) 0.00001)
+                 (ak/> (ak/abs (ak/+ (a/index output 3) 0.25)) 0.00001)
+                 (ak/> (ak/abs (ak/- (recorder/signal-peak false false) 0.5)) 0.00001))
       (ak/return 6))
     (recorder/process-monitor! (ak/& output) ak/null 2)
     (when (ak/!= (recorder/signal-peak false false) 0.0) (ak/return 4)))
@@ -3435,7 +3435,7 @@
     (when (ak/!= (studio/take-action!) 6) (ak/return false))
     (set! studio/busy 0) (set! studio/name-focus true) (studio/name! "")
     (studio/key-event! ak/null 32 0 1 0) (studio/typed! ak/null 32)
-    (when (or (ak/!= (studio/take-action!) 0) (ak/!= studio/name-length 1)) (ak/return false))
+    (when (ak/or (ak/!= (studio/take-action!) 0) (ak/!= studio/name-length 1)) (ak/return false))
     (studio/key-event! ak/null 259 0 1 0)
     (when (ak/!= studio/name-length 0) (ak/return false))
     (set! studio/name-focus false)
@@ -3455,11 +3455,11 @@
 
 (a/defn navigation-focus-qa! :u32 [[mask :u32]]
   ;; Typed access keeps inferred native bools out of JVM schema construction.
-  (let [previous (+ (ak/as (if studio/name-focus 1 0) :u32)
-                    (ak/as (if studio/name-drag 2 0) :u32))]
-    (when (< mask 4)
-      (set-studio-state! [studio/name-focus (ak/!= (& mask 1) 0)
-                          studio/name-drag (ak/!= (& mask 2) 0)]))
+  (let [previous (ak/+ (ak/as (if studio/name-focus 1 0) :u32)
+                       (ak/as (if studio/name-drag 2 0) :u32))]
+    (when (ak/< mask 4)
+      (set-studio-state! [studio/name-focus (ak/!= (ak/& mask 1) 0)
+                          studio/name-drag (ak/!= (ak/& mask 2) 0)]))
     previous))
 
 (a/defn navigation-key-qa! :void [[key :i32] [action :i32] [mods :i32]]
@@ -3561,7 +3561,7 @@
     (when (ak/! (mem/eql :u8 (studio/entered-name) "cafè")) (ak/return false))
     (studio/key-event! ak/null 65 0 1 8)
     (studio/typed! ak/null 128663)
-    (when (or (ak/!= studio/name-length 4) (ak/!= studio/name-caret 4)) (ak/return false))
+    (when (ak/or (ak/!= studio/name-length 4) (ak/!= studio/name-caret 4)) (ak/return false))
     (studio/key-event! ak/null 259 0 1 0)
     (when (ak/!= studio/name-length 0) (ak/return false))
     (dotimes [_ 119] (studio/typed! ak/null 97))
@@ -3571,7 +3571,7 @@
     (when (ak/!= studio/name-length 120) (ak/return false))
     (studio/key-event! ak/null 65 0 1 2)
     (studio/typed! ak/null 233)
-    (when (or (ak/!= studio/name-length 2) (ak/! (mem/eql :u8 (studio/entered-name) "é"))) (ak/return false))
+    (when (ak/or (ak/!= studio/name-length 2) (ak/! (mem/eql :u8 (studio/entered-name) "é"))) (ak/return false))
     (studio/name! "")
     (studio/name-paste! "Prise\tété\nvoix")
     (when (ak/! (mem/eql :u8 (studio/entered-name) "Prise été voix")) (ak/return false))
@@ -3598,32 +3598,32 @@
                         studio/name-anchor 0
                         studio/name-drag-elapsed 0.0])
     (dotimes [_ 30]
-      (studio/name-drag-to! 232.0 (/ 1.0 30.0)))
+      (studio/name-drag-to! 232.0 (ak// 1.0 30.0)))
     (let [view-at-30 studio/name-view
           caret-at-30 studio/name-caret]
-      (when (or (ak/== view-at-30 0)
-                (ak/!= studio/name-anchor 0)
-                (ak/== (& (a/index studio/edit-name view-at-30) 192) 128))
+      (when (ak/or (ak/== view-at-30 0)
+                   (ak/!= studio/name-anchor 0)
+                   (ak/== (ak/& (a/index studio/edit-name view-at-30) 192) 128))
         (ak/return 1))
       (set-studio-state! [studio/name-view 0
                           studio/name-caret 0
                           studio/name-drag-elapsed 0.0])
       (dotimes [_ 120]
-        (studio/name-drag-to! 232.0 (/ 1.0 120.0)))
-      (when (or (ak/!= studio/name-view view-at-30)
-                (ak/!= studio/name-caret caret-at-30))
+        (studio/name-drag-to! 232.0 (ak// 1.0 120.0)))
+      (when (ak/or (ak/!= studio/name-view view-at-30)
+                   (ak/!= studio/name-caret caret-at-30))
         (ak/return 2)))
     (dotimes [_ 400]
-      (studio/name-drag-to! 260.0 (/ 1.0 120.0)))
-    (when (or (ak/!= studio/name-caret studio/name-length)
-              (>= studio/name-view studio/name-length))
+      (studio/name-drag-to! 260.0 (ak// 1.0 120.0)))
+    (when (ak/or (ak/!= studio/name-caret studio/name-length)
+                 (ak/>= studio/name-view studio/name-length))
       (ak/return 3))
     (set! studio/name-anchor studio/name-length)
     (dotimes [_ 400]
-      (studio/name-drag-to! 0.0 (/ 1.0 120.0)))
-    (when (or (ak/!= studio/name-view 0)
-              (ak/!= studio/name-caret 0)
-              (ak/!= studio/name-anchor studio/name-length))
+      (studio/name-drag-to! 0.0 (ak// 1.0 120.0)))
+    (when (ak/or (ak/!= studio/name-view 0)
+                 (ak/!= studio/name-caret 0)
+                 (ak/!= studio/name-anchor studio/name-length))
       (ak/return 4))
     (set! studio/name-drag-elapsed 0.03)
     (studio/name-drag-to! 100.0 0.01)
@@ -3724,8 +3724,8 @@
     (studio/name! "́x")
     (studio/name-move! 0 false)
     (studio/typed! ak/null 101)
-    (when (or (ak/!= studio/name-caret 3)
-              (ak/! (mem/eql :u8 (studio/entered-name) "éx")))
+    (when (ak/or (ak/!= studio/name-caret 3)
+                 (ak/! (mem/eql :u8 (studio/entered-name) "éx")))
       (ak/return 8))
     (let [^{:var [:array 513 :i32]} scratch ak/undefined]
       (when (ak/! (mem/eql :u8 (studio/name-display-text! "é" (ak/& scratch)) "é"))
@@ -3761,8 +3761,8 @@
     (studio/name-paste! "Une\tvoix 🚗")
     (when (ak/! (mem/eql :u8 (studio/entered-name) "Une voix 🚗")) (ak/return 3))
     (studio/name-undo! false)
-    (when (or (ak/! (mem/eql :u8 (studio/entered-name) "café!"))
-              (ak/!= studio/name-anchor 0) (ak/!= studio/name-caret 6)) (ak/return 4))
+    (when (ak/or (ak/! (mem/eql :u8 (studio/entered-name) "café!"))
+                 (ak/!= studio/name-anchor 0) (ak/!= studio/name-caret 6)) (ak/return 4))
     (studio/name-undo! true)
     (when (ak/! (mem/eql :u8 (studio/entered-name) "Une voix 🚗")) (ak/return 5))
     (studio/key-event! ak/null 259 0 1 0)
@@ -3811,14 +3811,14 @@
   (studio/key-event! ak/null (ak/intCast key) 0 (ak/intCast action) 0))
 
 (a/defn route-test-flags :u32 []
-  (+ (ak/as (if studio/name-focus 1 0) :u32) (ak/as (if studio/name-drag 2 0) :u32)
-     (ak/as (if studio/clicked 4 0) :u32) (ak/as (if studio/route-click 8 0) :u32)))
+  (ak/+ (ak/as (if studio/name-focus 1 0) :u32) (ak/as (if studio/name-drag 2 0) :u32)
+        (ak/as (if studio/clicked 4 0) :u32) (ak/as (if studio/route-click 8 0) :u32)))
 
 (a/defn restore-route-test-flags! :void [[flags :u32]]
-  (set! studio/name-focus (ak/!= (& flags 1) 0))
-  (set! studio/name-drag (ak/!= (& flags 2) 0))
-  (set! studio/clicked (ak/!= (& flags 4) 0))
-  (set! studio/route-click (ak/!= (& flags 8) 0)))
+  (set! studio/name-focus (ak/!= (ak/& flags 1) 0))
+  (set! studio/name-drag (ak/!= (ak/& flags 2) 0))
+  (set! studio/clicked (ak/!= (ak/& flags 4) 0))
+  (set! studio/route-click (ak/!= (ak/& flags 8) 0)))
 
 (deftest routing-menu-navigation
   ;; Run on the render thread while capture is idle; no hardware is opened.

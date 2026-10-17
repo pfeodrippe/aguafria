@@ -1,5 +1,6 @@
 (ns learn.example.test-switch-modify-tagged-union
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
@@ -13,11 +14,11 @@
 
 (a/deftest modify-tagged-union-in-switch
   (let [c (k/var (ComplexType {:ok 42}))]
-    (k/switch c
+    (switch c
       (:ok ComplexTypeTag)
-      (a/with-block :_ [(k/* value)] (a/block
-                                      (k/+= @value 1)))
-      (:not_ok ComplexTypeTag) (k/unreachable))
+      (a/with-block :_ [(* value)] (a/block
+                                    (+= @value 1)))
+      (:not_ok ComplexTypeTag) (unreachable))
     (k/try (testing/expectEqual 43 (:ok c)))))
 
 (comment

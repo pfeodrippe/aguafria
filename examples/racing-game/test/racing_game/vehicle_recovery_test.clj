@@ -18,12 +18,12 @@
   (let [^:var state (mem/zeroes (a/type recovery/State))
         ^:var body (mem/zeroes (a/type physics/BodyState))
         control (driver/Control {:throttle 1.0 :brake 0.0 :steering 0.4
-                                  :progress 0.5 :lane 0.0 :speed 0.0})
+                                 :progress 0.5 :lane 0.0 :speed 0.0})
         traffic (driver/yield-to-traffic control 6.0 0.0)]
     (ak/= (a/field body qw) 1.0)
     (dotimes [_ 360]
       (ak/= state (a/field (recovery/step state control traffic body lane-target
-                            6.0 rear-gap rear-closing enabled) state)))
+                                          6.0 rear-gap rear-closing enabled) state)))
     (recovery/step state control traffic body lane-target
                    6.0 rear-gap rear-closing enabled)))
 
@@ -33,9 +33,9 @@
     (is (= -1 (:gear allowed)))
     (is (pos? (get-in allowed [:control :throttle])))
     (doseq [[rear closing target enabled] [[10.0 0.0 3.75 true]
-                                          [50.0 20.0 3.75 true]
-                                          [50.0 0.0 0.0 true]
-                                          [50.0 0.0 3.75 false]]]
+                                           [50.0 20.0 3.75 true]
+                                           [50.0 0.0 0.0 true]
+                                           [50.0 0.0 3.75 false]]]
       (let [result (a/value (eligibility-probe rear closing target enabled))]
         (is (= 0 (get-in result [:state :phase])) (pr-str result))
         (is (= 1 (:gear result)) (pr-str result))))))
@@ -46,7 +46,7 @@
   (let [state (recovery/State {:phase phase :waiting_ticks 0 :start_x 0.0 :start_y 0.0})
         ^:var body (mem/zeroes (a/type physics/BodyState))
         control (driver/Control {:throttle 1.0 :brake 0.0 :steering 0.4
-                                  :progress 0.5 :lane 0.0 :speed speed})]
+                                 :progress 0.5 :lane 0.0 :speed speed})]
     (ak/= (a/field body qw) 1.0)
     (ak/= (a/field body x) distance)
     (recovery/step state control control body 3.75 6.0 rear-gap rear-closing enabled)))
@@ -72,14 +72,14 @@
   The test supplies a fixed right-lane intent, not a claimed model decision." []
   (let [world (physics/create-world -9.81)
         surface (terrain/create! world)
-        start (circuit/at-distance (* 0.6657818 4309.0) -3.66)
-        obstruction (circuit/at-distance (* 0.66716516 4309.0) -4.64)
+        start (circuit/at-distance (ak/* 0.6657818 4309.0) -3.66)
+        obstruction (circuit/at-distance (ak/* 0.66716516 4309.0) -4.64)
         car (physics/create-vehicle world
-              (b3/b3Pos {:x (a/field start x) :y (a/field start y)
-                         :z (+ (a/field start z) 0.76)}) (a/field start heading))
+                                    (b3/b3Pos {:x (a/field start x) :y (a/field start y)
+                                               :z (ak/+ (a/field start z) 0.76)}) (a/field start heading))
         other (physics/create-vehicle world
-                (b3/b3Pos {:x (a/field obstruction x) :y (a/field obstruction y)
-                           :z (+ (a/field obstruction z) 0.76)}) (a/field obstruction heading))
+                                      (b3/b3Pos {:x (a/field obstruction x) :y (a/field obstruction y)
+                                                 :z (ak/+ (a/field obstruction z) 0.76)}) (a/field obstruction heading))
         ^:var state (mem/zeroes (a/type recovery/State))
         ^{:var :u8} phases 0
         ^{:var :f32} lane 0.0
@@ -96,16 +96,16 @@
       (physics/drive! car 0.0 1.0 0.0)
       (physics/drive! other 0.0 1.0 0.0)
       (physics/step! world))
-    (dotimes [_ (* 25 120)]
+    (dotimes [_ (ak/* 25 120)]
       (let [normal (driver/follow car 8.0 3.75)
             blocked (driver/follow other 0.0 -4.64)
-            gap (* 4309.0 (mod (- (a/field blocked progress) (a/field normal progress)) 1.0))
-            side (- (a/field blocked lane) (a/field normal lane))
+            gap (ak/* 4309.0 (ak/mod (ak/- (a/field blocked progress) (a/field normal progress)) 1.0))
+            side (ak/- (a/field blocked lane) (a/field normal lane))
             body (physics/body-state (a/field car chassis))
             other-body (physics/body-state (a/field other chassis))
-            route (circuit/at-distance (* 4309.0 (a/field normal progress)) 0.0)
-            close? (< (ak/abs side) (turnaround/recovery-side-clearance body other-body
-                                     (a/field route heading)))
+            route (circuit/at-distance (ak/* 4309.0 (a/field normal progress)) 0.0)
+            close? (ak/< (ak/abs side) (turnaround/recovery-side-clearance body other-body
+                                                                           (a/field route heading)))
             obstacle-gap (if close? gap (ak/as 1000.0 :f32))
             traffic (if close?
                       (driver/yield-to-offset-obstacle normal gap (a/field blocked speed) side) normal)
@@ -116,37 +116,37 @@
         (ak/= state (a/field output state))
         (ak/= phases (ak/| phases (ak/<< (ak/as 1 :u8) (ak/intCast (a/field state phase)))))
         (ak/= lane (ak/max lane (ak/abs (a/field normal lane))))
-        (ak/= up (ak/min up (- 1.0 (* 2.0 (+ (* (a/field body qx) (a/field body qx))
-                                            (* (a/field body qy) (a/field body qy)))))))
-        (ak/= reverse-travel (ak/max reverse-travel (* 4309.0 (- 0.6657818 (a/field normal progress)))))
+        (ak/= up (ak/min up (ak/- 1.0 (ak/* 2.0 (ak/+ (ak/* (a/field body qx) (a/field body qx))
+                                                      (ak/* (a/field body qy) (a/field body qy)))))))
+        (ak/= reverse-travel (ak/max reverse-travel (ak/* 4309.0 (ak/- 0.6657818 (a/field normal progress)))))
         (let [control (if (ak/!= (a/field (a/field output state) phase) 0)
                         (turnaround/guard-recovery-control (a/field output control) body
-                          bodies 2 0 (a/field output gear) world recovery/corridor-half-width)
+                                                           bodies 2 0 (a/field output gear) world recovery/corridor-half-width)
                         (a/field output control))]
-        (when (ak/== (a/field state phase) 4)
-          (ak/= pass-separation (ak/min pass-separation
-            (turnaround/footprint-separation (a/field body x) (a/field body y)
-              (turnaround/heading body) (a/index bodies 1)))))
-        (when (and (> (a/field (a/field output control) throttle) 0.0)
-                   (ak/== (a/field control throttle) 0.0)
-                   (ak/== (a/field control brake) 1.0))
-          (ak/= veto-count (+ veto-count 1.0))
-          (when (ak/== (a/field state phase) 3) (ak/= seek-veto (+ seek-veto 1.0)))
-          (when (ak/== (a/field state phase) 4) (ak/= pass-veto (+ pass-veto 1.0)))
-          (ak/= last-reason (ak/floatFromInt
-            (turnaround/motion-clearance-reasons body bodies 2 0 (a/field output gear)
-              (a/field control steering) world recovery/corridor-half-width))))
-        (dotimes [_ (ak/divTrunc physics/step-rate 120)]
-          (physics/drive-in-gear! car (a/field control throttle)
-              (a/field control brake) (a/field control steering)
-              (a/field output gear))
-          (physics/drive! other 0.0 1.0 0.0)
-          (physics/step! world)))))
-    (a/init [(* 4309.0 (- (a/field (driver/follow car 8.0 3.75) progress) 0.6657818))
-       lane up reverse-travel (ak/as (ak/floatFromInt phases) :f32)
-       veto-count seek-veto pass-veto pass-separation last-reason
-       (ak/as (ak/floatFromInt (a/field state phase)) :f32)
-       (a/field (driver/follow car 8.0 3.75) speed)] [:array 12 :f32])))
+          (when (ak/== (a/field state phase) 4)
+            (ak/= pass-separation (ak/min pass-separation
+                                          (turnaround/footprint-separation (a/field body x) (a/field body y)
+                                                                           (turnaround/heading body) (a/index bodies 1)))))
+          (when (ak/and (ak/> (a/field (a/field output control) throttle) 0.0)
+                        (ak/== (a/field control throttle) 0.0)
+                        (ak/== (a/field control brake) 1.0))
+            (ak/= veto-count (ak/+ veto-count 1.0))
+            (when (ak/== (a/field state phase) 3) (ak/= seek-veto (ak/+ seek-veto 1.0)))
+            (when (ak/== (a/field state phase) 4) (ak/= pass-veto (ak/+ pass-veto 1.0)))
+            (ak/= last-reason (ak/floatFromInt
+                               (turnaround/motion-clearance-reasons body bodies 2 0 (a/field output gear)
+                                                                    (a/field control steering) world recovery/corridor-half-width))))
+          (dotimes [_ (ak/divTrunc physics/step-rate 120)]
+            (physics/drive-in-gear! car (a/field control throttle)
+                                    (a/field control brake) (a/field control steering)
+                                    (a/field output gear))
+            (physics/drive! other 0.0 1.0 0.0)
+            (physics/step! world)))))
+    (a/init [(ak/* 4309.0 (ak/- (a/field (driver/follow car 8.0 3.75) progress) 0.6657818))
+             lane up reverse-travel (ak/as (ak/floatFromInt phases) :f32)
+             veto-count seek-veto pass-veto pass-separation last-reason
+             (ak/as (ak/floatFromInt (a/field state phase)) :f32)
+             (a/field (driver/follow car 8.0 3.75) speed)] [:array 12 :f32])))
 
 (deftest car-physically-backs-up-and-clears-obstruction-test
   (let [[distance lane up reverse-travel phases :as result] (a/value (circuit-clearance-probe))]

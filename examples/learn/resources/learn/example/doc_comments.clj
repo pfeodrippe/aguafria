@@ -1,5 +1,7 @@
 (ns learn.example.doc-comments
-  (:require [aguafria.zig :as a]))
+  (:refer-clojure :only [])
+  (:require [aguafria.zig :as a]
+            [aguafria.keyword :as k :refer :all]))
 
 (a/defstruct Timestamp
   "A structure for storing a timestamp, with nanosecond precision (this is a

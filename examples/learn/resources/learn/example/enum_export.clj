@@ -1,5 +1,6 @@
 (ns learn.example.enum-export
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defenum Foo
@@ -9,9 +10,9 @@
    :c])
 
 (a/defn entry :void
-  {:attrs #{k/export}}
+  {:attrs #{export}}
   [[foo Foo]]
-  (k/= :_ foo))
+  (= :_ foo))
 
 (comment
   (entry :a))

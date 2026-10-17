@@ -1311,7 +1311,7 @@
 (deftest logical-identity-and-callable-abi-fingerprint-test
   (let [baseline (runtime/declaration-info function-declaration)
         body-change (runtime/declaration-info
-                     (assoc function-declaration :body '[(+ value 1)]))
+                     (assoc function-declaration :body '[(aguafria.keyword/+ value 1)]))
         argument-rename (runtime/declaration-info
                          (assoc-in function-declaration [:args 0 :name] 'input))
         signature-change (runtime/declaration-info
@@ -1393,7 +1393,7 @@
         target
         (original-info
          (dissoc (assoc function-declaration
-                        :body '[(+ value 1)])
+                        :body '[(aguafria.keyword/+ value 1)])
                  :type-dependency-fingerprints
                  :callable-dependency-fingerprints))
         target-reference
@@ -1986,7 +1986,7 @@
         module-sources (var-get #'aguafria.zig.runtime/module-sources)
         baseline (runtime/declaration-info function-declaration)
         changed (runtime/declaration-info
-                 (assoc function-declaration :body '[(+ value 1)]))]
+                 (assoc function-declaration :body '[(aguafria.keyword/+ value 1)]))]
     (reset! cache empty-cache)
     (try
       (let [first-plan (module-sources "fixture.live" [baseline])
@@ -2094,7 +2094,7 @@
              "fixture.live"
              [(runtime/declaration-info
                (assoc function-declaration
-                      :body `[(+ value ~increment)]))]))))
+                      :body `[(aguafria.keyword/+ value ~increment)]))]))))
       (let [cache-stats (:module-source-cache (runtime/stats))]
         (is (= 2 (:entry-count cache-stats)))
         (is (= 1 (:eviction-count cache-stats))))

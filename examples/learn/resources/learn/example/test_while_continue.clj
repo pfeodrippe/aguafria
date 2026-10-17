@@ -1,15 +1,16 @@
 (ns learn.example.test-while-continue
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
 (a/deftest while-continue
   (let [i (k/var 0 :usize)]
-    (k/while true
-      (k/+= i 1)
-      (if (k/< i 10)
-        (k/continue))
-      (k/break))
+    (while true
+      (+= i 1)
+      (if (< i 10)
+        (continue))
+      (break))
     (k/try (testing/expectEqual 10 i))))
 
 (comment

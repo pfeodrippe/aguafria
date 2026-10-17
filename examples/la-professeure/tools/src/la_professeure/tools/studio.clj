@@ -123,7 +123,7 @@
 (a/defvar audition-gain :f32 1.0)
 
 (a/defn update-audition-gain! :void []
-  (k/= audition-gain (if (and audition-boost (k/> audition-source-peak 0.000001))
+  (k/= audition-gain (if (k/and audition-boost (k/> audition-source-peak 0.000001))
                        (k/max 1.0 (k/min 1000.0 (k// 0.2 audition-source-peak)))
                        1.0))
   (when voice-ready
@@ -166,8 +166,8 @@
 (a/defvar output-mute-checked-at :f64 -10.0)
 
 (a/defn selected-output-mute :i32 []
-  (if (and (k/== output-mute-index headphones)
-           (k/< (k/- (glfw/glfwGetTime) output-mute-checked-at) 2.0))
+  (if (k/and (k/== output-mute-index headphones)
+             (k/< (k/- (glfw/glfwGetTime) output-mute-checked-at) 2.0))
     output-mute-state
     -1))
 
@@ -178,8 +178,8 @@
                  output-mute-checked-at (glfw/glfwGetTime)])))
 
 (a/defn output-device-uid [:slice-const :u8] [[index :u32]]
-  (when (or (k/! recorder/initialized)
-            (k/>= index recorder/playback-count))
+  (when (k/or (k/! recorder/initialized)
+              (k/>= index recorder/playback-count))
     (k/return ""))
   (let [entry
         (k/as (k/ptrCast
@@ -188,21 +188,21 @@
                       [:c-pointer recorder/DeviceInfo]))) [:* recorder/DeviceInfo])
         uid (:coreaudio (:id entry))
         length (k/var (k/usize 0))]
-    (k/while (and (k/< length 256) (k/!= (a/get uid length) 0))
+    (k/while (k/and (k/< length 256) (k/!= (a/get uid length) 0))
       (k/= length (k/+ length 1)))
     ;; Return the context-owned UID, not the temporary local array copy.
     (a/slice (:coreaudio (:id entry)) 0 length)))
 
 (a/defn read-output-mute :i32 [[uid [:slice-const :u8]]]
   ;; Invoked on the control worker, never in a render/audio callback.
-  (when (or (k/== (:len uid) 0) (k/>= (:len uid) 256))
+  (when (k/or (k/== (:len uid) 0) (k/>= (:len uid) 256))
     (k/return -1))
   (let [text (k/var (k/as (mem/zeroes [:array 256 :u8]) [:array 256 :u8]))]
     (k/memcpy (a/slice text 0 (:len uid)) uid)
     ((:lp_studio_output_mute gestures-api) (k/& text))))
 
 (a/defn route-total :u32 []
-  (if (or (k/== route-menu 1) (k/== route-menu 3))
+  (if (k/or (k/== route-menu 1) (k/== route-menu 3))
     recorder/capture-count
     recorder/playback-count))
 
@@ -244,10 +244,10 @@
   (k/!= (k/atomicLoad :u8 (k/& busy) :acquire) 0))
 
 (a/defn route-open! :void [[menu :u32]]
-  (when (or (busy?)
-            (recorder/input-check-active?)
-            (k/< menu 1)
-            (k/> menu 4))
+  (when (k/or (busy?)
+              (recorder/input-check-active?)
+              (k/< menu 1)
+              (k/> menu 4))
     (k/return))
   (when name-focus
     (cancel-name-composition!))
@@ -283,10 +283,10 @@
 (a/defvar preview-paused :bool false)
 
 (a/defn route-select! :void [[index :u32]]
-  (when (or (busy?)
-            (recorder/input-check-active?)
-            (k/== route-menu 0)
-            (k/>= index (route-total)))
+  (when (k/or (busy?)
+              (recorder/input-check-active?)
+              (k/== route-menu 0)
+              (k/>= index (route-total)))
     (k/return))
   (cond
     (k/== route-menu 1)
@@ -315,12 +315,12 @@
   (k/= scene/studio-audio-suppressed suppressed)
   (when scene/voice-ready
     (audio/ma_sound_set_volume (k/& (a/get scene/voices scene/voice-slot))
-                               (if (or scene/audio-muted suppressed)
+                               (if (k/or scene/audio-muted suppressed)
                                  0.0
                                  0.8)))
   (when scene/audio-ready
     (audio/ma_sound_set_volume (k/& (a/get scene/tracks scene/active-track))
-                               (if (or scene/audio-muted suppressed)
+                               (if (k/or scene/audio-muted suppressed)
                                  0.0
                                  0.35))))
 
@@ -332,18 +332,18 @@
     (k/return))
   (dotimes [i recorder/playback-count]
     (let [name (recorder/device-name false (k/intCast i))]
-      (when (and (k/== (mem/indexOf :u8 name "BlackHole") k/null)
-                 (k/== (mem/indexOf :u8 name "Aggregate") k/null))
-        (when (or (k/== headphones 4294967295)
-                  (k/!= (:isDefault (a/get recorder/playback-info i)) 0))
+      (when (k/and (k/== (mem/indexOf :u8 name "BlackHole") k/null)
+                   (k/== (mem/indexOf :u8 name "Aggregate") k/null))
+        (when (k/or (k/== headphones 4294967295)
+                    (k/!= (:isDefault (a/get recorder/playback-info i)) 0))
           (k/= headphones (k/intCast i)))))))
 
 (a/defn prepare-playback! :bool []
   (initialize-listen-output!)
-  (when (or (k/! recorder/initialized)
-            (k/>= headphones recorder/playback-count))
+  (when (k/or (k/! recorder/initialized)
+              (k/>= headphones recorder/playback-count))
     (k/return false))
-  (when (and playback-ready (k/== playback-output headphones))
+  (when (k/and playback-ready (k/== playback-output headphones))
     (when playback-interrupted
       (when (k/!= ((:ma_engine_start recorder/api) (k/ptrCast (k/& playback-engine))) 0)
         (k/return false))
@@ -363,9 +363,9 @@
   true)
 
 (a/defn play-voice-file! :bool [[path [:slice-const :u8]]]
-  (when (or (k/! (prepare-playback!))
-            (k/== (:len path) 0)
-            (k/>= (:len path) 4096))
+  (when (k/or (k/! (prepare-playback!))
+              (k/== (:len path) 0)
+              (k/>= (:len path) 4096))
     (k/return false))
   (let [filename (k/var (mem/zeroes [:array 4096 :u8]))
         next (k/mod (k/+ voice-slot 1) 2)
@@ -417,7 +417,7 @@
 (a/defvar capture-phase :u8 0)
 
 (a/defn capture-phase-value :u8 []
-  (if (and (k/== capture-phase 2) (recorder/tail-active?))
+  (if (k/and (k/== capture-phase 2) (recorder/tail-active?))
     3
     capture-phase))
 
@@ -437,9 +437,9 @@
 
 (a/defn capture-script! :bool
   [[id [:slice-const :u8]] [text [:slice-const :u8]]]
-  (when (or (k/== (:len id) 0)
-            (k/> (:len id) 64)
-            (k/> (:len text) 262144))
+  (when (k/or (k/== (:len id) 0)
+              (k/> (:len id) 64)
+              (k/> (:len text) 262144))
     (k/return false))
   (k/memcpy (a/slice capture-id-text 0 (:len id)) id)
   (k/memcpy (a/slice capture-script-text 0 (:len text)) text)
@@ -455,17 +455,17 @@
     (a/slice (:id node) 0 (:id_len node))))
 
 (a/defn capture-passage? :bool [[index :u32]]
-  (and (k/> capture-phase 0)
-       (k/> capture-id-length 0)
-       (k/< index scene/passage-entity-count)
-       (mem/eql :u8 (node-id index) (captured-id))))
+  (k/and (k/> capture-phase 0)
+         (k/> capture-id-length 0)
+         (k/< index scene/passage-entity-count)
+         (mem/eql :u8 (node-id index) (captured-id))))
 
 (a/defvar workspace-mode :u32 0)
 
 (a/defn showing-capture-script? :bool []
-  (and (k/== workspace-mode 1)
-       (k/> capture-phase 0)
-       (k/> capture-id-length 0)))
+  (k/and (k/== workspace-mode 1)
+         (k/> capture-phase 0)
+         (k/> capture-id-length 0)))
 
 (a/defn waveform-passage-id [:slice-const :u8] []
   (if (showing-capture-script?)
@@ -481,12 +481,12 @@
 (a/defn capture-fx? :bool []
   ;; The configured next recording is not the active operation. An offline
   ;; effects pass can process a saved take while the next-recording mode is Dry.
-  (and (k/>= capture-phase 2)
-       (k/>= recorder/mode 2)))
+  (k/and (k/>= capture-phase 2)
+         (k/>= recorder/mode 2)))
 
 (a/defn effects-pass? :bool []
-  (and (k/>= capture-phase 2)
-       (k/== recorder/mode 2)))
+  (k/and (k/>= capture-phase 2)
+         (k/== recorder/mode 2)))
 
 (a/defn record-route-label [:slice-const :u8] []
   (cond
@@ -612,7 +612,7 @@
 (a/defn name-checkpoint! :void []
   ;; A paste is one edit; draft history never enters the project undo journal.
 
-  (when (and name-batch name-batch-recorded)
+  (when (k/and name-batch name-batch-recorded)
     (k/return))
   (when name-batch
     (k/= name-batch-recorded true))
@@ -625,10 +625,10 @@
                name-history-end name-history-position]))
 
 (a/defn name-undo! :void [[redo? :bool]]
-  (when (or (busy?)
-            (if redo?
-              (k/>= name-history-position name-history-end)
-              (k/== name-history-position 0)))
+  (when (k/or (busy?)
+              (if redo?
+                (k/>= name-history-position name-history-end)
+                (k/== name-history-position 0)))
     (k/return))
   (k/= (a/get name-history name-history-position) (name-draft))
   (k/= name-history-position (if redo?
@@ -645,14 +645,14 @@
         previous (k/var (k/i32 0))
         state (k/var (k/i32 0))]
     (k/while (k/< offset (:len text))
-      (let [bytes (catch (unicode/utf8ByteSequenceLength (a/get text offset))
-                         (k/return boundary))]
+      (let [bytes (k/catch (unicode/utf8ByteSequenceLength (a/get text offset))
+                           (k/return boundary))]
         (when (k/> (k/+ offset bytes) (:len text))
           (k/return boundary))
-        (let [cp (catch (unicode/utf8Decode (a/slice text offset (k/+ offset bytes)))
-                        (k/return boundary))]
-          (when (and (k/> offset 0)
-                     (grapheme-break? previous (k/intCast cp) (k/& state)))
+        (let [cp (k/catch (unicode/utf8Decode (a/slice text offset (k/+ offset bytes)))
+                          (k/return boundary))]
+          (when (k/and (k/> offset 0)
+                       (grapheme-break? previous (k/intCast cp) (k/& state)))
             (when (if previous? (k/>= offset limit) (k/> offset limit))
               (k/return (if previous? boundary offset)))
             (k/= boundary offset))
@@ -679,7 +679,7 @@
   (let [end (k/var (k/usize 0))]
     (k/while (k/< end (:len text))
       (let [next (text-boundary text end false)]
-        (when (or (k/<= next end) (k/> next budget))
+        (when (k/or (k/<= next end) (k/> next budget))
           (k/break))
         (k/= end next)))
     end))
@@ -763,23 +763,23 @@
     comparison-unmarked))
 
 (a/defn selected-waveform? :bool []
-  (and waveform-uploaded
-       (or (showing-capture-script?) (k/< selected scene/passage-entity-count))
-       (mem/eql :u8 (waveform-passage-id)
-                (a/slice waveform-owner 0 waveform-owner-length))))
+  (k/and waveform-uploaded
+         (k/or (showing-capture-script?) (k/< selected scene/passage-entity-count))
+         (mem/eql :u8 (waveform-passage-id)
+                  (a/slice waveform-owner 0 waveform-owner-length))))
 
 (a/defn selected-take-seconds :f32 []
   (if (selected-waveform?) take-seconds 0.0))
 
 (a/defn take-editable? :bool []
-  (and (k/! (busy?))
-       (k/> (selected-take-seconds) 0.0)))
+  (k/and (k/! (busy?))
+         (k/> (selected-take-seconds) 0.0)))
 
 (a/defn comparison-enabled? :bool []
   (let [code (selected-comparison-code)]
-    (and (take-editable?)
-         (or (k/== code comparison-listen-a)
-             (k/== code comparison-listen-b)))))
+    (k/and (take-editable?)
+           (k/or (k/== code comparison-listen-a)
+                 (k/== code comparison-listen-b)))))
 
 (a/defn comparison-label [:slice-const :u8] []
   (let [code (selected-comparison-code)]
@@ -963,7 +963,7 @@
   (let [width (k/var (k/as 0 :c_int))
         height (k/var (k/as 0 :c_int))]
     (glfw/glfwGetWindowSize studio-window (k/& width) (k/& height))
-    (when (and (k/> width 0) (k/> height 0))
+    (when (k/and (k/> width 0) (k/> height 0))
       (set-state! [window-width (k/floatFromInt width)
                    window-height (k/floatFromInt height)])
       (set-editor-top! editor-top))))
@@ -973,10 +973,10 @@
   (k/memcpy (a/slice hint-text 0 hint-length) (a/slice text 0 hint-length)))
 
 (a/defn inside? :bool [[x :f32] [y :f32] [w :f32] [h :f32]]
-  (and (k/>= mouse-x x)
-       (k/< mouse-x (k/+ x w))
-       (k/>= mouse-y y)
-       (k/< mouse-y (k/+ y h))))
+  (k/and (k/>= mouse-x x)
+         (k/< mouse-x (k/+ x w))
+         (k/>= mouse-y y)
+         (k/< mouse-y (k/+ y h))))
 
 (a/defn divider-input! :void []
   (when (k/== workspace-mode 1)
@@ -984,7 +984,7 @@
   (when (k/> route-menu 0)
     (k/= divider-drag false)
     (k/return))
-  (when (and clicked (inside? 16.0 (k/- editor-top 4.0) (main-width) 8.0))
+  (when (k/and clicked (inside? 16.0 (k/- editor-top 4.0) (main-width) 8.0))
     (set-state! [trim-drag 0
                  name-focus false
                  clicked false])
@@ -1003,25 +1003,25 @@
 (a/defn playing-preview? :bool []
   (if mix-mode
     (mixer/playing?)
-    (and voice-ready
-         (k/< preview-node 1024)
-         (k/!= (audio/ma_sound_is_playing (k/& (a/get voices voice-slot))) 0))))
+    (k/and voice-ready
+           (k/< preview-node 1024)
+           (k/!= (audio/ma_sound_is_playing (k/& (a/get voices voice-slot))) 0))))
 
 (a/defn selected-preview? :bool []
-  (and (k/! mix-mode)
-       voice-ready
-       (k/== preview-node selected)))
+  (k/and (k/! mix-mode)
+         voice-ready
+         (k/== preview-node selected)))
 
 (a/defn paused-preview? :bool []
-  (and preview-paused
-       (or mix-mode voice-ready)))
+  (k/and preview-paused
+         (k/or mix-mode voice-ready)))
 
 (a/defn transport-action :u32 []
   ;; Global transport owns the loaded sound, regardless of passage selection.
-  (if (or (k/== workspace-mode 0)
-          mix-mode
-          (playing-preview?)
-          (paused-preview?))
+  (if (k/or (k/== workspace-mode 0)
+            mix-mode
+            (playing-preview?)
+            (paused-preview?))
     6
     35))
 
@@ -1042,8 +1042,8 @@
     (mixer/play!)
     (k/= preview-paused false)
     (k/return true))
-  (when (or (k/! voice-ready)
-            (k/! preview-paused))
+  (when (k/or (k/! voice-ready)
+              (k/! preview-paused))
     (k/return false))
   (when (k/! (prepare-playback!))
     (k/return false))
@@ -1065,15 +1065,15 @@
 (a/defn handle-stopped-outputs! :u32
   "Render-thread only. Pause lost outputs without discarding decoded takes or mix PCM." []
   (let [result (k/var (k/u32 0))]
-    (when (and playback-ready
-               (k/! playback-interrupted))
+    (when (k/and playback-ready
+                 (k/! playback-interrupted))
       (let [device ((:ma_engine_get_device recorder/api)
                     (k/ptrCast (k/& playback-engine)))]
-        (when (and (k/!= device k/null)
-                   (k/== ((:ma_device_get_state recorder/api) device)
-                         (:ma_device_state_stopped recorder/api)))
+        (when (k/and (k/!= device k/null)
+                     (k/== ((:ma_device_get_state recorder/api) device)
+                           (:ma_device_state_stopped recorder/api)))
           (when voice-ready
-            (when (and (k/! mix-mode) (k/== preview-node selected))
+            (when (k/and (k/! mix-mode) (k/== preview-node selected))
               (k/= seek-seconds (cursor-seconds)))
             (k/= :_ (audio/ma_sound_stop (k/& (a/get voices voice-slot))))
             (when (k/! mix-mode)
@@ -1098,7 +1098,7 @@
     (mixer/seek! (k/intFromFloat (k/* 48000.0 (k/max 0.0 seconds))))
     (k/return))
   (k/= seek-seconds (k/max 0.0 (k/min take-seconds seconds)))
-  (when (and voice-ready (k/== preview-node selected))
+  (when (k/and voice-ready (k/== preview-node selected))
     (seek-preview!)))
 
 (a/defn pan! :void [[seconds :f32]]
@@ -1129,8 +1129,8 @@
 (a/defn scroll-by! :void [[dx :f32] [dy :f32] [zoom? :bool] [horizontal? :bool]]
   (when (k/> route-menu 0)
     (k/return))
-  (when (and (k/== workspace-mode 2)
-             (inside? 16.0 143.0 (main-width) (track-height)))
+  (when (k/and (k/== workspace-mode 2)
+               (inside? 16.0 143.0 (main-width) (track-height)))
     (when (k/!= (k/as (k/intFromFloat track-scroll) :u32) track-offset)
       (k/= track-scroll (k/floatFromInt track-offset)))
     (set-state! [track-scroll (k/max 0.0 (k/min
@@ -1159,9 +1159,9 @@
     (k/= focus-scroll (k/max 0.0 (k/min (k/max 0.0 (k/- focus-height (editor-text-height))) (k/- focus-scroll (k/* dy 20.0)))))
     (inside? 16.0 143.0 (main-width) (editor-y 299.0))
     (cond
-      (and (k/== page 0) zoom?)
+      (k/and (k/== page 0) zoom?)
       (zoom-at! (k/exp (k/* -0.12 dy)) (k/floatCast mouse-x))
-      (and (k/== page 0) horizontal?)
+      (k/and (k/== page 0) horizontal?)
       (pan! (k/* -0.04 dy timeline-seconds))
       :else
       (do
@@ -1178,13 +1178,13 @@
 (a/defn pinch-at! :bool [[amount :f64] [x :f64] [y :f64]]
   ;; Pinch belongs to Edit's timeline only, never script, routing or recording.
   ;; Positive magnification opens the fingers: show less time, anchored at x.
-  (when (or (k/!= workspace-mode 0)
-            (k/!= page 0)
-            (k/> route-menu 0)
-            (k/! (and (k/>= x 242.0) (k/< x (k/+ 242.0 (timeline-width)))
-                      (k/>= y 143.0) (k/< y (editor-y 442.0))))
-            (k/! (and (k/> amount -100.0) (k/< amount 100.0)))
-            (k/== amount 0.0))
+  (when (k/or (k/!= workspace-mode 0)
+              (k/!= page 0)
+              (k/> route-menu 0)
+              (k/! (k/and (k/>= x 242.0) (k/< x (k/+ 242.0 (timeline-width)))
+                          (k/>= y 143.0) (k/< y (editor-y 442.0))))
+              (k/! (k/and (k/> amount -100.0) (k/< amount 100.0)))
+              (k/== amount 0.0))
     (k/return false))
   ;; A single gesture cannot usefully exceed the full 2–60 second zoom range.
   ;; Bound before exp/floatCast so finite queued bursts cannot overflow f32.
@@ -1194,13 +1194,13 @@
 
 (a/defn move-passage! :void [[down? :bool] [page? :bool]]
   ;; Selection is silent and never changes the loaded sound's transport owner.
-  (when (or (busy?)
-            (k/> capture-phase 0)
-            (k/!= (k/atomicLoad :u32 (k/& pending) :acquire) 0)
-            name-focus
-            (k/> route-menu 0)
-            (k/== scene/passage-entity-count 0)
-            (and (k/== workspace-mode 0) (k/!= page 0)))
+  (when (k/or (busy?)
+              (k/> capture-phase 0)
+              (k/!= (k/atomicLoad :u32 (k/& pending) :acquire) 0)
+              name-focus
+              (k/> route-menu 0)
+              (k/== scene/passage-entity-count 0)
+              (k/and (k/== workspace-mode 0) (k/!= page 0)))
     (k/return))
   (let [rows (if (k/== workspace-mode 1)
                (record-row-count)
@@ -1233,8 +1233,8 @@
 (a/defn- poll-gestures! :void []
   (let [event (k/var (mem/zeroes (:lp_studio_pinch gestures-api)))]
     (k/while ((:lp_studio_gestures_poll gestures-api) (k/& event))
-      (when (and (k/!= (glfw/glfwGetWindowAttrib studio-window glfw/GLFW_VISIBLE) 0)
-                 (k/== (glfw/glfwGetWindowAttrib studio-window glfw/GLFW_ICONIFIED) 0))
+      (when (k/and (k/!= (glfw/glfwGetWindowAttrib studio-window glfw/GLFW_VISIBLE) 0)
+                   (k/== (glfw/glfwGetWindowAttrib studio-window glfw/GLFW_ICONIFIED) 0))
         (k/= :_ (pinch-at! (:magnification event)
                            (:x event) (:y event)))))))
 
@@ -1247,38 +1247,38 @@
       (update-layout!)
       (glfw/glfwGetCursorPos window (k/& mouse-x) (k/& mouse-y))
       (scroll-by! (k/floatCast dx) (k/floatCast dy)
-                  (or (k/== (glfw/glfwGetKey window glfw/GLFW_KEY_LEFT_ALT) glfw/GLFW_PRESS)
-                      (k/== (glfw/glfwGetKey window glfw/GLFW_KEY_RIGHT_ALT) glfw/GLFW_PRESS))
-                  (or (k/== (glfw/glfwGetKey window glfw/GLFW_KEY_LEFT_SHIFT) glfw/GLFW_PRESS)
-                      (k/== (glfw/glfwGetKey window glfw/GLFW_KEY_RIGHT_SHIFT) glfw/GLFW_PRESS))))
+                  (k/or (k/== (glfw/glfwGetKey window glfw/GLFW_KEY_LEFT_ALT) glfw/GLFW_PRESS)
+                        (k/== (glfw/glfwGetKey window glfw/GLFW_KEY_RIGHT_ALT) glfw/GLFW_PRESS))
+                  (k/or (k/== (glfw/glfwGetKey window glfw/GLFW_KEY_LEFT_SHIFT) glfw/GLFW_PRESS)
+                        (k/== (glfw/glfwGetKey window glfw/GLFW_KEY_RIGHT_SHIFT) glfw/GLFW_PRESS))))
     (when (k/!= previous-scroll k/null)
       ((a/unwrap previous-scroll) window dx dy))))
 
 (a/defn mouse-event! :void {:callconv :c}
   [[window [:optional [:* glfw/GLFWwindow]]] [button :c_int] [action :c_int] [mods :c_int]]
-  (when (and attached (k/== button glfw/GLFW_MOUSE_BUTTON_LEFT))
+  (when (k/and attached (k/== button glfw/GLFW_MOUSE_BUTTON_LEFT))
     (k/= mouse-down (k/== action glfw/GLFW_PRESS))
     (when mouse-down
       (glfw/glfwGetCursorPos window (k/& press-x) (k/& press-y))
       (let [now (glfw/glfwGetTime)]
-        (set-state! [event-double (and (k/< (k/- now last-press-time) 0.32)
-                                       (k/< (k/abs (k/- press-x last-press-x)) 5.0)
-                                       (k/< (k/abs (k/- press-y last-press-y)) 5.0))
+        (set-state! [event-double (k/and (k/< (k/- now last-press-time) 0.32)
+                                         (k/< (k/abs (k/- press-x last-press-x)) 5.0)
+                                         (k/< (k/abs (k/- press-y last-press-y)) 5.0))
                      last-press-time now
                      last-press-x press-x
                      last-press-y press-y]))
       (k/= event-pressed true)))
-  (when (and (k/! attached) (k/!= previous-mouse k/null))
+  (when (k/and (k/! attached) (k/!= previous-mouse k/null))
     ((a/unwrap previous-mouse) window button action mods)))
 
 (a/defn composing-name? :bool []
-  (and name-focus
-       (k/!= studio-window k/null)
-       ((:lp_studio_ime_active gestures-api)
-        ((:glfwGetCocoaWindow gestures-api) (k/ptrCast studio-window)))))
+  (k/and name-focus
+         (k/!= studio-window k/null)
+         ((:lp_studio_ime_active gestures-api)
+          ((:glfwGetCocoaWindow gestures-api) (k/ptrCast studio-window)))))
 
 (a/defn name-copy! :void [[cut? :bool]]
-  (when (or (k/== studio-window k/null) (k/== name-anchor name-caret))
+  (when (k/or (k/== studio-window k/null) (k/== name-anchor name-caret))
     (k/return))
   (let [a (k/min name-anchor name-caret)
         b (k/max name-anchor name-caret)
@@ -1292,15 +1292,15 @@
 
 (a/defn typed! :void {:callconv :c}
   [[window [:optional [:* glfw/GLFWwindow]]] [cp :u32]]
-  (when (and (k/! attached) (k/!= previous-char k/null))
+  (when (k/and (k/! attached) (k/!= previous-char k/null))
     ((a/unwrap previous-char) window cp))
-  (when (and attached
-             name-focus
-             (k/! (busy?))
-             (k/>= cp 32)
-             (k/!= cp 127)
-             (k/<= cp 1114111)
-             (or (k/< cp 55296) (k/> cp 57343)))
+  (when (k/and attached
+               name-focus
+               (k/! (busy?))
+               (k/>= cp 32)
+               (k/!= cp 127)
+               (k/<= cp 1114111)
+               (k/or (k/< cp 55296) (k/> cp 57343)))
     (let [n (k/usize (if (k/< cp 128)
                        1
                        (if (k/< cp 2048)
@@ -1356,22 +1356,22 @@
         ;; Reserve the entire character before changing text or selection.
         ;; Ignored controls consume no capacity; CR/LF/TAB become spaces.
         (k/while (k/< scan end)
-          (let [n (catch (unicode/utf8ByteSequenceLength (a/get text scan)) (k/return))
-                cp (catch (unicode/utf8Decode (a/slice text scan (k/+ scan n))) (k/return))]
-            (when (or (and (k/>= cp 32) (k/!= cp 127))
-                      (k/== cp 9)
-                      (k/== cp 10)
-                      (k/== cp 13))
+          (let [n (k/catch (unicode/utf8ByteSequenceLength (a/get text scan)) (k/return))
+                cp (k/catch (unicode/utf8Decode (a/slice text scan (k/+ scan n))) (k/return))]
+            (when (k/or (k/and (k/>= cp 32) (k/!= cp 127))
+                        (k/== cp 9)
+                        (k/== cp 10)
+                        (k/== cp 13))
               (k/= bytes (k/+ bytes n)))
             (k/= scan (k/+ scan n))))
         (when (k/> (k/+ (k/- name-length removed) bytes) 120)
           (k/break))
         (k/while (k/< i end)
-          (let [n (catch (unicode/utf8ByteSequenceLength (a/get text i)) (k/return))
-                cp (catch (unicode/utf8Decode (a/slice text i (k/+ i n))) (k/return))]
-            (typed! studio-window (if (or (k/== cp 10)
-                                          (k/== cp 13)
-                                          (k/== cp 9))
+          (let [n (k/catch (unicode/utf8ByteSequenceLength (a/get text i)) (k/return))
+                cp (k/catch (unicode/utf8Decode (a/slice text i (k/+ i n))) (k/return))]
+            (typed! studio-window (if (k/or (k/== cp 10)
+                                            (k/== cp 13)
+                                            (k/== cp 9))
                                     32
                                     cp))
             (k/= i (k/+ i n))))))))
@@ -1385,7 +1385,7 @@
   [[window [:optional [:* glfw/GLFWwindow]]] [key :c_int] [scancode :c_int] [action :c_int] [mods :c_int]]
   ;; Enter confirms composition, not Rename; Escape cancels it, not text focus.
   ;; GLFW still delivers the eventual committed characters through typed!.
-  (when (and attached (composing-name?))
+  (when (k/and attached (composing-name?))
     (k/return))
   (when (k/> route-menu 0)
     (when (k/!= action glfw/GLFW_RELEASE)
@@ -1407,18 +1407,18 @@
         (k/== key glfw/GLFW_KEY_ENTER)
         (route-select! route-focus)))
     (k/return))
-  (when (and name-focus (busy?))
+  (when (k/and name-focus (busy?))
     (when (k/== key glfw/GLFW_KEY_ESCAPE)
       (k/= name-focus false))
     (k/return))
-  (when (and attached (k/!= action glfw/GLFW_RELEASE))
+  (when (k/and attached (k/!= action glfw/GLFW_RELEASE))
     (if name-focus
       (let [extend? (k/!= (k/& mods glfw/GLFW_MOD_SHIFT) 0)
             command? (k/!= (k/& mods (k/| glfw/GLFW_MOD_SUPER glfw/GLFW_MOD_CONTROL)) 0)]
         (cond
-          (and command? (k/== key glfw/GLFW_KEY_Z))
+          (k/and command? (k/== key glfw/GLFW_KEY_Z))
           (name-undo! extend?)
-          (and command? (k/== key glfw/GLFW_KEY_Y))
+          (k/and command? (k/== key glfw/GLFW_KEY_Y))
           (name-undo! true)
           (k/== key glfw/GLFW_KEY_ESCAPE)
           (k/= name-focus false)
@@ -1426,15 +1426,15 @@
           (do
             (k/= name-focus false)
             (request! 9))
-          (and command? (k/== key glfw/GLFW_KEY_A))
+          (k/and command? (k/== key glfw/GLFW_KEY_A))
           (do
             (set-state! [name-anchor 0
                          name-caret name-length]))
-          (and command? (k/== key glfw/GLFW_KEY_C))
+          (k/and command? (k/== key glfw/GLFW_KEY_C))
           (name-copy! false)
-          (and command? (k/== key glfw/GLFW_KEY_X))
+          (k/and command? (k/== key glfw/GLFW_KEY_X))
           (name-copy! true)
-          (and command? (k/== key glfw/GLFW_KEY_V))
+          (k/and command? (k/== key glfw/GLFW_KEY_V))
           (when (k/!= studio-window k/null)
             (let [text (glfw/glfwGetClipboardString studio-window)]
               (when (k/!= text k/null)
@@ -1446,42 +1446,42 @@
           (k/== key glfw/GLFW_KEY_LEFT)
           (name-move! (if command?
                         0
-                        (if (and (k/! extend?) (k/!= name-caret name-anchor))
+                        (if (k/and (k/! extend?) (k/!= name-caret name-anchor))
                           (k/min name-caret name-anchor)
                           (name-previous name-caret))) extend?)
           (k/== key glfw/GLFW_KEY_RIGHT)
           (name-move! (if command?
                         name-length
-                        (if (and (k/! extend?) (k/!= name-caret name-anchor))
+                        (if (k/and (k/! extend?) (k/!= name-caret name-anchor))
                           (k/max name-caret name-anchor)
                           (name-next name-caret))) extend?)
           (k/== key glfw/GLFW_KEY_BACKSPACE)
-          (when (or (k/> name-caret 0) (k/!= name-caret name-anchor))
+          (when (k/or (k/> name-caret 0) (k/!= name-caret name-anchor))
             (name-checkpoint!)
             (when (k/== name-caret name-anchor)
               (k/= name-anchor (name-previous name-caret)))
             (name-delete!)
             (name-settle-caret!))
           (k/== key glfw/GLFW_KEY_DELETE)
-          (when (or (k/< name-caret name-length) (k/!= name-caret name-anchor))
+          (when (k/or (k/< name-caret name-length) (k/!= name-caret name-anchor))
             (name-checkpoint!)
             (when (k/== name-caret name-anchor)
               (k/= name-anchor (name-next name-caret)))
             (name-delete!)
             (name-settle-caret!))))
-      (if (and (k/== mods 0)
-               (or (k/== key glfw/GLFW_KEY_UP)
-                   (k/== key glfw/GLFW_KEY_DOWN)
-                   (k/== key glfw/GLFW_KEY_PAGE_UP)
-                   (k/== key glfw/GLFW_KEY_PAGE_DOWN)))
-        (move-passage! (or (k/== key glfw/GLFW_KEY_DOWN)
-                           (k/== key glfw/GLFW_KEY_PAGE_DOWN))
-                       (or (k/== key glfw/GLFW_KEY_PAGE_UP)
-                           (k/== key glfw/GLFW_KEY_PAGE_DOWN)))
+      (if (k/and (k/== mods 0)
+                 (k/or (k/== key glfw/GLFW_KEY_UP)
+                       (k/== key glfw/GLFW_KEY_DOWN)
+                       (k/== key glfw/GLFW_KEY_PAGE_UP)
+                       (k/== key glfw/GLFW_KEY_PAGE_DOWN)))
+        (move-passage! (k/or (k/== key glfw/GLFW_KEY_DOWN)
+                             (k/== key glfw/GLFW_KEY_PAGE_DOWN))
+                       (k/or (k/== key glfw/GLFW_KEY_PAGE_UP)
+                             (k/== key glfw/GLFW_KEY_PAGE_DOWN)))
         (when (k/== action glfw/GLFW_PRESS)
           (cond
-            (and (k/== key glfw/GLFW_KEY_Z)
-                 (k/!= (k/& mods (k/| glfw/GLFW_MOD_SUPER glfw/GLFW_MOD_CONTROL)) 0))
+            (k/and (k/== key glfw/GLFW_KEY_Z)
+                   (k/!= (k/& mods (k/| glfw/GLFW_MOD_SUPER glfw/GLFW_MOD_CONTROL)) 0))
             (request! (if (k/!= (k/& mods glfw/GLFW_MOD_SHIFT) 0)
                         28
                         27))
@@ -1502,7 +1502,7 @@
             (zoom-at! 0.8 (timeline-center))
             (k/== key glfw/GLFW_KEY_MINUS)
             (zoom-at! 1.25 (timeline-center)))))))
-  (when (and (k/! attached) (k/!= previous-key k/null))
+  (when (k/and (k/! attached) (k/!= previous-key k/null))
     ((a/unwrap previous-key) window key scancode action mods)))
 
 (a/defn node-revision :u32 [[index :u32]]
@@ -1519,10 +1519,10 @@
 
 (a/defn set-passage-freshness! :void
   [[index :u32] [id [:slice-const :u8]] [revision :u32] [status :u32]]
-  (when (or (k/>= index scene/passage-entity-count)
-            (k/> (:len id) 64)
-            (k/!= revision (node-revision index))
-            (k/! (mem/eql :u8 id (node-id index))))
+  (when (k/or (k/>= index scene/passage-entity-count)
+              (k/> (:len id) 64)
+              (k/!= revision (node-revision index))
+              (k/! (mem/eql :u8 id (node-id index))))
     (k/return))
   (let [entry (k/& (a/get passage-freshness index))]
     (k/memcpy (a/slice (:id entry) 0 (:len id)) id)
@@ -1538,9 +1538,9 @@
   (when (k/== (:len (node-id index)) 0)
     (k/return 6))
   (let [entry (a/get passage-freshness index)]
-    (when (or (k/!= (node-revision index) (:revision entry))
-              (k/! (mem/eql :u8 (node-id index)
-                            (a/slice (:id entry) 0 (:id-length entry)))))
+    (when (k/or (k/!= (node-revision index) (:revision entry))
+                (k/! (mem/eql :u8 (node-id index)
+                              (a/slice (:id entry) 0 (:id-length entry)))))
       (k/return 0))
     (:status entry)))
 
@@ -1575,7 +1575,7 @@
     (k/= (:start (a/get clip-viewport slot)) seconds)))
 
 (a/defn clip-bin! :void [[slot :u32] [bin :u32] [value :f32]]
-  (when (and (k/< slot 32) (k/< bin 128))
+  (when (k/and (k/< slot 32) (k/< bin 128))
     (k/= (a/get (:wave (a/get clip-viewport slot)) bin) value)))
 
 (a/defn trim-at! :void [[x :f32]]
@@ -1589,9 +1589,9 @@
   ;; A different passage (or the mix) may still be playing. Its clock does not
   ;; belong on this selected take's waveform. Reuse the one per-frame sample.
 
-  (if (and (k/! mix-mode)
-           voice-ready
-           (k/== preview-node selected))
+  (if (k/and (k/! mix-mode)
+             voice-ready
+             (k/== preview-node selected))
     audio-position
     seek-seconds))
 
@@ -1639,7 +1639,7 @@
         count ((:utf8proc_decompose text-api)
                (:ptr text) (k/intCast (:len text))
                (k/ptrCast scratch) 512 options)]
-    (when (or (k/< count 0) (k/> count 512))
+    (when (k/or (k/< count 0) (k/> count 512))
       (k/return "Invalid name"))
     (let [length ((:utf8proc_reencode text-api) (k/ptrCast scratch) count options)]
       (when (k/< length 0)
@@ -1665,12 +1665,12 @@
 
 (a/defn label! :void [[text [:slice-const :u8]] [x :f32] [y :f32] [width :f32] [color :u32]]
   (let [end (k/var (k/usize (:len text)))]
-    (k/while (and (k/> end 0)
-                  (k/> (ui-text-width (a/slice text 0 end) 0.24) width))
+    (k/while (k/and (k/> end 0)
+                    (k/> (ui-text-width (a/slice text 0 end) 0.24) width))
       (k/= end (k/- end 1))
-      (k/while (and (k/> end 0)
-                    (k/>= (a/get text end) 128)
-                    (k/< (a/get text end) 192))
+      (k/while (k/and (k/> end 0)
+                      (k/>= (a/get text end) 128)
+                      (k/< (a/get text end) 192))
         (k/= end (k/- end 1))))
     (ui-text! (a/slice text 0 end) x y 0.24 color)))
 
@@ -1740,7 +1740,7 @@
         right? (k/> x 208.0)
         overshoot (if left? (k/- 36.0 x) (k/max 0.0 (k/- x 208.0)))
         interval (k/max 0.015 (k// 0.08 (k/+ 1.0 (k// overshoot 24.0))))]
-    (if (or left? right?)
+    (if (k/or left? right?)
       (do
         (k/= name-drag-elapsed (k/+ name-drag-elapsed (k/min 0.05 (k/max 0.0 elapsed))))
         (k/while (k/>= (k/+ name-drag-elapsed 0.000000001) interval)
@@ -1757,9 +1757,9 @@
   (scene/rect! 28.0 (bottom-y 621.0) 192.0 28.0 (if name-focus
                                                   0xffffff
                                                   0xeef2f7) 0.0)
-  (when (and clicked
-             (k/! (busy?))
-             (inside? 28.0 (bottom-y 621.0) 192.0 28.0))
+  (when (k/and clicked
+               (k/! (busy?))
+               (inside? 28.0 (bottom-y 621.0) 192.0 28.0))
     (cancel-name-composition!)
     (k/= name-focus true)
     (name-move! (name-hit mouse-x) false)
@@ -1770,9 +1770,9 @@
       (set-state! [name-anchor 0
                    name-caret name-length])))
   (let [now (glfw/glfwGetTime)]
-    (when (and name-drag
-               mouse-down
-               (k/! (busy?)))
+    (when (k/and name-drag
+                 mouse-down
+                 (k/! (busy?)))
       (name-drag-to! mouse-x (k/- now name-pointer-time)))
     (k/= name-pointer-time now))
   (when (k/! mouse-down)
@@ -1788,12 +1788,12 @@
         (when (k/> (name-text-width (a/slice edit-name name-view next)) 176.0)
           (k/break))
         (k/= end next)))
-    (when (and name-focus (k/!= name-caret name-anchor))
+    (when (k/and name-focus (k/!= name-caret name-anchor))
       (let [a (k/max name-view (k/min end (k/min name-caret name-anchor)))
             b (k/max a (k/min end (k/max name-caret name-anchor)))
             x (name-text-width (a/slice edit-name name-view a))]
         (scene/rect! (k/+ 36.0 x) (bottom-y 623.0) (name-text-width (a/slice edit-name a b)) 24.0 0xdce8ff 0.0)))
-    (if (and (k/== name-length 0) (k/! name-focus))
+    (if (k/and (k/== name-length 0) (k/! name-focus))
       (ui-text! "Take / profile name" 36.0 (bottom-y 625.0) 0.24 0x42566b)
       (let [scratch (k/var (k/as k/undefined [:array 513 :i32]))]
         (ui-text! (name-display-text! (a/slice edit-name name-view end) (k/& scratch))
@@ -1814,9 +1814,9 @@
   ;; enters typed!. It never activates the application or the other game window.
   (when (k/== studio-window k/null)
     (k/return))
-  (if (and name-focus
-           (k/! (busy?))
-           (k/!= workspace-mode 1))
+  (if (k/and name-focus
+             (k/! (busy?))
+             (k/!= workspace-mode 1))
     (k/= :_ ((:lp_studio_ime_focus gestures-api)
              ((:glfwGetCocoaWindow gestures-api) (k/ptrCast studio-window))
              (k/+ 36.0 (name-text-width (a/slice edit-name name-view name-caret)))
@@ -1829,8 +1829,8 @@
   (when (k/! (selected-waveform?))
     (ui-text! "Loading selected take..." 254.0 (k/+ y 24.0) 0.23 0x687787)
     (k/return))
-  (when (and (k/== capture-phase 0)
-             (k/<= take-seconds 0.0))
+  (when (k/and (k/== capture-phase 0)
+               (k/<= take-seconds 0.0))
     (ui-text! "No take yet. Record this passage to hear and edit it."
               254.0 (k/+ y 24.0) 0.23 0x687787)
     (k/return))
@@ -1841,19 +1841,19 @@
       (let [height (k/* 55.0 (k// (a/get wave i) maximum))
             x (k/+ 244.0 (k/* (k// (k/- (timeline-width) 2.0) 128.0) (k/as (k/floatFromInt i) :f32)))]
         (scene/rect! x (k/+ y (k// (k/- 65.0 height) 2.0)) 2.0 (k/max 1.0 height)
-                     (if (and (k/== capture-phase 2)
-                              (mem/eql :u8 (waveform-passage-id) (captured-id)))
+                     (if (k/and (k/== capture-phase 2)
+                                (mem/eql :u8 (waveform-passage-id) (captured-id)))
                        0xc63535
-                       (if (or (k/< (k/* i 100) (k/* trim-in 128)) (k/> (k/* i 100) (k/* trim-out 128)))
+                       (if (k/or (k/< (k/* i 100) (k/* trim-in 128)) (k/> (k/* i 100) (k/* trim-out 128)))
                          0xd9e7ff
                          0x356cd5)) 0.0))))
-  (when (and (k/!= workspace-mode 1) (k/== capture-phase 0))
+  (when (k/and (k/!= workspace-mode 1) (k/== capture-phase 0))
     (scene/rect! (k/+ 242.0 (k/* (k// (timeline-width) 100.0) (k/as (k/floatFromInt trim-in) :f32))) y 3.0 65.0 0x356cd5 0.0)
     (scene/rect! (k/min (content-x 881.0) (k/+ 242.0 (k/* (k// (timeline-width) 100.0) (k/as (k/floatFromInt trim-out) :f32)))) y 3.0 65.0 0x356cd5 0.0))
   ;; The take editor needs the same cursor as Record; trim handles aren't a
   ;; playback position. Both panes use the single audio sample for this frame.
-  (when (and (k/== capture-phase 0)
-             (k/> take-seconds 0.0))
+  (when (k/and (k/== capture-phase 0)
+               (k/> take-seconds 0.0))
     (scene/rect! (take-playhead-x (selected-take-cursor frame-cursor) take-seconds) y 2.0 65.0 0x356cd5 0.0)))
 
 (a/defn click-at! :void
@@ -1909,7 +1909,7 @@
     (scene/rect! x (k/+ y r) r (k/- h (k/* 2.0 r)) color 0.0)
     (scene/rect! (k/- (k/+ x w) r) (k/+ y r) r (k/- h (k/* 2.0 r)) color 0.0)
     (dotimes [corner 4]
-      (let [left? (or (k/== corner 0) (k/== corner 3))
+      (let [left? (k/or (k/== corner 0) (k/== corner 3))
             cx (if left?
                  (k/+ x r)
                  (k/- (k/+ x w) r))
@@ -1931,10 +1931,10 @@
   (rounded-rect! (k/+ x 1.0) (k/+ y 1.0) (k/- w 2.0) (k/- h 2.0) 4.0 fill))
 
 (a/defn button! :bool [[label [:slice-const :u8]] [x :f32] [y :f32] [w :f32]]
-  (let [hover (and (k/>= mouse-x x)
-                   (k/< mouse-x (k/+ x w))
-                   (k/>= mouse-y y)
-                   (k/< mouse-y (k/+ y 28.0)))]
+  (let [hover (k/and (k/>= mouse-x x)
+                     (k/< mouse-x (k/+ x w))
+                     (k/>= mouse-y y)
+                     (k/< mouse-y (k/+ y 28.0)))]
     (control-surface! x y w 28.0
                       (if hover
                         0xf0f5ff
@@ -1946,7 +1946,7 @@
     (when hover
       (glfw/glfwSetCursor studio-window hand-cursor)
       (hint! label))
-    (and hover clicked)))
+    (k/and hover clicked)))
 
 (a/defn enabled-button! :bool
   [[label [:slice-const :u8]] [x :f32] [y :f32] [w :f32] [enabled :bool] [reason [:slice-const :u8]]]
@@ -1976,7 +1976,7 @@
                        :else
                        0x78869a))
         background (k/u32 (cond
-                            (and active (k/== kind 4))
+                            (k/and active (k/== kind 4))
                             0xc94747
                             active
                             0x356cd5
@@ -2025,17 +2025,17 @@
                  "No take for this passage")))
       (when enabled
         (glfw/glfwSetCursor studio-window hand-cursor)))
-    (and enabled
-         hover
-         clicked)))
+    (k/and enabled
+           hover
+           clicked)))
 
 (a/defn paragraph-line-visible? :bool
   [[row :f32] [line-height :f32] [top :f32] [bottom :f32]]
   ;; Inclusive boundaries, with subpixel tolerance for accumulated f32 layout.
   ;; At maximum scroll the last line ends exactly at the pane's bottom.
 
-  (and (k/>= row (k/- top 0.01))
-       (k/<= (k/+ row line-height) (k/+ bottom 0.01))))
+  (k/and (k/>= row (k/- top 0.01))
+         (k/<= (k/+ row line-height) (k/+ bottom 0.01))))
 
 (a/defn- paragraph-text! :void
   "Clip glyph geometry and atlas coordinates together for pixel-smooth pane scrolling." [[text [:slice-const :u8]] [x :f32] [y :f32] [scale :f32]
@@ -2052,8 +2052,8 @@
             clipped-y (k/max top glyph-y)
             clipped-right (k/min right (k/+ glyph-x (k/* 62.0 scale)))
             clipped-bottom (k/min bottom (k/+ glyph-y (k/* 78.0 scale)))]
-        (when (and (k/> clipped-right clipped-x)
-                   (k/> clipped-bottom clipped-y))
+        (when (k/and (k/> clipped-right clipped-x)
+                     (k/> clipped-bottom clipped-y))
           (scene/quad! clipped-x clipped-y
                        (k/- clipped-right clipped-x) (k/- clipped-bottom clipped-y)
                        (k/+ 1.0 (k/* (k/as (k/floatFromInt (k/mod code 32)) :f32) 64.0)
@@ -2074,13 +2074,13 @@
         line-height (k/* 65.0 scale)]
     (k/while (k/< start (:len text))
       (let [end (k/var (k/usize start))]
-        (k/while (and (k/< end (:len text))
-                      (k/!= (a/get text end) 32)
-                      (k/!= (a/get text end) 10))
+        (k/while (k/and (k/< end (:len text))
+                        (k/!= (a/get text end) 32)
+                        (k/!= (a/get text end) 10))
           (k/= end (k/+ end 1)))
         (let [word (a/slice text start end)
               width-word (scene/text-width word scale)]
-          (when (and (k/> cursor x) (k/> (k/+ cursor width-word) (k/+ x width)))
+          (when (k/and (k/> cursor x) (k/> (k/+ cursor width-word) (k/+ x width)))
             (set-state! [row (k/+ row line-height)
                          cursor x]))
           (if (k/> width-word width)
@@ -2091,28 +2091,28 @@
               (k/while (k/< glyph-start end)
                 (let [code (scene/glyph-code! text (k/& glyph-end))
                       advance (k/* (a/get scene/glyph-advances code) scale)]
-                  (when (and (k/> cursor x) (k/> (k/+ cursor advance) (k/+ x width)))
+                  (when (k/and (k/> cursor x) (k/> (k/+ cursor advance) (k/+ x width)))
                     (set-state! [row (k/+ row line-height)
                                  cursor x]))
-                  (when (and (k/< row bottom) (k/> (k/+ row (k/* 79.0 scale)) top))
+                  (when (k/and (k/< row bottom) (k/> (k/+ row (k/* 79.0 scale)) top))
                     (paragraph-text! (a/slice text glyph-start glyph-end)
                                      cursor row scale x top (k/+ x width) bottom color))
                   (set-state! [cursor (k/+ cursor advance)
                                glyph-start glyph-end]))))
             (do
-              (when (and (k/< row bottom)
-                         (k/> (k/+ row (k/* 79.0 scale)) top))
+              (when (k/and (k/< row bottom)
+                           (k/> (k/+ row (k/* 79.0 scale)) top))
                 (paragraph-text! word cursor row scale x top (k/+ x width) bottom color))
               (k/= cursor (k/+ cursor width-word))))
           (k/= cursor (k/+ cursor (scene/text-width " " scale))))
-        (when (and (k/< end (:len text)) (k/== (a/get text end) 10))
+        (when (k/and (k/< end (:len text)) (k/== (a/get text end) 10))
           (set-state! [row (k/+ row line-height)
                        cursor x]))
         (k/= start (k/+ end 1))))
     (k/+ row line-height)))
 
 (a/defn note-take! :bool [[id [:slice-const :u8]]]
-  (when (or (k/== (:len id) 0) (k/> (:len id) 64))
+  (when (k/or (k/== (:len id) 0) (k/> (:len id) 64))
     (k/return false))
   (let [name (k/var (k/as (mem/zeroes [:array 65 :u8]) [:array 65 :u8]))]
     (k/memcpy (a/slice name 0 (:len id)) id)
@@ -2133,14 +2133,14 @@
   (k/== (k/atomicLoad :u32 (k/& pending) :acquire) 2))
 
 (a/defn recordable-selection? :bool []
-  (and (k/< selected scene/passage-entity-count)
-       (k/> (:len (selected-id)) 0)))
+  (k/and (k/< selected scene/passage-entity-count)
+         (k/> (:len (selected-id)) 0)))
 
 (a/defn requested-recording-id [:slice-const :u8] []
   (a/slice record-request-text 0 record-request-length))
 
 (a/defn request-selected-recording! :void []
-  (when (or (busy?) (k/! (recordable-selection?)))
+  (when (k/or (busy?) (k/! (recordable-selection?)))
     (k/return))
   ;; Keep the clicked passage ID, not a row number that Markdown reload can move.
   (let [id (selected-id)]
@@ -2184,10 +2184,10 @@
     (show-routing! (k/! routing-visible)))
   (when (inside? (right-x 896.0) 104.0 190.0 28.0)
     (hint! "Show or hide routing. Audio connections and monitoring stay unchanged."))
-  (when (and follow-playhead
-             (playing-preview?)
-             (or (k/< frame-cursor timeline-start)
-                 (k/> frame-cursor (k/+ timeline-start (k/* 0.94 timeline-seconds)))))
+  (when (k/and follow-playhead
+               (playing-preview?)
+               (k/or (k/< frame-cursor timeline-start)
+                     (k/> frame-cursor (k/+ timeline-start (k/* 0.94 timeline-seconds)))))
     (k/= timeline-start (k/max 0.0 (k/min (k/- 60.0 timeline-seconds) (k/- frame-cursor (k/* 0.1 timeline-seconds)))))))
 
 (a/defn timeline-tick-step :f32 [[span :f32] [width :f32]]
@@ -2206,17 +2206,17 @@
       :else 50.0)))
 
 (a/defn- draw-timeline-ruler! :void []
-  (when (and (k/== page 0)
-             (inside? 242.0 140.0 (k/- (timeline-width) 6.0) 27.0))
+  (when (k/and (k/== page 0)
+               (inside? 242.0 140.0 (k/- (timeline-width) 6.0) 27.0))
     (hint! "Ruler: click or drag to seek")
     (glfw/glfwSetCursor studio-window resize-cursor)
-    (when (and clicked (k/! (busy?)))
+    (when (k/and clicked (k/! (busy?)))
       (k/= trim-drag 3)
       (position! (time-at (k/floatCast mouse-x)))
       (k/= clicked false)))
-  (when (and mix-mode
-             (k/> loop-to timeline-start)
-             (k/< loop-from (k/+ timeline-start timeline-seconds)))
+  (when (k/and mix-mode
+               (k/> loop-to timeline-start)
+               (k/< loop-from (k/+ timeline-start timeline-seconds)))
     (let [x (k/+ 242.0 (k/* (timeline-width) (k/max 0.0 (k// (k/- loop-from timeline-start) timeline-seconds))))
           end-x (k/+ 242.0 (k/* (timeline-width) (k/min 1.0 (k// (k/- loop-to timeline-start) timeline-seconds))))]
       (scene/rect! x 167.0 (k/- end-x x) (editor-y 267.0)
@@ -2236,7 +2236,7 @@
 
 (a/defn- draw-passage-status! :void [[index :u32] [x :f32] [y :f32]]
   (let [status (passage-freshness-status index)
-        review? (or (k/== status 2) (k/== status 5))
+        review? (k/or (k/== status 2) (k/== status 5))
         recorded? (k/== status 3)
         background (k/u32 (cond
                             review? 0xffeed9
@@ -2276,13 +2276,13 @@
                                   i)
                    selected i
                    clicked false])))
-  (when (icon-button! (if (and (k/! mix-mode)
-                               (playing-preview?)
-                               (k/== preview-node i))
+  (when (icon-button! (if (k/and (k/! mix-mode)
+                                 (playing-preview?)
+                                 (k/== preview-node i))
                         1
                         0)
                       "Play / pause this track" 194.0 (k/+ y 1.0) 34.0
-                      (and (k/> seconds 0.0) (k/! (busy?))) (and (playing-preview?) (k/== preview-node i)))
+                      (k/and (k/> seconds 0.0) (k/! (busy?))) (k/and (playing-preview?) (k/== preview-node i)))
     (when (k/!= selected i)
       (k/= seek-seconds 0.0))
     (set-state! [selected i
@@ -2294,34 +2294,34 @@
 
 (a/defn- track-row-selection! :void
   [[i :u32] [y :f32] [seconds :f32] [start :f32]]
-  (when (and clicked
-             (k/! (busy?))
-             (k/>= mouse-y y)
-             (k/< mouse-y (k/+ y 54.0))
-             (k/>= mouse-x 16.0)
-             (k/< mouse-x (content-x 878.0)))
+  (when (k/and clicked
+               (k/! (busy?))
+               (k/>= mouse-y y)
+               (k/< mouse-y (k/+ y 54.0))
+               (k/>= mouse-x 16.0)
+               (k/< mouse-x (content-x 878.0)))
     (when (k/!= selected i)
       (k/= seek-seconds 0.0))
     (set-state! [selected i
                  focus-scroll 0.0
                  name-focus false])
-    (when (and (k/>= mouse-x 242.0)
-               (k/> seconds 0.0)
-               (k/>= (time-at (k/floatCast mouse-x)) start)
-               (k/< (time-at (k/floatCast mouse-x)) (k/+ start seconds)))
+    (when (k/and (k/>= mouse-x 242.0)
+                 (k/> seconds 0.0)
+                 (k/>= (time-at (k/floatCast mouse-x)) start)
+                 (k/< (time-at (k/floatCast mouse-x)) (k/+ start seconds)))
       (k/= take-seconds seconds)
       (position! (time-at (k/floatCast mouse-x)))
       (if double-clicked
         (request! 26)
         (k/= trim-drag 3))))
-  (when (and (inside? 242.0 y (k/- (timeline-width) 6.0) 54.0)
-             (k/> seconds 0.0))
+  (when (k/and (inside? 242.0 y (k/- (timeline-width) 6.0) 54.0)
+               (k/> seconds 0.0))
     (hint! "Click: seek. Double-click: play. Pinch / Option + scroll: zoom.")))
 
 (a/defn- draw-track-waveform! :void
   [[slot :usize] [y :f32] [seconds :f32] [start :f32] [active :bool] [capturing :bool]]
-  (when (and (k/> (k/+ start seconds) timeline-start)
-             (k/< start (k/+ timeline-start timeline-seconds)))
+  (when (k/and (k/> (k/+ start seconds) timeline-start)
+               (k/< start (k/+ timeline-start timeline-seconds)))
     (let [a (k/max 0.0 (k// (k/- start timeline-start) timeline-seconds))
           end-ratio (k/min 1.0 (k// (k/- (k/+ start seconds) timeline-start) timeline-seconds))
           w (k/* (timeline-width) (k/- end-ratio a))
@@ -2341,20 +2341,20 @@
           (let [t (k/+ start (k/* seconds (k// (k/as (k/floatFromInt b) :f32) 128.0)))
                 x (k/+ 242.0 (k/* (timeline-width) (k// (k/- t timeline-start) timeline-seconds)))
                 h (k/* 30.0 (k// (a/get (:wave (a/get clip-viewport slot)) b) peak))]
-            (when (and (k/>= x 242.0) (k/< x (content-x 882.0)))
+            (when (k/and (k/>= x 242.0) (k/< x (content-x 882.0)))
               (scene/rect! x (k/+ y 27.0 (k/- (k// h 2.0))) 2.0 (k/max 1.0 h) 0x4878c7 0.0))))))))
 
 (a/defn- draw-track-playhead! :void [[i :u32] [y :f32] [capturing :bool]]
-  (when (and (k/! mix-mode)
-             (or (k/== selected i)
-                 (and voice-ready (k/== preview-node i))))
+  (when (k/and (k/! mix-mode)
+               (k/or (k/== selected i)
+                     (k/and voice-ready (k/== preview-node i))))
     (let [position (if capturing
                      capture-cursor
-                     (if (and voice-ready (k/== preview-node i))
+                     (if (k/and voice-ready (k/== preview-node i))
                        frame-cursor
                        seek-seconds))
           x (playhead-x position)]
-      (when (and (k/>= x 242.0) (k/<= x (content-x 884.0)))
+      (when (k/and (k/>= x 242.0) (k/<= x (content-x 884.0)))
         (scene/rect! x y 2.0 54.0 0x356cd5 0.0)))))
 
 (a/defn- draw-track-row! :void [[data [:* scene/Story]] [slot :usize]]
@@ -2363,17 +2363,17 @@
     (when (k/< i (:count data))
       (let [node (a/get (:nodes data) i)
             active (k/== selected i)
-            capturing (and (k/== capture-phase 2) (capture-passage? i))
-            loaded (and (k/== track-snapshot track-offset)
-                        (k/< slot track-snapshot-count))
+            capturing (k/and (k/== capture-phase 2) (capture-passage? i))
+            loaded (k/and (k/== track-snapshot track-offset)
+                          (k/< slot track-snapshot-count))
             seconds (if capturing
                       capture-cursor
                       (if loaded
                         (:seconds (a/get clip-viewport slot))
                         0.0))
-            start (if (and loaded
-                           mix-mode
-                           (k/! capturing))
+            start (if (k/and loaded
+                             mix-mode
+                             (k/! capturing))
                     (:start (a/get clip-viewport slot))
                     0.0)]
         (draw-track-labels! i y (:speaker node) (k/> (:id_len node) 0) active)
@@ -2398,12 +2398,12 @@
                              (if (k/== i selected)
                                0x235ac0
                                0x26364a)))
-        (when (and clicked
-                   (k/! (busy?))
-                   (k/>= mouse-x 16.0)
-                   (k/< mouse-x (content-x 884.0))
-                   (k/>= mouse-y (k/max top 150.0))
-                   (k/< mouse-y (k/min row (editor-y 430.0))))
+        (when (k/and clicked
+                     (k/! (busy?))
+                     (k/>= mouse-x 16.0)
+                     (k/< mouse-x (content-x 884.0))
+                     (k/>= mouse-y (k/max top 150.0))
+                     (k/< mouse-y (k/min row (editor-y 430.0))))
           (set-state! [selected (k/intCast i)
                        focus-scroll 0.0
                        name-focus false]))
@@ -2415,7 +2415,7 @@
 (a/defn- draw-timeline-navigation! :void []
   (when mix-mode
     (let [x (playhead-x frame-cursor)]
-      (when (and (k/>= x 242.0) (k/<= x (content-x 884.0)))
+      (when (k/and (k/>= x 242.0) (k/<= x (content-x 884.0)))
         (scene/rect! x 167.0 2.0 (editor-y 265.0) 0x356cd5 0.0))))
   (let [w (k/* (timeline-width) (k// timeline-seconds 60.0))
         x (k/+ 242.0 (k/* (timeline-width) (k// timeline-start 60.0)))]
@@ -2425,7 +2425,7 @@
       (hint! "Time scrollbar: drag to pan")
       (glfw/glfwSetCursor studio-window hand-cursor)
       (when clicked
-        (set-state! [bar-grab (if (and (k/>= mouse-x x) (k/< mouse-x (k/+ x w)))
+        (set-state! [bar-grab (if (k/and (k/>= mouse-x x) (k/< mouse-x (k/+ x w)))
                                 (k/- (k/as (k/floatCast mouse-x) :f32) x)
                                 (k// w 2.0))
                      trim-drag 5]))))
@@ -2439,7 +2439,7 @@
       (hint! "Tracks: drag or scroll with two fingers")
       (glfw/glfwSetCursor studio-window hand-cursor)
       (when clicked
-        (set-state! [bar-grab (if (and (k/>= mouse-y y) (k/< mouse-y (k/+ y h)))
+        (set-state! [bar-grab (if (k/and (k/>= mouse-y y) (k/< mouse-y (k/+ y h)))
                                 (k/- (k/as (k/floatCast mouse-y) :f32) y)
                                 (k// h 2.0))
                      trim-drag 6])))))
@@ -2447,12 +2447,12 @@
 (a/defn- take-waveform-input! :void []
   (when (k/! (take-editable?))
     (k/return))
-  (when (and clicked
-             (k/! (busy?))
-             (k/>= mouse-x 238.0)
-             (k/<= mouse-x (content-x 888.0))
-             (k/>= mouse-y (bottom-y 607.0))
-             (k/< mouse-y (bottom-y 679.0)))
+  (when (k/and clicked
+               (k/! (busy?))
+               (k/>= mouse-x 238.0)
+               (k/<= mouse-x (content-x 888.0))
+               (k/>= mouse-y (bottom-y 607.0))
+               (k/< mouse-y (bottom-y 679.0)))
     (let [x (k/as (k/floatCast mouse-x) :f32)
           a (k/+ 242.0 (k/* (k// (timeline-width) 100.0) (k/as (k/floatFromInt trim-in) :f32)))
           b (k/+ 242.0 (k/* (k// (timeline-width) 100.0) (k/as (k/floatFromInt trim-out) :f32)))]
@@ -2478,14 +2478,14 @@
 (a/defn- drag-editor-selection! :void []
   ;; Timeline pan/scroll remains available while a take loads. Only the
   ;; selected take's trim edges and waveform seek depend on its upload.
-  (when (and (k/! (take-editable?))
-             (or (k/== trim-drag 1)
-                 (k/== trim-drag 2)
-                 (k/== trim-drag 4)))
+  (when (k/and (k/! (take-editable?))
+               (k/or (k/== trim-drag 1)
+                     (k/== trim-drag 2)
+                     (k/== trim-drag 4)))
     (k/= trim-drag 0))
-  (when (and (k/> trim-drag 0)
-             (or mouse-down clicked)
-             (k/! (busy?)))
+  (when (k/and (k/> trim-drag 0)
+               (k/or mouse-down clicked)
+               (k/! (busy?)))
     (cond
       (k/<= trim-drag 2)
       (trim-at! (k/floatCast mouse-x))
@@ -2522,12 +2522,12 @@
   ;; The editor is always visible: reading a long passage never hides transport or routing.
 
   (scene/rect! 16.0 editor-top (main-width) (k/- window-height editor-top 40.0) 0xffffff 0.0)
-  (let [hover (and (k/== route-menu 0)
-                   (inside? 16.0 (k/- editor-top 4.0) (main-width) 8.0))]
-    (scene/rect! 16.0 (k/- editor-top 2.0) (main-width) 3.0 (if (or hover divider-drag)
+  (let [hover (k/and (k/== route-menu 0)
+                     (inside? 16.0 (k/- editor-top 4.0) (main-width) 8.0))]
+    (scene/rect! 16.0 (k/- editor-top 2.0) (main-width) 3.0 (if (k/or hover divider-drag)
                                                               0x356cd5
                                                               0xc8d1df) 0.0)
-    (when (or hover divider-drag)
+    (when (k/or hover divider-drag)
       (when (k/== vertical-cursor k/null)
         (k/= vertical-cursor (glfw/glfwCreateStandardCursor glfw/GLFW_VRESIZE_CURSOR)))
       (glfw/glfwSetCursor studio-window vertical-cursor)
@@ -2589,10 +2589,10 @@
   (let [card (k/& (a/get take-cards slot))
         length (k/var (k/usize (k/min 127 (:len text))))]
     ;; Truncate only at a UTF-8 boundary; existing take names remain untouched.
-    (k/while (and (k/> length 0)
-                  (k/< length (:len text))
-                  (k/>= (a/get text length) 128)
-                  (k/< (a/get text length) 192))
+    (k/while (k/and (k/> length 0)
+                    (k/< length (:len text))
+                    (k/>= (a/get text length) 128)
+                    (k/< (a/get text length) 192))
       (k/= length (k/- length 1)))
     (k/= (:available card) available?)
     (k/= (:missing card) missing?)
@@ -2602,7 +2602,7 @@
     (k/memcpy (a/slice (:label card) 0 length) (a/slice text 0 length))))
 
 (a/defn upload-take-card-bin! :void [[slot :u32] [bin :u32] [peak :f32]]
-  (when (and (k/< slot 48) (k/< bin 32))
+  (when (k/and (k/< slot 48) (k/< bin 32))
     (k/= (a/get (:bins (a/get take-cards slot)) bin) peak)))
 
 (a/defn take-card-width :f32 []
@@ -2631,10 +2631,10 @@
         width (take-card-width)
         index (k/+ (k/* slot 3) column)
         card (k/& (a/get take-cards index))
-        loaded? (and (k/== take-grid-offset track-offset) (k/< slot take-grid-rows))
-        available? (and loaded? (:available card))
-        chosen? (and available? (:chosen card) (k/== selected i))
-        playing? (and available? (:chosen card) (k/== preview-node i) (playing-preview?))
+        loaded? (k/and (k/== take-grid-offset track-offset) (k/< slot take-grid-rows))
+        available? (k/and loaded? (:available card))
+        chosen? (k/and available? (:chosen card) (k/== selected i))
+        playing? (k/and available? (:chosen card) (k/== preview-node i) (playing-preview?))
         border (k/u32 (if chosen? 0x356cd5 0xdce3ed))
         background (k/u32 (if chosen? 0xeaf1ff 0xffffff))]
     (rounded-rect! x y width 54.0 6.0 border)
@@ -2648,10 +2648,10 @@
         (when (icon-button! (if playing? 1 0) "Audition this take" (k/+ x 6.0) (k/+ y 3.0) 32.0
                             (k/! (busy?)) playing?)
           (request-take-card! index true))
-        (when (and clicked (k/! (busy?)) (inside? x y width 54.0))
+        (when (k/and clicked (k/! (busy?)) (inside? x y width 54.0))
           (request-take-card! index double-clicked)))
-      (if (and loaded? (k/! (:missing card))
-               (k/< column 2) (k/> (:len (node-id i)) 0))
+      (if (k/and loaded? (k/! (:missing card))
+                 (k/< column 2) (k/> (:len (node-id i)) 0))
         (when (icon-button! 4 (if (k/== column 0) "Record dry" "Record FX")
                             (k/+ x 6.0) (k/+ y 12.0) (k/- width 12.0) (k/! (busy?)) false)
           ;; Explicit preparation, not capture. The user still presses Play / REC.
@@ -2675,7 +2675,7 @@
       (let [data (k/& (a/get scene/stories scene/active-story))
             node (a/get (:nodes data) i)]
         (draw-track-labels! i y (:speaker node) (k/> (:id_len node) 0) (k/== selected i)))
-      (when (and clicked (k/! (busy?)) (inside? 16.0 y 220.0 54.0))
+      (when (k/and clicked (k/! (busy?)) (inside? 16.0 y 220.0 54.0))
         (when (k/!= selected i)
           (k/= seek-seconds 0.0))
         (set-state! [selected i
@@ -2705,11 +2705,11 @@
 
 (a/defn meter-active? :bool [[input? :bool]]
   (if input?
-    (or (recorder/input-check-active?)
-        recorder/source-running
-        (and recorder/running (k/< recorder/mode 3)))
-    (or recorder/monitoring
-        (and recorder/running (k/>= recorder/mode 2)))))
+    (k/or (recorder/input-check-active?)
+          recorder/source-running
+          (k/and recorder/running (k/< recorder/mode 3)))
+    (k/or recorder/monitoring
+          (k/and recorder/running (k/>= recorder/mode 2)))))
 
 (a/defn meter-fraction :f32 [[active? :bool] [peak :f32]]
   ;; The held peak is diagnostic history, not a live signal. Never draw it as one.
@@ -2749,8 +2749,8 @@
     (scene/story-text selected)))
 
 (a/defn armed-passage? :bool []
-  (and (k/< record-track scene/passage-entity-count)
-       (k/> (:len (node-id record-track)) 0)))
+  (k/and (k/< record-track scene/passage-entity-count)
+         (k/> (:len (node-id record-track)) 0)))
 
 (a/defn record-workspace-guidance [:slice-const :u8]
   [[phase :u8] [voiced? :bool] [playing? :bool] [paused? :bool]]
@@ -2808,9 +2808,9 @@
                   51.0 (k/+ y 25.0) 0.22 (if (capture-passage? i)
                                            0xc63535
                                            0x586777))
-        (when (and clicked
-                   (k/! (busy?))
-                   (inside? 16.0 y 220.0 50.0))
+        (when (k/and clicked
+                     (k/! (busy?))
+                     (inside? 16.0 y 220.0 50.0))
           (when (k/!= selected i)
             (k/= seek-seconds 0.0))
           (set-state! [selected i
@@ -2833,7 +2833,7 @@
                    "Show routing") (content-x 724.0) 108.0 148.0)
     (show-routing! (k/! routing-visible)))
   (when (icon-button! 4 "Record new take" 266.0 150.0 156.0
-                      (and (k/! (busy?)) (recordable-selection?)) false)
+                      (k/and (k/! (busy?)) (recordable-selection?)) false)
     (request-selected-recording!))
   (label! (if (effects-pass?)
             "Processing saved take. Stop to finish."
@@ -2872,27 +2872,27 @@
               "TAKE AUDITION")
             254.0 (bottom-y 592.0) 0.19 0x586777)
   (waveform! (bottom-y 611.0))
-  (when (and clicked
-             (k/! (busy?))
-             (selected-waveform?)
-             (inside? 242.0 (bottom-y 611.0) (timeline-width) 64.0))
+  (when (k/and clicked
+               (k/! (busy?))
+               (selected-waveform?)
+               (inside? 242.0 (bottom-y 611.0) (timeline-width) 64.0))
     (position! (k/* take-seconds (k/max 0.0 (k/min 1.0 (k// (k/- (k/as (k/floatCast mouse-x) :f32) 242.0) (timeline-width)))))))
-  (let [active (and (selected-preview?) (playing-preview?))]
+  (let [active (k/and (selected-preview?) (playing-preview?))]
     (when (icon-button! (if active
                           1
                           0)
                         (if active
                           "Pause take"
-                          (if (and (selected-preview?) preview-paused)
+                          (if (k/and (selected-preview?) preview-paused)
                             "Resume take"
                             "Listen to take"))
                         242.0 (bottom-y 685.0) 166.0
-                        (and (k/! (busy?)) (k/> (selected-take-seconds) 0.0)) active)
+                        (k/and (k/! (busy?)) (k/> (selected-take-seconds) 0.0)) active)
       (request! 35)))
-  (when (enabled-button! "Previous take" 424.0 (bottom-y 685.0) 132.0 (and (k/! (busy?)) (k/> (selected-take-seconds) 0.0))
+  (when (enabled-button! "Previous take" 424.0 (bottom-y 685.0) 132.0 (k/and (k/! (busy?)) (k/> (selected-take-seconds) 0.0))
                          "Stop recording and select a saved take first.")
     (request! 4))
-  (when (enabled-button! "Next take" 566.0 (bottom-y 685.0) 118.0 (and (k/! (busy?)) (k/> (selected-take-seconds) 0.0))
+  (when (enabled-button! "Next take" 566.0 (bottom-y 685.0) 118.0 (k/and (k/! (busy?)) (k/> (selected-take-seconds) 0.0))
                          "Stop recording and select a saved take first.")
     (request! 5)))
 
@@ -2925,13 +2925,13 @@
                  mouse-y test-y
                  clicked true
                  test-click false]))
-  (k/= route-click (and (k/> route-menu 0) clicked))
+  (k/= route-click (k/and (k/> route-menu 0) clicked))
   (when (k/> route-menu 0)
     (k/= clicked false))
   (divider-input!)
   (k/= hint-length 0)
   (glfw/glfwSetCursor studio-window k/null)
-  (when (and clicked (k/! (inside? 28.0 (bottom-y 621.0) 192.0 28.0)))
+  (when (k/and clicked (k/! (inside? 28.0 (bottom-y 621.0) 192.0 28.0)))
     (when name-focus
       (cancel-name-composition!))
     (k/= name-focus false))
@@ -3016,9 +3016,9 @@
                                      (busy?)
                                      (playing-preview?)
                                      preview-paused
-                                     (and (k/== workspace-mode 0) (k/== record-enabled 1)))
+                                     (k/and (k/== workspace-mode 0) (k/== record-enabled 1)))
         seconds (cond
-                  (or (k/== capture-phase 2) (k/== capture-phase 4))
+                  (k/or (k/== capture-phase 2) (k/== capture-phase 4))
                   capture-cursor
                   (k/== capture-phase 1)
                   (k/as (k/floatCast (k/max 0.0 (k/- countdown-until (glfw/glfwGetTime)))) :f32)
@@ -3059,18 +3059,18 @@
 (a/defn- draw-transport! :void []
   (let [playing? (playing-preview?)
         focused-record? (k/!= workspace-mode 0)
-        record-enabled? (and (k/! focused-record?) (k/== record-enabled 1))
+        record-enabled? (k/and (k/! focused-record?) (k/== record-enabled 1))
         label (cond
                 playing? "PAUSE"
                 (paused-preview?) "RESUME"
                 record-enabled? "PLAY / REC"
                 :else "PLAY")
-        enabled? (and (k/! (busy?))
-                      (or record-enabled?
-                          mix-mode
-                          (k/> (selected-take-seconds) 0.0)
-                          (paused-preview?)
-                          playing?))
+        enabled? (k/and (k/! (busy?))
+                        (k/or record-enabled?
+                              mix-mode
+                              (k/> (selected-take-seconds) 0.0)
+                              (paused-preview?)
+                              playing?))
         active? playing?]
     (when (icon-button! (if playing? 1 0) label
                         16.0 51.0 130.0 enabled? active?)
@@ -3081,7 +3081,7 @@
     (position! 0.0))
   (let [focused? (k/!= workspace-mode 0)]
     (when (icon-button! 4 (if focused? "RECORD" "REC") 301.0 51.0 100.0
-                        (and (k/! (busy?)) (or (k/! focused?) (recordable-selection?)))
+                        (k/and (k/! (busy?)) (k/or (k/! focused?) (recordable-selection?)))
                         (if focused? (k/> (capture-phase-value) 0) (k/== record-enabled 1)))
       (if focused?
         (request-selected-recording!)
@@ -3110,10 +3110,10 @@
     (k/intFromFloat (k/+ 0.5 (k/* bounded 50.0)))))
 
 (a/defn update-monitor-level! :void []
-  (when (or (k/! routing-visible) (k/> route-menu 0))
+  (when (k/or (k/! routing-visible) (k/> route-menu 0))
     (k/= monitor-level-drag false)
     (k/return))
-  (when (and clicked (inside? (right-x 906.0) 497.0 170.0 22.0))
+  (when (k/and clicked (inside? (right-x 906.0) 497.0 170.0 22.0))
     (k/= monitor-level-drag true))
   (when monitor-level-drag
     (set-monitor-level! (monitor-level-at mouse-x))
@@ -3132,8 +3132,8 @@
     (when (k/> gain 0)
       (rounded-rect! (right-x 914.0) 506.0 (k/- thumb-x (right-x 914.0)) 4.0 2.0 0x356cd5))
     (rounded-rect! (k/- thumb-x 5.0) 501.0 10.0 14.0 3.0
-                   (if (or hover? monitor-level-drag) 0x235ac0 0x356cd5))
-    (when (or hover? monitor-level-drag)
+                   (if (k/or hover? monitor-level-drag) 0x235ac0 0x356cd5))
+    (when (k/or hover? monitor-level-drag)
       (hint! "Drag to set live headphone monitoring (0-50%). Does not enable monitoring or change takes or playback gain."))))
 
 (a/defvar routing-tools-visible :bool false)
@@ -3143,7 +3143,7 @@
                clicked false]))
 
 (a/defn routing-controls-available? :bool []
-  (and (k/! (busy?)) (k/! (recorder/input-check-active?))))
+  (k/and (k/! (busy?)) (k/! (recorder/input-check-active?))))
 
 (a/defn- draw-routing-tools! :void []
   (let [idle? (k/! (busy?))
@@ -3166,7 +3166,7 @@
                              "Stop recording or the input check before reconnecting devices.")
         (request! 22))
       (when (enabled-button! "Process take FX" (right-x 906.0) 658.0 170.0
-                             (and idle? (k/> (selected-take-seconds) 0.0))
+                             (k/and idle? (k/> (selected-take-seconds) 0.0))
                              "Stop recording and select a saved take to process through the FX route.")
         (request! 3))
       (when (enabled-button! "Recover takes" (right-x 906.0) 690.0 170.0 idle?
@@ -3208,8 +3208,8 @@
                              "Listening output...") (right-x 906.0) 386.0 170.0
                            (routing-controls-available?) "Stop recording or the input check before changing devices.")
       (route-open! 4))
-    (when (and (k/== (selected-output-mute) 1)
-               (inside? (right-x 904.0) 384.0 174.0 60.0))
+    (when (k/and (k/== (selected-output-mute) 1)
+                 (inside? (right-x 904.0) 384.0 174.0 60.0))
       (hint! "The selected output is muted in macOS Sound settings. Studio does not change system mute."))
     (label! (recorder/device-name false headphones) (right-x 908.0) 419.0 166.0 0x586777)
     (scene/rect! (right-x 908.0) 440.0 168.0 5.0 0xdce3ed 0.0)
@@ -3244,11 +3244,11 @@
 (a/defn- draw-device-menu! :void []
   (when (k/> route-menu 0)
     (k/= clicked route-click)
-    (when (and clicked (k/! (inside? (right-x 558.0) 137.0 522.0 371.0)))
+    (when (k/and clicked (k/! (inside? (right-x 558.0) 137.0 522.0 371.0)))
       (set-state! [route-menu 0
                    clicked false])))
   (when (k/> route-menu 0)
-    (let [capture (or (k/== route-menu 1) (k/== route-menu 3))
+    (let [capture (k/or (k/== route-menu 1) (k/== route-menu 3))
           total (route-total)
           active (route-selected)]
       (scene/rect! (right-x 558.0) 137.0 522.0 371.0 0xffffff 0.0)
@@ -3278,7 +3278,7 @@
                 (ui-text! "Selected" (right-x 983.0) (k/+ y 4.0) 0.22 0x235ac0))
               (when hover
                 (glfw/glfwSetCursor studio-window hand-cursor))
-              (when (and clicked hover)
+              (when (k/and clicked hover)
                 (route-select! i))))))
       (when (k/== total 0)
         (ui-text! "No devices found. Close and reconnect." (right-x 584.0) 197.0 0.24 0x356cd5))
@@ -3373,7 +3373,7 @@
     (glfw/glfwFocusWindow studio-window)))
 
 (a/defn tick-window! :void {:callconv :c} []
-  (when (or (k/! attached) (k/== studio-window k/null))
+  (when (k/or (k/! attached) (k/== studio-window k/null))
     (k/= frame-previous-start 0.0)
     (k/return))
   ;; Window close hides without discarding a recording. F1 shows it again;
@@ -3388,13 +3388,13 @@
     (glfw/glfwHideWindow studio-window))
   ;; Keep game audio out of a take even when switching to Bitwig during capture.
 
-  (suppress-game-audio! (or (busy?)
-                            (k/!= capture-phase 0)
-                            (and (k/!= (glfw/glfwGetWindowAttrib studio-window glfw/GLFW_VISIBLE) 0)
-                                 (k/== (glfw/glfwGetWindowAttrib studio-window glfw/GLFW_ICONIFIED) 0)
-                                 (k/!= (glfw/glfwGetWindowAttrib studio-window glfw/GLFW_FOCUSED) 0))))
-  (when (or (k/== (glfw/glfwGetWindowAttrib studio-window glfw/GLFW_VISIBLE) 0)
-            (k/!= (glfw/glfwGetWindowAttrib studio-window glfw/GLFW_ICONIFIED) 0))
+  (suppress-game-audio! (k/or (busy?)
+                              (k/!= capture-phase 0)
+                              (k/and (k/!= (glfw/glfwGetWindowAttrib studio-window glfw/GLFW_VISIBLE) 0)
+                                     (k/== (glfw/glfwGetWindowAttrib studio-window glfw/GLFW_ICONIFIED) 0)
+                                     (k/!= (glfw/glfwGetWindowAttrib studio-window glfw/GLFW_FOCUSED) 0))))
+  (when (k/or (k/== (glfw/glfwGetWindowAttrib studio-window glfw/GLFW_VISIBLE) 0)
+              (k/!= (glfw/glfwGetWindowAttrib studio-window glfw/GLFW_ICONIFIED) 0))
     (cancel-name-composition!)
     (k/= frame-previous-start 0.0)
     (k/return))
@@ -3433,8 +3433,8 @@
       (glfw/glfwGetWindowFrameSize studio-window (k/& (:left bounds)) (k/& (:top bounds))
                                    (k/& (:right bounds)) (k/& (:bottom bounds)))
       (k/= (:normal bounds)
-           (if (and (k/== (glfw/glfwGetWindowAttrib studio-window glfw/GLFW_ICONIFIED) 0)
-                    (k/== (glfw/glfwGetWindowAttrib studio-window glfw/GLFW_MAXIMIZED) 0))
+           (if (k/and (k/== (glfw/glfwGetWindowAttrib studio-window glfw/GLFW_ICONIFIED) 0)
+                      (k/== (glfw/glfwGetWindowAttrib studio-window glfw/GLFW_MAXIMIZED) 0))
              1
              0)))
     bounds))
@@ -3448,8 +3448,8 @@
   (let [bounds (k/var (k/as (mem/zeroes WindowBounds) WindowBounds))
         count (k/var (k/as 0 :c_int))
         monitors (glfw/glfwGetMonitors (k/& count))]
-    (when (and (k/!= monitors k/null)
-               (k/< index (k/as (k/intCast (k/max 0 count)) :u32)))
+    (when (k/and (k/!= monitors k/null)
+                 (k/< index (k/as (k/intCast (k/max 0 count)) :u32)))
       (glfw/glfwGetMonitorWorkarea (a/get monitors (k/intCast index))
                                    (k/& (:x bounds)) (k/& (:y bounds))
                                    (k/& (:width bounds)) (k/& (:height bounds))))
@@ -3473,8 +3473,8 @@
     (window-size-limits!)))
 
 (a/defn window-resizable? :bool []
-  (and (k/!= studio-window k/null)
-       (k/!= (glfw/glfwGetWindowAttrib studio-window glfw/GLFW_RESIZABLE) 0)))
+  (k/and (k/!= studio-window k/null)
+         (k/!= (glfw/glfwGetWindowAttrib studio-window glfw/GLFW_RESIZABLE) 0)))
 
 (a/defn detach! :void {:callconv :c} []
   (cancel-name-composition!)

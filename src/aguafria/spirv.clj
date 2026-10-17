@@ -86,14 +86,14 @@
              _ (Files/createDirectories directory (make-array FileAttribute 0))
              raw (Files/createTempFile directory ".shader-" ".raw.spv" (make-array FileAttribute 0))
              candidate (Files/createTempFile directory ".shader-" ".spv"
-                                              (make-array FileAttribute 0))]
+                                             (make-array FileAttribute 0))]
          (try (let [artifact (a/build! namespace
-                                        {:kind :exe
-                                         :target shader-target
-                                         :cpu "vulkan_v1_2"
-                                         :optimize "fast"
-                                         :zig-args ["-fno-llvm"]
-                                         :output (str raw)})]
+                                       {:kind :exe
+                                        :target shader-target
+                                        :cpu "vulkan_v1_2"
+                                        :optimize "fast"
+                                        :zig-args ["-fno-llvm"]
+                                        :output (str raw)})]
                 ;; Zig emits unused interface type copies. Remove them before
                 ;; Vulkan validation; only the validated result can become a
                 ;; GPU candidate.
@@ -105,7 +105,7 @@
                                         [StandardCopyOption/ATOMIC_MOVE
                                          StandardCopyOption/REPLACE_EXISTING]))
                 (assoc artifact
-                  :output-path (str target)
-                  :validated? true
-                  :bytes (Files/size target)))
+                       :output-path (str target)
+                       :validated? true
+                       :bytes (Files/size target)))
               (finally (Files/deleteIfExists raw) (Files/deleteIfExists candidate))))))))

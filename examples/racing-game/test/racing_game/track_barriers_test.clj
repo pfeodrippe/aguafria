@@ -36,10 +36,10 @@
         wall (barriers/create! world)
         ;; Start on the roadway, inside the actual wall even where the
         ;; Blender-authored runoff narrows around an inside bend.
-        p (circuit/at-distance (* progress 4309.0) (* side 4.0))
+        p (circuit/at-distance (ak/* progress 4309.0) (ak/* side 4.0))
         body (physics/create-box world
-               (b3/b3Pos {:x (a/field p x) :y (a/field p y) :z (+ (a/field p z) 0.6)})
-               (b3/b3Vec3 {:x 2.5 :y 0.75 :z 0.2}) (a/field p heading) 700.0)
+                                 (b3/b3Pos {:x (a/field p x) :y (a/field p y) :z (ak/+ (a/field p z) 0.6)})
+                                 (b3/b3Vec3 {:x 2.5 :y 0.75 :z 0.2}) (a/field p heading) 700.0)
         ^{:var :i32} hits 0
         ^{:var :f32} maximum-lane 0.0
         ^{:var :f32} minimum-z 1000.0]
@@ -47,19 +47,19 @@
     (ak/defer (terrain/destroy! surface))
     (ak/defer (physics/destroy-world! world))
     (b3/b3Body_SetLinearVelocity body
-      (b3/b3Vec3 {:x (* side speed (- (math/sin (a/field p heading))))
-                   :y (* side speed (math/cos (a/field p heading))) :z 0.0}))
+                                 (b3/b3Vec3 {:x (ak/* side speed (ak/- (math/sin (a/field p heading))))
+                                             :y (ak/* side speed (math/cos (a/field p heading))) :z 0.0}))
     (dotimes [_ physics/step-rate]
       (physics/step! world)
       (let [state (physics/body-state body)
-            projection (track/project (* (a/field state x) 0.001) (* (a/field state y) 0.001))]
-        (ak/= hits (+ hits (a/field (b3/b3World_GetContactEvents world) hitCount)))
-        (ak/= maximum-lane (ak/max maximum-lane (* 50.0 (ak/abs (a/field projection lane)))))
+            projection (track/project (ak/* (a/field state x) 0.001) (ak/* (a/field state y) 0.001))]
+        (ak/= hits (ak/+ hits (a/field (b3/b3World_GetContactEvents world) hitCount)))
+        (ak/= maximum-lane (ak/max maximum-lane (ak/* 50.0 (ak/abs (a/field projection lane)))))
         (ak/= minimum-z (ak/min minimum-z (a/field state z)))))
     (let [state (physics/body-state body)]
       (a/init [(ak/floatFromInt hits) maximum-lane minimum-z
-         (ak/sqrt (+ (* (a/field state vx) (a/field state vx))
-                      (* (a/field state vy) (a/field state vy))))] [:array 4 :f32]))))
+               (ak/sqrt (ak/+ (ak/* (a/field state vx) (a/field state vx))
+                              (ak/* (a/field state vy) (a/field state vy))))] [:array 4 :f32]))))
 
 (deftest rigid-body-cannot-pass-through-authored-containment-test
   (doseq [progress [0.0 0.25 0.5 0.82] side [-1.0 1.0]]

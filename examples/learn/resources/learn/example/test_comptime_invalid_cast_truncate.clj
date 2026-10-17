@@ -1,8 +1,9 @@
 (ns learn.example.test-comptime-invalid-cast-truncate
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defcomptime reject-too-large-byte
-  (let [spartan-count (k/u16 300)
-        byte (k/u8 (k/intCast spartan-count))]
-    (k/= :_ byte)))
+  (let [spartan-count (u16 300)
+        byte (u8 (intCast spartan-count))]
+    (= :_ byte)))

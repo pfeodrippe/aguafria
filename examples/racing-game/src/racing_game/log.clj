@@ -110,22 +110,22 @@
        (if (empty? entries)
          "No retained driver text exchanges.\n"
          (str/join "\n\n"
-           (map (fn [group]
-                  (let [{:keys [racer sequence race observation reply instructions reason
-                                complete? input-tokens output-tokens inference-ms queue-ms total-ms]}
-                        (first group)]
-                  (str (format "R%d | decision #%d | race %d | %s\n" racer sequence race reason)
-                       (when include-instructions? (str "Instructions sent: " instructions "\n"))
-                       "Observation sent: " observation "\n"
-                       "Model replied: " (if (seq reply) reply "(No text returned)") "\n"
-                       (when-not complete? "Generation did not finish normally.\n")
-                       (format (str "Input %d tokens, output %d tokens | inference %.1f ms "
-                                    "+ queue %.1f ms = %.1f ms total")
-                               input-tokens output-tokens inference-ms queue-ms total-ms)
-                       (when (> (count group) 1)
-                         (format "\nUnchanged across %d calls (#%d-#%d). Timings/token counts above are for the latest call."
-                                 (count group) (:sequence (last group)) sequence)))))
-                (language-exchange-groups entries every-call?))))
+                   (map (fn [group]
+                          (let [{:keys [racer sequence race observation reply instructions reason
+                                        complete? input-tokens output-tokens inference-ms queue-ms total-ms]}
+                                (first group)]
+                            (str (format "R%d | decision #%d | race %d | %s\n" racer sequence race reason)
+                                 (when include-instructions? (str "Instructions sent: " instructions "\n"))
+                                 "Observation sent: " observation "\n"
+                                 "Model replied: " (if (seq reply) reply "(No text returned)") "\n"
+                                 (when-not complete? "Generation did not finish normally.\n")
+                                 (format (str "Input %d tokens, output %d tokens | inference %.1f ms "
+                                              "+ queue %.1f ms = %.1f ms total")
+                                         input-tokens output-tokens inference-ms queue-ms total-ms)
+                                 (when (> (count group) 1)
+                                   (format "\nUnchanged across %d calls (#%d-#%d). Timings/token counts above are for the latest call."
+                                           (count group) (:sequence (last group)) sequence)))))
+                        (language-exchange-groups entries every-call?))))
        "\n"))
 
 (defn write-language!
@@ -138,7 +138,7 @@
          output (io/file (or text-file (io/file (model/project-root) "build/logs/driver-text.txt")))]
      (io/make-parents output)
      (spit output (language-text-report entries {:include-instructions? include-instructions?
-                                               :every-call? every-call?})
+                                                 :every-call? every-call?})
            :encoding "UTF-8")
      {:text output :exchange-count (count entries)})))
 
@@ -314,7 +314,7 @@
           per-racer-limit default-per-racer-limit}}]
    (let [output (io/file edn-file)
          traces (decision-traces per-racer-limit
-                                  {:include-raw? include-raw?})
+                                 {:include-raw? include-raw?})
          cognition (game/cognition-status)
          document {:format :aguafria-racing/decision-traces-v1
                    :trace-count (count traces)

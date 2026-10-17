@@ -37,7 +37,7 @@
         (physics/drive! car 1.0 0.0 0.0)
         (physics/step! sim/dynamics-world))
       (sim/update-tire-strategy! 0)
-      (ak/= (a/index losses state) (- 1.0 (a/field racer tire_condition))))
+      (ak/= (a/index losses state) (ak/- 1.0 (a/field racer tire_condition))))
     losses))
 
 (deftest pit-call-does-not-disable-tire-wear-test
@@ -49,16 +49,16 @@
     (is (pos? exiting) "Fresh tires accrue work during pit exit")))
 
 (a/defstruct LanguageControlResult {:layout :extern}
-  [[:hold_reason :u8] [:follow_reason :u8] [:stale_reason :u8] [:expired_reason :u8]
-   [:install_displacement :f32] [:held_throttle :f32] [:held_brake :f32]
-   [:distance :f32] [:ticks :u64] [:revision :u64]
-   [:fixture_not_llm :bool] [:reply_preserved :bool] [:rejected_preserves_plan :bool]
-   [:expiry_throttle :f32] [:expiry_brake :f32]])
+             [[:hold_reason :u8] [:follow_reason :u8] [:stale_reason :u8] [:expired_reason :u8]
+              [:install_displacement :f32] [:held_throttle :f32] [:held_brake :f32]
+              [:distance :f32] [:ticks :u64] [:revision :u64]
+              [:fixture_not_llm :bool] [:reply_preserved :bool] [:rejected_preserves_plan :bool]
+              [:expiry_throttle :f32] [:expiry_brake :f32]])
 
 (a/defn fixture-language-plan! :u8
   "Explicit manual fixture submission. Never attribute these words to AI." [[index :usize] [revision :u64] [expires :u64] [text [:slice-const :u8]]]
   (sim/install-language-plan! index sim/race-epoch revision sim/simulation-tick expires
-    (a/field text ptr) (a/field text len) true false))
+                              (a/field text ptr) (a/field text len) true false))
 
 (a/defn language-control-probe LanguageControlResult
   "World-owning integration: only pedals move bodies; no inference or fake
@@ -78,13 +78,13 @@
         ^:var result (mem/zeroes (a/type LanguageControlResult))]
     (ak/= (a/field result hold_reason) hold-reason)
     (ak/= (a/field result install_displacement)
-      (+ (ak/abs (- (a/field after x) (a/field before x)))
-         (ak/abs (- (a/field after y) (a/field before y)))
-         (ak/abs (- (a/field after z) (a/field before z)))))
+          (ak/+ (ak/abs (ak/- (a/field after x) (a/field before x)))
+                (ak/abs (ak/- (a/field after y) (a/field before y)))
+                (ak/abs (ak/- (a/field after z) (a/field before z)))))
     (ak/= (a/field result fixture_not_llm) (ak/! (a/field event generated)))
     (ak/= (a/field result reply_preserved)
-      (mem/eql (a/type :u8)
-        (a/slice (a/field event text) 0 (a/field event byte_count)) hold-text))
+          (mem/eql (a/type :u8)
+                   (a/slice (a/field event text) 0 (a/field event byte_count)) hold-text))
     ;; Simulate a recovery trying to drive: the production final gate must win.
     (ak/= (a/field (a/index sim/vehicle-controls 0) throttle) 1.0)
     (ak/= (a/field (a/index sim/vehicle-controls 0) brake) 0.0)
@@ -96,15 +96,15 @@
         (when (ak/== i 0) (ak/= (a/field result follow_reason) reason))))
     (sim/step-many! 120)
     (let [moved (sim/vehicle-pose 0 0)
-          dx (- (a/field moved x) (a/field after x))
-          dy (- (a/field moved y) (a/field after y))]
-      (ak/= (a/field result distance) (ak/sqrt (+ (* dx dx) (* dy dy)))))
+          dx (ak/- (a/field moved x) (a/field after x))
+          dy (ak/- (a/field moved y) (a/field after y))]
+      (ak/= (a/field result distance) (ak/sqrt (ak/+ (ak/* dx dx) (ak/* dy dy)))))
     (ak/= (a/field result stale_reason)
-      (fixture-language-plan! 0 2 1200 "Plan: hold\nRadio: This reply is old."))
+          (fixture-language-plan! 0 2 1200 "Plan: hold\nRadio: This reply is old."))
     (ak/= (a/field result expired_reason)
-      (fixture-language-plan! 0 3 120 "Plan: hold\nRadio: This reply is expired."))
+          (fixture-language-plan! 0 3 120 "Plan: hold\nRadio: This reply is expired."))
     (ak/= (a/field result rejected_preserves_plan)
-      (ak/== (a/field (a/index sim/language-drivers 0) kind) protocol/plan-follow))
+          (ak/== (a/field (a/index sim/language-drivers 0) kind) protocol/plan-follow))
     (ak/= (a/field result revision) (a/field (a/index sim/language-drivers 0) revision))
     (ak/= (a/field result ticks) sim/simulation-tick)
     ;; Expiry of the installed plan is a pedal gate, not a stopped clock.
@@ -146,18 +146,18 @@
           control (a/index controls i)]
       (dotimes [part 5]
         (let [body (if (ak/== part 0) (a/field car chassis)
-                     (a/index (a/field car wheels) (- part 1)))
+                       (a/index (a/field car wheels) (ak/- part 1)))
               pose (a/index (a/index poses i) part)]
           (b3/b3Body_SetTransform body
-            (b3/b3Pos {:x (a/field pose x) :y (a/field pose y) :z (a/field pose z)})
-            (b3/b3Quat {:v {:x (a/field pose qx) :y (a/field pose qy) :z (a/field pose qz)}
-                         :s (a/field pose qw)}))))
+                                  (b3/b3Pos {:x (a/field pose x) :y (a/field pose y) :z (a/field pose z)})
+                                  (b3/b3Quat {:v {:x (a/field pose qx) :y (a/field pose qy) :z (a/field pose qz)}
+                                              :s (a/field pose qw)}))))
       (ak/= (a/field (a/deref racer) progress) (a/field control progress))
-      (ak/= (a/field (a/deref racer) lane) (/ (a/field control lane) 50.0))
-      (ak/= (a/field (a/deref racer) speed) (* (a/field control speed) 0.001))
+      (ak/= (a/field (a/deref racer) lane) (ak// (a/field control lane) 50.0))
+      (ak/= (a/field (a/deref racer) speed) (ak/* (a/field control speed) 0.001))
       (ak/= (a/field (a/deref racer) heading)
         ;; Measured orientation, not the road tangent.
-        (turnaround/heading (a/index (a/index poses i) 0)))))
+            (turnaround/heading (a/index (a/index poses i) 0)))))
   ;; This historical capture has eight cars. Keep that fixture unchanged while
   ;; the live simulation's storage contains the complete twenty-driver field.
   (dotimes [i 8]
@@ -173,9 +173,9 @@
                          (slurp (io/resource "fixtures/blocked-grid-2026-09-08.edn"))))
         controls (mapv #(get-in % [:recovery :control]) racers)
         [result observed] (a/value
-                 (captured-grid-recovery-controls-probe
-                   (mapv :poses racers) controls
-                   (recovery/State (get-in racers [0 :recovery :state]))))]
+                           (captured-grid-recovery-controls-probe
+                            (mapv :poses racers) controls
+                            (recovery/State (get-in racers [0 :recovery :state]))))]
     (is (pos? (:throttle (first controls))))
     (is (zero? (:throttle result)) "The actual recovery integration must use the veto")
     (is (= 1.0 (:brake result)))
@@ -183,8 +183,8 @@
     (is (= (:steering (a/value (driver/Control (first controls)))) (:steering result)))))
 
 (a/defstruct RacePhysicsResult {:layout :extern}
-  [[:minimum_speed :f32] [:minimum_up :f32] [:maximum_pose_error :f32]
-   [:stable_component :bool] [:ticks :u64]])
+             [[:minimum_speed :f32] [:minimum_up :f32] [:maximum_pose_error :f32]
+              [:stable_component :bool] [:ticks :u64]])
 
 (a/defn controlled-grid-probe RacePhysicsResult
   "Exercise the real simulation loop with explicit test intents, not LLM output." []
@@ -204,15 +204,15 @@
     (sim/step-many! 1200)
     (dotimes [i sim/racer-count]
       (let [view (sim/racer-view (ak/intCast i)) state (sim/vehicle-pose i 0)]
-        (ak/= speed (ak/min speed (* 1000.0 (a/field view speed))))
-        (ak/= up (ak/min up (- 1.0 (* 2.0 (+ (* (a/field state qx) (a/field state qx))
-                                           (* (a/field state qy) (a/field state qy)))))))
+        (ak/= speed (ak/min speed (ak/* 1000.0 (a/field view speed))))
+        (ak/= up (ak/min up (ak/- 1.0 (ak/* 2.0 (ak/+ (ak/* (a/field state qx) (a/field state qx))
+                                                      (ak/* (a/field state qy) (a/field state qy)))))))
         (ak/= pose-error (ak/max pose-error
-          (+ (ak/abs (- (* 1000.0 (a/field view x)) (a/field state x)))
-             (ak/abs (- (* 1000.0 (a/field view y)) (a/field state y))))))))
+                                 (ak/+ (ak/abs (ak/- (ak/* 1000.0 (a/field view x)) (a/field state x)))
+                                       (ak/abs (ak/- (ak/* 1000.0 (a/field view y)) (a/field state y))))))))
     (RacePhysicsResult {:minimum_speed speed :minimum_up up :maximum_pose_error pose-error
-                         :stable_component (ak/== address (ak/intFromPtr (sim/vehicle-pointer 0)))
-                         :ticks (a/field (sim/snapshot) tick)})))
+                        :stable_component (ak/== address (ak/intFromPtr (sim/vehicle-pointer 0)))
+                        :ticks (a/field (sim/snapshot) tick)})))
 
 (deftest flecs-race-is-driven-by-rigid-bodies-test
   (worker/stop!)
@@ -224,9 +224,9 @@
     (is (= 1200 (:ticks result)) (pr-str result))))
 
 (a/defstruct ClassificationResult {:layout :extern}
-  [[:ended :bool] [:finishers :u8] [:retired :u8] [:rank_a :u8] [:rank_b :u8]
-   [:dnf_finished :bool] [:dnf_laps :u16] [:frozen_progress :f32]
-   [:restart_clean :bool]])
+             [[:ended :bool] [:finishers :u8] [:retired :u8] [:rank_a :u8] [:rank_b :u8]
+              [:dnf_finished :bool] [:dnf_laps :u16] [:frozen_progress :f32]
+              [:restart_clean :bool]])
 
 (a/defn classification-probe ClassificationResult
   "Explicit classification fixture, not a claim of an eight-AI complete race." []
@@ -236,10 +236,10 @@
   (dotimes [i sim/racer-count]
     (let [racer (sim/racer-pointer i) brain (sim/brain-pointer i)]
       (ak/= (a/field (a/deref brain) next_decision_tick) 1000000000)
-      (ak/= (a/field (a/deref racer) finished) (< i 6))
-      (ak/= (a/field (a/deref racer) lap) (if (< i 6) 3 (if (ak/== i 6) 1 0)))
-      (ak/= (a/field (a/deref racer) finish_tick) (if (< i 6) (+ 100 i) 0))
-      (when (>= i 6)
+      (ak/= (a/field (a/deref racer) finished) (ak/< i 6))
+      (ak/= (a/field (a/deref racer) lap) (if (ak/< i 6) 3 (if (ak/== i 6) 1 0)))
+      (ak/= (a/field (a/deref racer) finish_tick) (if (ak/< i 6) (ak/+ 100 i) 0))
+      (when (ak/>= i 6)
         (ak/= (a/deref (sim/status-pointer i))
               (status/Entry {:retired true :reason status/reason-overturned
                              :invalid_ticks 600 :retired_tick 99
@@ -261,12 +261,12 @@
     (sim/shutdown!)
     (ak/= :_ (sim/initialize!))
     (ak/= (a/field result restart_clean)
-          (and (ak/== (sim/retired-count) 0)
-               (ak/!= (ak/intFromPtr (sim/status-pointer 0)) 0)
-               (ak/!= (ak/intFromPtr (sim/recovery-pointer 0)) 0)
-               (ak/== (a/field (a/field (sim/recovery-view 0) state) phase) 0)
-               (ak/== (a/field (a/field (sim/recovery-view 0) state) waiting_ticks) 0)
-               (> (a/field (sim/vehicle-pose 0 0) qw) -2.0)))
+          (ak/and (ak/== (sim/retired-count) 0)
+                  (ak/!= (ak/intFromPtr (sim/status-pointer 0)) 0)
+                  (ak/!= (ak/intFromPtr (sim/recovery-pointer 0)) 0)
+                  (ak/== (a/field (a/field (sim/recovery-view 0) state) phase) 0)
+                  (ak/== (a/field (a/field (sim/recovery-view 0) state) waiting_ticks) 0)
+                  (ak/> (a/field (sim/vehicle-pose 0 0) qw) -2.0)))
     result))
 
 (deftest dnf-classification-is-not-a-finish-test
@@ -321,9 +321,9 @@
     (ak/= (a/field (a/deref racer) finished) true)
     (ak/= (a/field (a/deref racer) finish_tick) 1234)
     (sim/step-many! 360)
-    (a/init [(* 1000.0 (a/field (sim/racer-view 0) speed))
-       (ak/as (ak/floatFromInt (a/field (sim/racer-view 0) finish_tick)) :f32)
-       (ak/as (ak/floatFromInt (a/field (sim/snapshot) state)) :f32)] [:array 3 :f32])))
+    (a/init [(ak/* 1000.0 (a/field (sim/racer-view 0) speed))
+             (ak/as (ak/floatFromInt (a/field (sim/racer-view 0) finish_tick)) :f32)
+             (ak/as (ak/floatFromInt (a/field (sim/snapshot) state)) :f32)] [:array 3 :f32])))
 
 (deftest finishers-clear-the-line-under-wheel-power-test
   (worker/stop!)
@@ -339,7 +339,7 @@
   (ak/defer (sim/shutdown!))
   (dotimes [i sim/racer-count]
     (let [racer (sim/racer-pointer i)]
-      (ak/= (a/field (a/deref racer) progress) (* 0.1 (ak/as (ak/floatFromInt i) :f32)))
+      (ak/= (a/field (a/deref racer) progress) (ak/* 0.1 (ak/as (ak/floatFromInt i) :f32)))
       (ak/= (a/field (a/deref racer) lane) 0.0)
       (ak/= (a/field (a/deref racer) speed) 0.0)
       (ak/= (a/field (a/deref racer) stun_seconds) 0.0)
@@ -350,14 +350,14 @@
     (ak/= (a/field (a/deref self) lap) 2)
     (ak/= (a/field (a/deref wreck) progress) 0.001)
     (ak/= (a/field (a/deref (sim/status-pointer 1)) retired) true)
-    (when (ak/== (sim/choose-target 0) 1) (ak/= checks (+ checks 1)))
-    (when (ak/== (sim/target-distance-bin 0 1) 0) (ak/= checks (+ checks 2)))
+    (when (ak/== (sim/choose-target 0) 1) (ak/= checks (ak/+ checks 1)))
+    (when (ak/== (sim/target-distance-bin 0 1) 0) (ak/= checks (ak/+ checks 2)))
     (when (ak/== (sim/racer-tactical-status 0) sim/tactical-status-hazard)
-      (ak/= checks (+ checks 4)))
+      (ak/= checks (ak/+ checks 4)))
     ;; A stationary car outside our corridor is visible but not blocking it.
     (ak/= (a/field (a/deref wreck) lane) 0.2)
     (when (ak/== (sim/racer-tactical-status 0) sim/tactical-status-clear)
-      (ak/= checks (+ checks 8)))
+      (ak/= checks (ak/+ checks 8)))
     checks))
 
 (deftest graphics-loading-preserves-the-physics-link-test
@@ -369,9 +369,9 @@
 
 (deftest future-pit-calls-do-not-disable-main-circuit-clearance-test
   (doseq [[state progress expected] [[0 0.9 false] [1 0.66 false]
-                                    [1 0.8499 false] [1 0.85 true]
-                                    [1 0.97 true] [1 0.99 false]
-                                    [2 0.97 true] [3 0.02 true]]]
+                                     [1 0.8499 false] [1 0.85 true]
+                                     [1 0.97 true] [1 0.99 false]
+                                     [2 0.97 true] [3 0.02 true]]]
     (is (= expected (sim/pit-navigation-active? state progress 0.969))
         (pr-str {:state state :progress progress}))))
 

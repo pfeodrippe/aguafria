@@ -1,5 +1,7 @@
 (ns learn.example.multiline-string-literals
-  (:require [aguafria.zig :as a]))
+  (:refer-clojure :only [])
+  (:require [aguafria.zig :as a]
+            [aguafria.keyword :as k :refer :all]))
 
 (a/defconst hello-world-in-c
   (a/multiline-string

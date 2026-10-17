@@ -1,5 +1,7 @@
 (ns learn.example.float-literals
-  (:require [aguafria.zig :as a]))
+  (:refer-clojure :only [])
+  (:require [aguafria.zig :as a]
+            [aguafria.keyword :as k :refer :all]))
 
 (a/defconst floating-point (a/number-literal "123.0E+77"))
 (a/defconst another-float 123.0)

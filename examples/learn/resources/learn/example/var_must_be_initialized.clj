@@ -1,11 +1,12 @@
 (ns learn.example.var-must-be-initialized
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defn main :void
   []
   (let [x]
-    (k/= x 1)))
+    (= x 1)))
 
 (comment
   (main))

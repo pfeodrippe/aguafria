@@ -45,19 +45,21 @@
   :note "The optimized floating-point mode enum literal."}
 
  "a + b\na += b"
- {:clojure-source "(+ a b)\n(k/+= a b)"
+ {:clojure-source "(k/+ a b)
+(k/+= a b)"
   :kind :statements
   :alternatives? true
   :note "Addition expression and assignment alternatives; the assignment requires mutable a."}
 
  "2 + 5 == 7"
- {:clojure-source "(k/== (+ 2 5) 7)"
+ {:clojure-source "(k/== (k/+ 2 5) 7)"
   :kind :expr
   :standalone? true
   :note "Addition is evaluated before equality."}
 
  "a +% b\na +%= b"
- {:clojure-source "(k/+% a b)\n(k/+%= a b)"
+ {:clojure-source "(k/+% a b)
+(k/+%= a b)"
   :kind :statements
   :alternatives? true
   :note "Wrapping addition expression and assignment alternatives."}
@@ -69,7 +71,8 @@
   :note "Adding one wraps the largest u32 to zero."}
 
  "a +| b\na +|= b"
- {:clojure-source "(k/+| a b)\n(k/+|= a b)"
+ {:clojure-source "(k/+| a b)
+(k/+|= a b)"
   :kind :statements
   :alternatives? true
   :note "Saturating addition expression and assignment alternatives."}
@@ -81,19 +84,21 @@
   :note "Saturating addition clamps at the largest u8."}
 
  "a - b\na -= b"
- {:clojure-source "(- a b)\n(k/-= a b)"
+ {:clojure-source "(k/- a b)
+(k/-= a b)"
   :kind :statements
   :alternatives? true
   :note "Subtraction expression and assignment alternatives."}
 
  "2 - 5 == -3"
- {:clojure-source "(k/== (- 2 5) -3)"
+ {:clojure-source "(k/== (k/- 2 5) -3)"
   :kind :expr
   :standalone? true
   :note "Comptime integer subtraction can produce a negative result."}
 
  "a -% b\na -%= b"
- {:clojure-source "(k/-% a b)\n(k/-%= a b)"
+ {:clojure-source "(k/-% a b)
+(k/-%= a b)"
   :kind :statements
   :alternatives? true
   :note "Wrapping subtraction expression and assignment alternatives."}
@@ -105,7 +110,8 @@
   :note "Subtracting one wraps zero to the largest u8."}
 
  "a -| b\na -|= b"
- {:clojure-source "(k/-| a b)\n(k/-|= a b)"
+ {:clojure-source "(k/-| a b)
+(k/-|= a b)"
   :kind :statements
   :alternatives? true
   :note "Saturating subtraction expression and assignment alternatives."}
@@ -117,12 +123,12 @@
   :note "Unsigned saturating subtraction stops at zero."}
 
  "-a"
- {:clojure-source "(- a)"
+ {:clojure-source "(k/- a)"
   :kind :expr
   :note "Unary negation can overflow a signed integer's minimum value."}
 
  "-1 == 0 - 1"
- {:clojure-source "(k/== -1 (- 0 1))"
+ {:clojure-source "(k/== -1 (k/- 0 1))"
   :kind :expr
   :standalone? true
   :note "A negative literal equals subtraction from zero."}
@@ -139,19 +145,21 @@
   :note "Wrapping negation leaves the minimum i8 unchanged."}
 
  "a * b\na *= b"
- {:clojure-source "(* a b)\n(k/*= a b)"
+ {:clojure-source "(k/* a b)
+(k/*= a b)"
   :kind :statements
   :alternatives? true
   :note "Multiplication expression and assignment alternatives."}
 
  "2 * 5 == 10"
- {:clojure-source "(k/== (* 2 5) 10)"
+ {:clojure-source "(k/== (k/* 2 5) 10)"
   :kind :expr
   :standalone? true
   :note "Multiply two comptime integers."}
 
  "a *% b\na *%= b"
- {:clojure-source "(k/*% a b)\n(k/*%= a b)"
+ {:clojure-source "(k/*% a b)
+(k/*%= a b)"
   :kind :statements
   :alternatives? true
   :note "Wrapping multiplication expression and assignment alternatives."}
@@ -163,7 +171,8 @@
   :note "The product wraps modulo 256 for u8."}
 
  "a *| b\na *|= b"
- {:clojure-source "(k/*| a b)\n(k/*|= a b)"
+ {:clojure-source "(k/*| a b)
+(k/*|= a b)"
   :kind :statements
   :alternatives? true
   :note "Saturating multiplication expression and assignment alternatives."}
@@ -175,19 +184,21 @@
   :note "The product saturates at the largest u8."}
 
  "a / b\na /= b"
- {:clojure-source "(/ a b)\n(k/div-assign a b)"
+ {:clojure-source "(k// a b)
+(k/div-assign a b)"
   :kind :statements
   :alternatives? true
   :note "Division expression and assignment alternatives; div-assign is reader-safe spelling."}
 
  "10 / 5 == 2"
- {:clojure-source "(k/== (/ 10 5) 2)"
+ {:clojure-source "(k/== (k// 10 5) 2)"
   :kind :expr
   :standalone? true
   :note "Exact division of positive comptime integers."}
 
  "a % b\na %= b"
- {:clojure-source "(k/% a b)\n(k/%= a b)"
+ {:clojure-source "(k/% a b)
+(k/%= a b)"
   :kind :statements
   :alternatives? true
   :note "Remainder expression and assignment alternatives."}
@@ -199,7 +210,8 @@
   :note "Positive integer division leaves a remainder of one."}
 
  "a << b\na <<= b"
- {:clojure-source "(k/<< a b)\n(k/<<= a b)"
+ {:clojure-source "(k/<< a b)
+(k/<<= a b)"
   :kind :statements
   :alternatives? true
   :note "Left-shift expression and assignment alternatives."}
@@ -211,7 +223,8 @@
   :note "Clojure's 2r prefix writes binary integer literals."}
 
  "a <<| b\na <<|= b"
- {:clojure-source "(k/<<| a b)\n(k/<<|= a b)"
+ {:clojure-source "(k/<<| a b)
+(k/<<|= a b)"
   :kind :statements
   :alternatives? true
   :note "Saturating left-shift expression and assignment alternatives."}
@@ -223,7 +236,8 @@
   :note "A saturating left shift clamps the u8 result to 255."}
 
  "a >> b\na >>= b"
- {:clojure-source "(k/>> a b)\n(k/>>= a b)"
+ {:clojure-source "(k/>> a b)
+(k/>>= a b)"
   :kind :statements
   :alternatives? true
   :note "Right-shift expression and assignment alternatives."}
@@ -235,7 +249,8 @@
   :note "Shift the binary integer right by one bit."}
 
  "a & b\na &= b"
- {:clojure-source "(k/& a b)\n(k/&= a b)"
+ {:clojure-source "(k/& a b)
+(k/&= a b)"
   :kind :statements
   :alternatives? true
   :note "Binary bitwise AND expression and assignment alternatives."}
@@ -247,7 +262,8 @@
   :note "Bitwise AND retains bits set in both operands."}
 
  "a | b\na |= b"
- {:clojure-source "(k/| a b)\n(k/|= a b)"
+ {:clojure-source "(k/| a b)
+(k/|= a b)"
   :kind :statements
   :alternatives? true
   :note "Bitwise OR expression and assignment alternatives."}
@@ -259,7 +275,8 @@
   :note "Bitwise OR retains bits set in either operand."}
 
  "a ^ b\na ^= b"
- {:clojure-source "(k/bit-xor a b)\n(a/assign-expr \"^=\" a b)"
+ {:clojure-source "(k/bit-xor a b)
+(a/assign-expr \"^=\" a b)"
   :kind :statements
   :alternatives? true
   :note "XOR expression and assignment alternatives use reader-safe forms."}
@@ -287,7 +304,9 @@
   :note "Evaluate b only when optional a is null."}
 
  "const value: ?u32 = null;\nconst unwrapped = value orelse 1234;\nunwrapped == 1234"
- {:clojure-source "(let [value (k/as nil [:optional :u32])\n      unwrapped (k/orelse value 1234)]\n  (k/== unwrapped 1234))"
+ {:clojure-source "(let [value (k/as nil [:optional :u32])
+      unwrapped (k/orelse value 1234)]
+  (k/== unwrapped 1234))"
   :kind :expr
   :standalone? true
   :note "A typed optional binding selects the fallback when null."}
@@ -303,13 +322,15 @@
   :note "Explicitly assert that the optional is not null."}
 
  "const value: ?u32 = 5678;\nvalue.? == 5678"
- {:clojure-source "(let [value (k/as 5678 [:optional :u32])]\n  (k/== (a/unwrap value) 5678))"
+ {:clojure-source "(let [value (k/as 5678 [:optional :u32])]
+  (k/== (a/unwrap value) 5678))"
   :kind :expr
   :standalone? true
   :note "Unwrap the non-null u32 payload."}
 
  "a catch b\na catch |err| b"
- {:clojure-source "(k/catch a b)\n(a/catch-capture [err] a b)"
+ {:clojure-source "(k/catch a b)
+(a/catch-capture [err] a b)"
   :kind :statements
   :alternatives? true
   :note "Alternative error handlers; the second makes err available to b."}
@@ -323,7 +344,8 @@
   :note "Propagate a's error to the caller."}
 
  "const value: anyerror!u32 = 5678;\ntry value == 5678"
- {:clojure-source "(let [value (k/as 5678 [:error-union :anyerror :u32])]\n  (k/== (k/try value) 5678))"
+ {:clojure-source "(let [value (k/as 5678 [:error-union :anyerror :u32])]
+  (k/== (k/try value) 5678))"
   :kind :expr :standalone? true
   :note "Unwrap the successful u32 payload before comparison."}
 
@@ -336,29 +358,31 @@
   :note "Ceiling division rounds a negative quotient toward positive infinity."}
 
  "const value: anyerror!u32 = error.Broken;\nconst unwrapped = value catch 1234;\nunwrapped == 1234"
- {:clojure-source "(let [value (k/as (a/error-value :Broken) [:error-union :anyerror :u32])\n      unwrapped (k/catch value 1234)]\n  (k/== unwrapped 1234))"
+ {:clojure-source "(let [value (k/as (a/error-value :Broken) [:error-union :anyerror :u32])
+      unwrapped (k/catch value 1234)]
+  (k/== unwrapped 1234))"
   :kind :expr
   :standalone? true
   :note "Catch replaces the error with a successful fallback value."}
 
  "a and b"
- {:clojure-source "(and a b)"
+ {:clojure-source "(k/and a b)"
   :kind :expr
   :note "Boolean AND evaluates b only when a is true."}
 
  "(false and true) == false"
- {:clojure-source "(k/== (and false true) false)"
+ {:clojure-source "(k/== (k/and false true) false)"
   :kind :expr
   :standalone? true
   :note "A false left operand short-circuits boolean AND."}
 
  "a or b"
- {:clojure-source "(or a b)"
+ {:clojure-source "(k/or a b)"
   :kind :expr
   :note "Boolean OR evaluates b only when a is false."}
 
  "(false or true) == true"
- {:clojure-source "(k/== (or false true) true)"
+ {:clojure-source "(k/== (k/or false true) true)"
   :kind :expr
   :standalone? true
   :note "A false left operand causes boolean OR to evaluate the right operand."}
@@ -391,7 +415,8 @@
   :note "Compare an optional with null, written nil in Aguafria."}
 
  "const value: ?u32 = null;\n(value == null) == true"
- {:clojure-source "(let [value (k/as nil [:optional :u32])]\n  (k/== (k/== value nil) true))"
+ {:clojure-source "(let [value (k/as nil [:optional :u32])]
+  (k/== (k/== value nil) true))"
   :kind :expr
   :standalone? true
   :note "A null optional compares equal to nil."}
@@ -413,18 +438,19 @@
   :note "Check whether an optional has a non-null payload."}
 
  "const value: ?u32 = null;\n(value != null) == false"
- {:clojure-source "(let [value (k/as nil [:optional :u32])]\n  (k/== (k/!= value nil) false))"
+ {:clojure-source "(let [value (k/as nil [:optional :u32])]
+  (k/== (k/!= value nil) false))"
   :kind :expr
   :standalone? true
   :note "A null optional fails the non-null check."}
 
  "a > b"
- {:clojure-source "(> a b)"
+ {:clojure-source "(k/> a b)"
   :kind :expr
   :note "Strict greater-than comparison."}
 
  "(2 > 1) == true"
- {:clojure-source "(k/== (> 2 1) true)"
+ {:clojure-source "(k/== (k/> 2 1) true)"
   :kind :expr
   :standalone? true
   :note "Two is strictly greater than one."}}

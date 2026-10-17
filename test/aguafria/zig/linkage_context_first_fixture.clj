@@ -1,5 +1,6 @@
 (ns aguafria.zig.linkage-context-first-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
-(a/defn foo :i32 {:attrs #{k/export}} [] 11)
+(a/defn foo :i32 {:attrs #{export}} [] 11)

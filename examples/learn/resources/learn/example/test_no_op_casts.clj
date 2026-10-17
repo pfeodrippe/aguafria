@@ -1,5 +1,6 @@
 (ns learn.example.test-no-op-casts
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defn- foo :void
@@ -7,7 +8,7 @@
 
 (a/deftest type-coercion-const-qualification
   (let [a (k/var 1 :i32)
-        b (k/as (k/& a) [:* :i32])]
+        b (as (k/& a) [:* :i32])]
     (foo b)))
 
 (comment

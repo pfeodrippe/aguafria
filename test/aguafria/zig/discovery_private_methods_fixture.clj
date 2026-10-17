@@ -1,20 +1,21 @@
 (ns aguafria.zig.discovery-private-methods-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defenum Suit
   [:clubs
    :spades
    (a/fn- is-clubs :bool [[self Suit]]
-          (k/== self :clubs))])
+          (== self :clubs))])
 
 (a/defconst Variant
-  (a/union {:attrs #{k/enum}}
+  (a/union {:attrs #{enum}}
            [[:int :i32]
             [:none :void]
             (a/fn- truthy :bool [[self Variant]]
-                   (k/switch self
-                     :int (a/with-block :_ [n] (k/!= n 0))
+                   (switch self
+                     :int (a/with-block :_ [n] (!= n 0))
                      :none false))]))
 
 (a/defstruct Counter
@@ -22,21 +23,21 @@
    [:Category {:const (a/enum [:small :large])} :type]
    (a/fn- initial-value :i32 [] 20)
    (a/fn- increment :void [[self [:* Counter]]]
-          (k/+= (:value self) 1))
+          (+= (:value self) 1))
    (a/fn- plus :i32 [[self Counter] [amount :i32]]
-          (k/+ (:value self) amount))
+          (+ (:value self) amount))
    (a/fn- category Category [[self Counter]]
-          (if (k/< (:value self) 20) :small :large))])
+          (if (< (:value self) 20) :small :large))])
 
 (a/deftest never-run
-  (let [suit (k/as :clubs Suit)
+  (let [suit (as :clubs Suit)
         variant (Variant {:int 1})
         counter (k/var (Counter {:value 20}))
-        amount (k/i32 3)]
-    (k/= :_ ((:is-clubs suit)))
-    (k/= :_ ((:truthy variant)))
+        amount (i32 3)]
+    (= :_ ((:is-clubs suit)))
+    (= :_ ((:truthy variant)))
     ((:increment counter))
-    (k/= :_ ((:plus counter) amount))
-    (k/= :_ ((:category counter)))
-    (k/= :_ ((:initial-value Counter))))
-  (k/unreachable))
+    (= :_ ((:plus counter) amount))
+    (= :_ ((:category counter)))
+    (= :_ ((:initial-value Counter))))
+  (unreachable))

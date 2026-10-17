@@ -1,5 +1,6 @@
 (ns learn.example.destructuring-block
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as a]))
 
@@ -10,12 +11,12 @@
         (a/with-block :blk
           (let [min (k/var 127 :i8)
                 max (k/var -128 :i8)]
-            (k/for [digit digits]
-              (when (k/< digit min)
-                (k/= min digit))
-              (when (k/> digit max)
-                (k/= max digit)))
-            (k/break :blk [min max])))]
+            (for [digit digits]
+              (when (< digit min)
+                (= min digit))
+              (when (> digit max)
+                (= max digit)))
+            (break :blk [min max])))]
     (debug/print "min = {}\n" [min])
     (debug/print "max = {}\n" [max])))
 

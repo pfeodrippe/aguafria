@@ -1,5 +1,7 @@
 (ns learn.example.test-coerce-error-superset-to-subset
-  (:require [aguafria.zig :as a]))
+  (:refer-clojure :only [])
+  (:require [aguafria.zig :as a]
+            [aguafria.keyword :as k :refer :all]))
 
 (a/defconst FileOpenError
   (a/type [:error-set [:AccessDenied :OutOfMemory :FileNotFound]]))
@@ -11,7 +13,7 @@
   err)
 
 (a/deftest coerce-superset-to-subset
-  (catch (foo (:OutOfMemory FileOpenError)) (a/block)))
+  (aguafria.keyword/catch (foo (:OutOfMemory FileOpenError)) (a/block)))
 
 (comment
   (coerce-superset-to-subset))

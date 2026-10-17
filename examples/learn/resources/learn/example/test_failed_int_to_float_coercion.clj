@@ -1,12 +1,13 @@
 (ns learn.example.test-failed-int-to-float-coercion
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/deftest integer-type-is-too-large-for-implicit-cast-to-float
   (let [int (k/var 123 :u25)]
-    (k/= :_ (k/& int))
-    (let [float (k/f32 int)]
-      (k/= :_ float))))
+    (= :_ (k/& int))
+    (let [float (f32 int)]
+      (= :_ float))))
 
 (comment
   (integer-type-is-too-large-for-implicit-cast-to-float))

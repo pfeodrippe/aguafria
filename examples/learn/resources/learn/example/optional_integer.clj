@@ -1,5 +1,7 @@
 (ns learn.example.optional-integer
-  (:require [aguafria.zig :as a]))
+  (:refer-clojure :only [])
+  (:require [aguafria.zig :as a]
+            [aguafria.keyword :as k :refer :all]))
 
 ;; normal integer
 (a/defconst normal-int :i32 1234)

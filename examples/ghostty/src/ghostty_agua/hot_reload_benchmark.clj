@@ -9,7 +9,7 @@
 (defn- terminal-address
   []
   (.address ^java.lang.foreign.MemorySegment
-            (:terminal (or (core/session) (core/start!)))))
+   (:terminal (or (core/session) (core/start!)))))
 
 (defn- verified-terminal-value
   [label expected actual address]
@@ -212,7 +212,7 @@
           declaration
           '(aguafria.keyword/== (field self len) bounds)
           (fn [form]
-            (list 'and form
+            (list 'aguafria.keyword/and form
                   (list 'aguafria.keyword/==
                         (:fresh-value context)
                         (:fresh-value context))))))

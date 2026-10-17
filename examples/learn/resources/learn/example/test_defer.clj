@@ -1,5 +1,6 @@
 (ns learn.example.test-defer
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
@@ -7,10 +8,10 @@
   []
   (let [a (k/var 1 :usize)]
     (a/block
-     (k/defer (k/= a 2))
-     (k/= a 1))
+     (defer (= a 2))
+     (= a 1))
     (k/try (testing/expectEqual 2 a))
-    (k/= a 5)
+    (= a 5)
     a))
 
 (a/deftest defer-basics

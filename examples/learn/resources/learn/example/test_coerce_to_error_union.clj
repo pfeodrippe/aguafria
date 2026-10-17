@@ -1,11 +1,12 @@
 (ns learn.example.test-coerce-to-error-union
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
 (a/deftest coercion-to-error-unions
-  (let [x (k/as 1234 [:error-union :anyerror :i32])
-        y (k/as (a/error-value :Failure) [:error-union :anyerror :i32])]
+  (let [x (as 1234 [:error-union :anyerror :i32])
+        y (as (a/error-value :Failure) [:error-union :anyerror :i32])]
     (k/try (testing/expectEqual 1234 (k/try x)))
     (k/try (testing/expectError (a/error-value :Failure) y))))
 

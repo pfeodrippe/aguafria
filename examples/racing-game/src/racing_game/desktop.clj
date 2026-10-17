@@ -1,8 +1,8 @@
 (ns racing-game.desktop
   "One-window native GLFW/Vulkan host for the twenty-AI race."
-  (:refer-clojure :exclude [run!])
+  (:refer-clojure :only [])
   (:require [aguafria.std]
-            [aguafria.keyword :as ak]
+            [aguafria.keyword :as ak :refer :all]
             [aguafria.std.debug :as std-debug]
             [aguafria.std.mem :as std-mem]
             [aguafria.zig :as a]
@@ -29,7 +29,7 @@
 
 (a/defvar running false)
 
-(a/defvar window [:optional [:* glfw/GLFWwindow]] ak/null)
+(a/defvar window [:optional [:* glfw/GLFWwindow]] null)
 
 (a/defvar frame-count :u64 0)
 
@@ -55,36 +55,36 @@
 
 (a/defvar scroll-installed false)
 
-(a/defvar previous-scroll glfw/GLFWscrollfun ak/null)
+(a/defvar previous-scroll glfw/GLFWscrollfun null)
 
 (a/defn camera-scroll! :void
   "GLFW wheel callback; ImGui chains this callback when installing its input."
   {:attrs #{:export}}
   [[event-window [:optional [:* glfw/GLFWwindow]]] [horizontal :f64] [vertical :f64]]
-  (when (ak/== (ui/aguafria_ui_captures_mouse) 0)
-    (render3d/zoom-by! (ak/floatCast (ak/exp (* vertical 0.12)))))
-  (when (ak/!= previous-scroll ak/null)
+  (when (== (ui/aguafria_ui_captures_mouse) 0)
+    (render3d/zoom-by! (floatCast (exp (* vertical 0.12)))))
+  (when (!= previous-scroll null)
     ((a/unwrap previous-scroll) event-window horizontal vertical)))
 
 (a/defn install-scroll! :void
   "Install on the window thread, preserving an already installed UI callback." []
-  (when (ak/! scroll-installed)
-    (ak/= previous-scroll (glfw/glfwSetScrollCallback window (ak/& camera-scroll!)))
-    (ak/= scroll-installed true)))
+  (when (! scroll-installed)
+    (= previous-scroll (glfw/glfwSetScrollCallback window (ak/& camera-scroll!)))
+    (= scroll-installed true)))
 
 (a/defn request-race-reset! :void
   "Queue a reset for the simulation thread; safe to call from the nREPL." []
-  (ak/atomicStore :u8 (ak/& reset-request) 1 :release))
+  (atomicStore :u8 (ak/& reset-request) 1 :release))
 
 (a/defn request-stop! :void
   []
-  (ak/= running false))
+  (= running false))
 
 (a/defn set-live-simulation-slowdown! :void
   "Run live AI races between real time and 20x slow motion. Rendering remains
   unconstrained, and deterministic replay always advances at normal 120 Hz."
   [[factor :f64]]
-  (ak/= live-simulation-slowdown (ak/min 20.0 (ak/max 1.0 factor))))
+  (= live-simulation-slowdown (min 20.0 (max 1.0 factor))))
 
 (a/defn simulation-slowdown :f64
   "Inspect the live wall-time slowdown factor."
@@ -97,64 +97,64 @@
   ;; between rendered frames. This also applies to F2 in the monitor.
   (glfw/glfwSetInputMode window glfw/GLFW_STICKY_KEYS glfw/GLFW_TRUE)
   (install-scroll!)
-  (when (ak/!= (ak/atomicRmw :u8 (ak/& reset-request) :Xchg 0 :acq_rel) 0)
+  (when (!= (atomicRmw :u8 (ak/& reset-request) :Xchg 0 :acq_rel) 0)
     (simulation/reset!)
     (render3d/reset-presentation!)
     (render3d/reset-camera!))
-  (let [overview (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_F3) glfw/GLFW_PRESS)]
-    (when (and overview (ak/! previous-camera))
+  (let [overview (== (glfw/glfwGetKey window glfw/GLFW_KEY_F3) glfw/GLFW_PRESS)]
+    (when (and overview (! previous-camera))
       (if render3d/follow-camera
         (render3d/camera-preset! 4)
         (render3d/camera-preset! 0)))
-    (ak/= previous-camera overview))
-  (when (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_0) glfw/GLFW_PRESS)
+    (= previous-camera overview))
+  (when (== (glfw/glfwGetKey window glfw/GLFW_KEY_0) glfw/GLFW_PRESS)
     (render3d/follow-leaders!))
-  (let [dt (ak/min 0.05 (ak/max 0.0 (- (glfw/glfwGetTime) previous-time)))]
-    (when (or (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_EQUAL) glfw/GLFW_PRESS)
-              (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_KP_ADD) glfw/GLFW_PRESS))
-      (render3d/zoom-by! (ak/floatCast (ak/exp (* dt 2.0)))))
-    (when (or (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_MINUS) glfw/GLFW_PRESS)
-              (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_KP_SUBTRACT) glfw/GLFW_PRESS))
-      (render3d/zoom-by! (ak/floatCast (ak/exp (* dt -2.0))))))
+  (let [dt (min 0.05 (max 0.0 (- (glfw/glfwGetTime) previous-time)))]
+    (when (or (== (glfw/glfwGetKey window glfw/GLFW_KEY_EQUAL) glfw/GLFW_PRESS)
+              (== (glfw/glfwGetKey window glfw/GLFW_KEY_KP_ADD) glfw/GLFW_PRESS))
+      (render3d/zoom-by! (floatCast (exp (* dt 2.0)))))
+    (when (or (== (glfw/glfwGetKey window glfw/GLFW_KEY_MINUS) glfw/GLFW_PRESS)
+              (== (glfw/glfwGetKey window glfw/GLFW_KEY_KP_SUBTRACT) glfw/GLFW_PRESS))
+      (render3d/zoom-by! (floatCast (exp (* dt -2.0))))))
   (dotimes [racer 8]
-    (when (ak/== (glfw/glfwGetKey window (+ glfw/GLFW_KEY_1 (ak/as (ak/intCast racer) :i32))) glfw/GLFW_PRESS)
-      (render3d/select-camera! (ak/intCast racer) true)))
-  (let [pause-down (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_P)
-                          glfw/GLFW_PRESS)
-        reset-down (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_R)
-                          glfw/GLFW_PRESS)
-        debug-down (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_F1)
-                          glfw/GLFW_PRESS)
+    (when (== (glfw/glfwGetKey window (+ glfw/GLFW_KEY_1 (as (intCast racer) :i32))) glfw/GLFW_PRESS)
+      (render3d/select-camera! (intCast racer) true)))
+  (let [pause-down (== (glfw/glfwGetKey window glfw/GLFW_KEY_P)
+                       glfw/GLFW_PRESS)
+        reset-down (== (glfw/glfwGetKey window glfw/GLFW_KEY_R)
+                       glfw/GLFW_PRESS)
+        debug-down (== (glfw/glfwGetKey window glfw/GLFW_KEY_F1)
+                       glfw/GLFW_PRESS)
         human-toggle-down
-        (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_H) glfw/GLFW_PRESS)
+        (== (glfw/glfwGetKey window glfw/GLFW_KEY_H) glfw/GLFW_PRESS)
         left-down
-        (or (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_LEFT)
-                   glfw/GLFW_PRESS)
-            (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_A)
-                   glfw/GLFW_PRESS))
+        (or (== (glfw/glfwGetKey window glfw/GLFW_KEY_LEFT)
+                glfw/GLFW_PRESS)
+            (== (glfw/glfwGetKey window glfw/GLFW_KEY_A)
+                glfw/GLFW_PRESS))
         right-down
-        (or (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_RIGHT)
-                   glfw/GLFW_PRESS)
-            (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_D)
-                   glfw/GLFW_PRESS))
+        (or (== (glfw/glfwGetKey window glfw/GLFW_KEY_RIGHT)
+                glfw/GLFW_PRESS)
+            (== (glfw/glfwGetKey window glfw/GLFW_KEY_D)
+                glfw/GLFW_PRESS))
         throttle-down
-        (or (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_UP)
-                   glfw/GLFW_PRESS)
-            (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_W)
-                   glfw/GLFW_PRESS))
+        (or (== (glfw/glfwGetKey window glfw/GLFW_KEY_UP)
+                glfw/GLFW_PRESS)
+            (== (glfw/glfwGetKey window glfw/GLFW_KEY_W)
+                glfw/GLFW_PRESS))
         brake-down
-        (or (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_DOWN)
-                   glfw/GLFW_PRESS)
-            (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_S)
-                   glfw/GLFW_PRESS))
+        (or (== (glfw/glfwGetKey window glfw/GLFW_KEY_DOWN)
+                glfw/GLFW_PRESS)
+            (== (glfw/glfwGetKey window glfw/GLFW_KEY_S)
+                glfw/GLFW_PRESS))
         keyboard-use
-        (ak/== (glfw/glfwGetKey window glfw/GLFW_KEY_SPACE) glfw/GLFW_PRESS)
+        (== (glfw/glfwGetKey window glfw/GLFW_KEY_SPACE) glfw/GLFW_PRESS)
         ^{:var true}
         gamepad (std-mem/zeroes (a/type glfw/GLFWgamepadstate))
         gamepad-connected
-        (ak/== (glfw/glfwGetGamepadState glfw/GLFW_JOYSTICK_1
-                                         (ak/& gamepad))
-               glfw/GLFW_TRUE)
+        (== (glfw/glfwGetGamepadState glfw/GLFW_JOYSTICK_1
+                                      (ak/& gamepad))
+            glfw/GLFW_TRUE)
         gamepad-steering
         (if gamepad-connected
           (a/index (a/field gamepad axes) glfw/GLFW_GAMEPAD_AXIS_LEFT_X)
@@ -175,44 +175,44 @@
           0.0)
         gamepad-use
         (and gamepad-connected
-             (ak/== (a/index (a/field gamepad buttons)
-                             glfw/GLFW_GAMEPAD_BUTTON_A)
-                    glfw/GLFW_PRESS))
+             (== (a/index (a/field gamepad buttons)
+                          glfw/GLFW_GAMEPAD_BUTTON_A)
+                 glfw/GLFW_PRESS))
         item-use (or keyboard-use gamepad-use)
         keyboard-steering
-        (ak/f32 (cond
-                  (and left-down (ak/! right-down)) -1.0
-                  (and right-down (ak/! left-down)) 1.0
-                  :else 0.0))
+        (f32 (cond
+               (and left-down (! right-down)) -1.0
+               (and right-down (! left-down)) 1.0
+               :else 0.0))
         steering
-        (ak/f32 (if (> (ak/abs gamepad-steering) 0.15)
-                  gamepad-steering
-                  keyboard-steering))
+        (f32 (if (> (abs gamepad-steering) 0.15)
+               gamepad-steering
+               keyboard-steering))
         throttle
-        (ak/f32 (ak/max (if throttle-down (ak/as 1.0 :f32) (ak/as 0.0 :f32))
-                        gamepad-throttle))
+        (f32 (max (if throttle-down (as 1.0 :f32) (as 0.0 :f32))
+                  gamepad-throttle))
         brake
-        (ak/f32 (ak/max (if brake-down (ak/as 1.0 :f32) (ak/as 0.0 :f32))
-                        gamepad-brake))]
-    (when (and pause-down (ak/! previous-pause))
-      (ak/= :_ (simulation/toggle-paused!)))
-    (when (and reset-down (ak/! previous-reset))
+        (f32 (max (if brake-down (as 1.0 :f32) (as 0.0 :f32))
+                  gamepad-brake))]
+    (when (and pause-down (! previous-pause))
+      (= :_ (simulation/toggle-paused!)))
+    (when (and reset-down (! previous-reset))
       (simulation/reset!)
       (render3d/reset-presentation!)
       (render3d/reset-camera!))
-    (when (and debug-down (ak/! previous-debug))
-      (ak/= :_ (race-render/toggle-debug-overlay!)))
-    (when (and human-toggle-down (ak/! previous-human-toggle))
-      (ak/= :_
-            (simulation/set-human-controlled!
-             (ak/! (a/field (simulation/human-control-snapshot) enabled)))))
+    (when (and debug-down (! previous-debug))
+      (= :_ (race-render/toggle-debug-overlay!)))
+    (when (and human-toggle-down (! previous-human-toggle))
+      (= :_
+         (simulation/set-human-controlled!
+          (! (a/field (simulation/human-control-snapshot) enabled)))))
     (simulation/set-human-input!
-     steering throttle brake (and item-use (ak/! previous-item-use)))
-    (ak/= previous-pause pause-down)
-    (ak/= previous-reset reset-down)
-    (ak/= previous-debug debug-down)
-    (ak/= previous-human-toggle human-toggle-down)
-    (ak/= previous-item-use item-use)))
+     steering throttle brake (and item-use (! previous-item-use)))
+    (= previous-pause pause-down)
+    (= previous-reset reset-down)
+    (= previous-debug debug-down)
+    (= previous-human-toggle human-toggle-down)
+    (= previous-item-use item-use)))
 
 (a/defn frame! :bool
   "Present one Vulkan frame. Live AI simulation defaults to normal speed;
@@ -221,58 +221,58 @@
   (glfw/glfwPollEvents)
   (poll-control-edges!)
   (let [now (glfw/glfwGetTime)
-        elapsed (ak/min 0.10 (ak/max 0.0 (- now previous-time)))]
-    (ak/= previous-time now)
-    (ak/= accumulator (+ accumulator elapsed))
+        elapsed (min 0.10 (max 0.0 (- now previous-time)))]
+    (= previous-time now)
+    (= accumulator (+ accumulator elapsed))
     (let [replay (simulation/replay-summary)
           step-seconds
           (if (a/field replay active)
             0.008333333333
             (* 0.008333333333 live-simulation-slowdown))
-          ^:var substeps (ak/u8 0)]
-      (ak/while (and (>= accumulator step-seconds)
-                     (< substeps 12))
+          ^:var substeps (u8 0)]
+      (while (and (>= accumulator step-seconds)
+                  (< substeps 12))
         (simulation/step!)
         (render3d/capture-presentation!)
-        (ak/= accumulator (- accumulator step-seconds))
-        (ak/= substeps (+ substeps 1)))
+        (= accumulator (- accumulator step-seconds))
+        (= substeps (+ substeps 1)))
       (render3d/set-presentation-phase!
-       (if simulation/paused (ak/as 1.0 :f32) (ak/floatCast (/ accumulator step-seconds)))))
-    (ak/= frame-count (+ frame-count 1))
-    (render3d/advance-camera! (ak/floatCast elapsed))
+       (if simulation/paused (as 1.0 :f32) (floatCast (/ accumulator step-seconds)))))
+    (= frame-count (+ frame-count 1))
+    (render3d/advance-camera! (floatCast elapsed))
     (motion-qa/record! now)
     (renderer/render! (ak/& race-render/build-frame!))))
 
 (a/defn window-address :u64
   "Opaque GLFW window address for optional development-only tooling."
   []
-  (if (ak/== window ak/null)
+  (if (== window null)
     0
-    (ak/intCast (ak/intFromPtr (a/unwrap window)))))
+    (intCast (intFromPtr (a/unwrap window)))))
 
 (a/defn should-run? :bool
   "Whether the initialized native window should render another frame."
   []
   (and running
-       (ak/!= window ak/null)
-       (ak/== (glfw/glfwWindowShouldClose window) glfw/GLFW_FALSE)))
+       (!= window null)
+       (== (glfw/glfwWindowShouldClose window) glfw/GLFW_FALSE)))
 
 (a/defn initialize! :bool
   "Create the window, renderer, workers, and Flecs race without entering a loop."
   []
   (when running
-    (ak/return true))
-  (when (ak/! (assets/load-and-verify!))
-    (ak/return false))
+    (return true))
+  (when (! (assets/load-and-verify!))
+    (return false))
   (glfw/glfwInitVulkanLoader glfw/vkGetInstanceProcAddr)
-  (std-debug/assert (ak/== (glfw/glfwInit) glfw/GLFW_TRUE))
+  (std-debug/assert (== (glfw/glfwInit) glfw/GLFW_TRUE))
   (glfw/glfwWindowHint glfw/GLFW_CLIENT_API glfw/GLFW_NO_API)
   (glfw/glfwWindowHint glfw/GLFW_RESIZABLE glfw/GLFW_FALSE)
-  (ak/= window
-        (glfw/glfwCreateWindow 1024 720
-                               "Aguafria · 20 Driver AIs · 10 Team Strategist AIs"
-                               ak/null ak/null))
-  (std-debug/assert (ak/!= window ak/null))
+  (= window
+     (glfw/glfwCreateWindow 1024 720
+                            "Aguafria · 20 Driver AIs · 10 Team Strategist AIs"
+                            null null))
+  (std-debug/assert (!= window null))
   ;; Present the native game as the active desktop window. Besides making the
   ;; launch predictable for players, this keeps macOS/MoltenVK from starving
   ;; the first CAMetalDrawable while the just-created window is occluded.
@@ -281,33 +281,33 @@
   (std-debug/assert (renderer/initialize-renderer! window))
   (std-debug/assert (worker/start!))
   (simulation/configure-countdown! 0)
-  (ak/= :_ (simulation/initialize!))
+  (= :_ (simulation/initialize!))
   (render3d/reset-presentation!)
-  (ak/= previous-time (glfw/glfwGetTime))
-  (ak/= accumulator 0.0)
-  (ak/= running true)
+  (= previous-time (glfw/glfwGetTime))
+  (= accumulator 0.0)
+  (= running true)
   true)
 
 (a/defn shutdown! :void
   "Destroy the resources owned by `initialize!`. Safe after a normal loop."
   []
-  (when (ak/!= window ak/null)
-    (ak/= running false)
+  (when (!= window null)
+    (= running false)
     (renderer/shutdown-renderer!)
     (simulation/shutdown!)
     (worker/stop!)
     (inference/unload-model!)
     (glfw/glfwDestroyWindow window)
-    (ak/= window ak/null)
+    (= window null)
     (glfw/glfwTerminate)))
 
 (a/defn run! :bool
   "Run on the JVM first OS thread while the same JVM's nREPL stays live."
   []
-  (when (ak/! (initialize!))
-    (ak/return false))
-  (ak/while (should-run?)
-    (ak/= :_ (frame!)))
+  (when (! (initialize!))
+    (return false))
+  (while (should-run?)
+    (= :_ (frame!)))
   (shutdown!)
   true)
 

@@ -1,5 +1,7 @@
 (ns aguafria.zig.discovery-core-operator-fixture
-  (:require [aguafria.zig :as a]))
+  (:refer-clojure :only [])
+  (:require [aguafria.zig :as a]
+            [aguafria.keyword :as k :refer :all]))
 
 (a/defn add :f32
   [[left :f32] [right :f32]]

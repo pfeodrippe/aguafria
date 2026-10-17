@@ -1,11 +1,12 @@
 (ns learn.example.test-namespace-level-variables
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
 (a/defn- add :i32
   [[a :i32] [b :i32]]
-  (k/+ a b))
+  (+ a b))
 
 (a/defconst x :i32 (add 12 34))
 (a/defvar y :i32 (add 10 x))

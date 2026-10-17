@@ -1,5 +1,6 @@
 (ns learn.example.test-packed-struct-field-address
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
@@ -9,8 +10,8 @@
 (a/defvar bit-field (BitField {:a 1 :b 2 :c 3}))
 
 (a/deftest pointers-of-sub-byte-aligned-fields-share-addresses
-  (k/try (testing/expectEqual (k/intFromPtr (k/& (:a bit-field))) (k/intFromPtr (k/& (:b bit-field)))))
-  (k/try (testing/expectEqual (k/intFromPtr (k/& (:a bit-field))) (k/intFromPtr (k/& (:c bit-field))))))
+  (k/try (testing/expectEqual (intFromPtr (k/& (:a bit-field))) (intFromPtr (k/& (:b bit-field)))))
+  (k/try (testing/expectEqual (intFromPtr (k/& (:a bit-field))) (intFromPtr (k/& (:c bit-field))))))
 
 (comment
   (pointers-of-sub-byte-aligned-fields-share-addresses))

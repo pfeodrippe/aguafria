@@ -77,7 +77,7 @@
      :model-decisions (count model-entries)
      :routine-model-decisions (count routine-model)
      :paces (frequencies-sorted (map #(pace-for-speed (:target_speed %))
-                                      model-entries))
+                                     model-entries))
      :routine-paces
      (frequencies-sorted (map #(pace-for-speed (:target_speed %))
                               routine-model))
@@ -90,7 +90,7 @@
 (defn- combine-behavior
   [entries]
   {:retained-decisions (sum (map #(get-in % [:behavior :retained-decisions])
-                                  entries))
+                                 entries))
    :model-decisions (sum (map #(get-in % [:behavior :model-decisions])
                               entries))
    :routine-model-decisions
@@ -226,8 +226,8 @@
 (defn- scoreboard-row
   [racer-id races]
   (let [entries (map #(first (filter (fn [racer]
-                                      (= racer-id (:id racer)))
-                                    (:standings %)))
+                                       (= racer-id (:id racer)))
+                                     (:standings %)))
                      races)
         ranks (map :rank entries)
         outcomes (map :outcomes entries)
@@ -264,8 +264,8 @@
          scoreboard (->> (range (a/value simulation/racer-count))
                          (mapv #(scoreboard-row % races))
                          (sort-by (juxt (comp - :points)
-                                       :average-finish-tick
-                                       :racer))
+                                        :average-finish-tick
+                                        :racer))
                          vec)]
      {:provenance
       {:model-fingerprint protocol/model-fingerprint

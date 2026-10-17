@@ -1,6 +1,8 @@
 (ns aguafria.c-bindings-consumer-fixture
+  (:refer-clojure :only [])
   (:require [aguafria.c-bindings-fixture :as native]
-            [aguafria.zig :as a]))
+            [aguafria.zig :as a]
+            [aguafria.keyword :as k :refer :all]))
 
 (a/defn sum :c_int [[x :c_int] [y :c_int]]
   (native/point_sum (a/init {:x x :y y} native/native_point)))

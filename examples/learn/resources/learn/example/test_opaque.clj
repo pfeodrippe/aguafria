@@ -1,5 +1,6 @@
 (ns learn.example.test-opaque
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defconst Derp (a/opaque
@@ -13,7 +14,7 @@
   (bar w))
 
 (a/deftest call-foo
-  (foo k/undefined))
+  (foo undefined))
 
 (comment
   (call-foo))

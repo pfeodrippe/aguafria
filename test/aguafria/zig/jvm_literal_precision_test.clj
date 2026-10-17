@@ -27,7 +27,7 @@
   ;; ordinary ABI boundary rather than by compiling a new literal handler.
   (is (= 255 (a/value (k/as (a/number-literal "255") :u8))))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"out of range"
-                       (k/as (a/number-literal "256") :u8))))
+                        (k/as (a/number-literal "256") :u8))))
 
 (deftest jvm-coercion-agrees-with-a-native-declaration
   (binding [runtime/*source-only-registration?* true]

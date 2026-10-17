@@ -1,18 +1,19 @@
 (ns learn.example.test-thread-local-variables
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.Thread :as thread]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as a]))
 
 (a/defvar x :i32
-  {:attrs #{k/threadlocal}}
+  {:attrs #{threadlocal}}
   1234)
 
 (a/defn- testTls :void
   []
-  (debug/assert (k/== x 1234))
-  (k/+= x 1)
-  (debug/assert (k/== x 1235)))
+  (debug/assert (== x 1234))
+  (+= x 1)
+  (debug/assert (== x 1235)))
 
 (a/deftest thread-local-storage
   (let [thread1 (k/try (thread/spawn {} testTls []))

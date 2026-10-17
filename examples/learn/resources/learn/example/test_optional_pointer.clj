@@ -1,5 +1,6 @@
 (ns learn.example.test-optional-pointer
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
@@ -8,12 +9,12 @@
   ;; prefix `?` to make the pointer type optional.
   (let [ptr (k/var nil [:optional [:* :i32]])
         x (k/var 1 :i32)]
-    (k/= ptr (k/& x))
-    (k/try (testing/expectEqual 1 (deref (a/unwrap ptr))))
+    (= ptr (k/& x))
+    (k/try (testing/expectEqual 1 (a/deref (a/unwrap ptr))))
     ;; Optional pointers are the same size as normal pointers, because pointer
     ;; value 0 is used as the null value.
-    (k/try (testing/expectEqual (k/sizeOf [:optional [:* :i32]])
-                                (k/sizeOf [:* :i32])))))
+    (k/try (testing/expectEqual (sizeOf [:optional [:* :i32]])
+                                (sizeOf [:* :i32])))))
 
 (comment
   (optional-pointers))

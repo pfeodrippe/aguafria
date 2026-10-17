@@ -1,14 +1,15 @@
 (ns learn.example.generic-data-structure
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
-(a/defn- List :type [[T {:attrs #{k/comptime}} :type]]
+(a/defn- List :type [[T {:attrs #{comptime}} :type]]
   (a/struct
    [[:items [:slice T]]
     [:len :usize]]))
 
 ;; The generic List data structure can be instantiated by passing in a type:
-(a/defvar buffer [:array 10 :i32] k/undefined)
+(a/defvar buffer [:array 10 :i32] undefined)
 
 (a/defvar list (a/init {:items (k/& buffer) :len 0} (List :i32)))
 

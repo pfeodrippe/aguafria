@@ -1,11 +1,12 @@
 (ns learn.example.Assembly-Syntax-Explained
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defn syscall1 :usize [[number :usize] [arg1 :usize]]
   ;; Inline assembly is an expression which returns a value.
   ;; the `asm` keyword begins the expression.
-  (k/asm
+  (asm
    ;; Next is a comptime string which is the assembly code.
    ;; Inside this string one may use `%[ret]`, `%[number]`,
    ;; or `%[arg1]` where a register is expected, to specify
@@ -19,7 +20,7 @@
     ;; inline assembly expression has side-effects. Without
     ;; `volatile`, Zig is allowed to delete the inline assembly
     ;; code if the result is unused.
-    :attrs #{k/volatile}
+    :attrs #{volatile}
     ;; Next is the output. It is possible in the future Zig will
     ;; support multiple outputs, depending on how
     ;; https://github.com/ziglang/zig/issues/215 is resolved.

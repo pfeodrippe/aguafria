@@ -1,7 +1,8 @@
 (ns learn.example.test-comptime-overflow
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defcomptime checked-byte-overflow
   (let [byte (k/var 255 :u8)]
-    (k/+= byte 1)))
+    (+= byte 1)))

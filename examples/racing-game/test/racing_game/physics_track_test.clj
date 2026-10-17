@@ -14,7 +14,7 @@
             [clojure.test :refer [deftest is]]))
 
 (a/defstruct SurfaceResult {:layout :extern}
-  [[:min_clearance :f32] [:max_clearance :f32] [:max_speed :f32]])
+             [[:min_clearance :f32] [:max_clearance :f32] [:max_speed :f32]])
 
 (a/defn settled-surface-probe SurfaceResult
   "Twelve actual suspended cars distributed over the authored slopes and seam." []
@@ -25,27 +25,27 @@
     (ak/defer (terrain/destroy! surface))
     (ak/defer (physics/destroy-world! world))
     (dotimes [i 12]
-      (let [p (circuit/at-distance (* (ak/as (ak/floatFromInt i) :f32) (/ 4309.0 12.0)) 0.0)]
+      (let [p (circuit/at-distance (ak/* (ak/as (ak/floatFromInt i) :f32) (ak// 4309.0 12.0)) 0.0)]
         (ak/= (a/index cars i)
               (physics/create-vehicle world
-                (b3/b3Pos {:x (a/field p x) :y (a/field p y) :z (+ (a/field p z) 0.76)})
-                (a/field p heading)))))
-    (dotimes [_ (* 3 physics/step-rate)]
+                                      (b3/b3Pos {:x (a/field p x) :y (a/field p y) :z (ak/+ (a/field p z) 0.76)})
+                                      (a/field p heading)))))
+    (dotimes [_ (ak/* 3 physics/step-rate)]
       (dotimes [i 12] (physics/drive! (a/index cars i) 0.0 1.0 0.0))
       (physics/step! world))
     (let [^{:var :f32} low 100.0
           ^{:var :f32} high -100.0
           ^{:var :f32} speed 0.0]
       (dotimes [i 12]
-        (let [p (circuit/at-distance (* (ak/as (ak/floatFromInt i) :f32) (/ 4309.0 12.0)) 0.0)
+        (let [p (circuit/at-distance (ak/* (ak/as (ak/floatFromInt i) :f32) (ak// 4309.0 12.0)) 0.0)
               state (physics/body-state (a/field (a/index cars i) chassis))
-              clearance (- (a/field state z) (a/field p z))]
+              clearance (ak/- (a/field state z) (a/field p z))]
           (ak/= low (ak/min low clearance))
           (ak/= high (ak/max high clearance))
           (ak/= speed (ak/max speed
-            (ak/sqrt (+ (* (a/field state vx) (a/field state vx))
-                        (* (a/field state vy) (a/field state vy))
-                        (* (a/field state vz) (a/field state vz))))))))
+                              (ak/sqrt (ak/+ (ak/* (a/field state vx) (a/field state vx))
+                                             (ak/* (a/field state vy) (a/field state vy))
+                                             (ak/* (a/field state vz) (a/field state vz))))))))
       (SurfaceResult {:min_clearance low :max_clearance high :max_speed speed}))))
 
 (deftest suspended-cars-on-authored-terrain-test
@@ -55,20 +55,20 @@
     (is (< (:max_speed result) 0.1) (pr-str result))))
 
 (a/defstruct DrivenResult {:layout :extern}
-  [[:distance :f32] [:maximum_lane_error :f32] [:minimum_up :f32]
-   [:maximum_speed :f32] [:final_speed :f32] [:milliseconds :f32]
-   [:worst_distance :f32] [:worst_time :f32]
-   [:first_lap_seconds :f32] [:flying_lap_seconds :f32]
-   [:first_lap_metres :f32] [:maximum_projection_step :f32]])
+             [[:distance :f32] [:maximum_lane_error :f32] [:minimum_up :f32]
+              [:maximum_speed :f32] [:final_speed :f32] [:milliseconds :f32]
+              [:worst_distance :f32] [:worst_time :f32]
+              [:first_lap_seconds :f32] [:flying_lap_seconds :f32]
+              [:first_lap_metres :f32] [:maximum_projection_step :f32]])
 
 (a/defn curvature-probe [:array 2 :f32] []
   (let [^{:var :f32} curvature 0.0 ^{:var :f32} location 0.0]
     (dotimes [i 4309]
       (let [d (ak/as (ak/floatFromInt i) :f32)
-            a (circuit/at-distance (- d 0.5) 0.0) b (circuit/at-distance (+ d 0.5) 0.0)
-            delta (- (a/field b heading) (a/field a heading))
+            a (circuit/at-distance (ak/- d 0.5) 0.0) b (circuit/at-distance (ak/+ d 0.5) 0.0)
+            delta (ak/- (a/field b heading) (a/field a heading))
             k (ak/abs (math/atan2 (math/sin delta) (math/cos delta)))]
-        (when (> k curvature) (ak/= curvature k) (ak/= location d))))
+        (when (ak/> k curvature) (ak/= curvature k) (ak/= location d))))
     (a/init [location curvature] [:array 2 :f32])))
 
 (a/defvar lap-trace [:array 360 [:array 11 :f32]] ak/undefined)
@@ -79,18 +79,18 @@
 (a/defn lane-plan-continuity-probe [:array 10 :f32] []
   (let [^:var plan (mem/zeroes (a/type driver/LanePlan))]
     (driver/update-lane-plan! (ak/& plan) 0.0 0.0 70.0 3.75)
-    (let [middle (* (a/field plan length) 0.4)
+    (let [middle (ak/* (a/field plan length) 0.4)
           before (driver/lane-plan-state (ak/& plan) middle)]
       (driver/update-lane-plan! (ak/& plan) middle (a/index before 0) 70.0 -3.75)
       (let [after (driver/lane-plan-state (ak/& plan) middle)
-            finish (+ middle (a/field plan length))
+            finish (ak/+ middle (a/field plan length))
             end (driver/lane-plan-state (ak/& plan) finish)]
-        (driver/update-lane-plan! (ak/& plan) (+ finish 1.0) -3.75 70.0 -3.75)
+        (driver/update-lane-plan! (ak/& plan) (ak/+ finish 1.0) -3.75 70.0 -3.75)
         (a/init [(a/index before 0) (a/index after 0)
-           (a/index before 1) (a/index after 1)
-           (a/index before 2) (a/index after 2)
-           (a/index end 0) (a/index end 1) (a/index end 2)
-           (a/index (driver/lane-plan-state (ak/& plan) (+ middle 4309.0)) 0)] [:array 10 :f32])))))
+                 (a/index before 1) (a/index after 1)
+                 (a/index before 2) (a/index after 2)
+                 (a/index end 0) (a/index end 1) (a/index end 2)
+                 (a/index (driver/lane-plan-state (ak/& plan) (ak/+ middle 4309.0)) 0)] [:array 10 :f32])))))
 
 (deftest lane-plan-continuity-test
   (let [[p0 p1 v0 v1 a0 a1 end slope curvature next-lap :as result]
@@ -106,9 +106,9 @@
 (a/defn rollover-pedal-probe driver/Control [[roll :f32] [gas :f32]]
   (let [^:var body (mem/zeroes (a/type physics/BodyState))
         control (driver/Control {:throttle gas :brake 0.25 :steering 0.12
-                                  :progress 0.5 :lane -1.5 :speed 8.0})]
-    (ak/= (a/field body qx) (math/sin (* roll 0.5)))
-    (ak/= (a/field body qw) (math/cos (* roll 0.5)))
+                                 :progress 0.5 :lane -1.5 :speed 8.0})]
+    (ak/= (a/field body qx) (math/sin (ak/* roll 0.5)))
+    (ak/= (a/field body qw) (math/cos (ak/* roll 0.5)))
     (driver/stop-if-overturned control body)))
 
 (deftest overturning-cuts-pedals-without-changing-measured-state-test
@@ -126,13 +126,13 @@
 (a/defn driven-route-controller-probe DrivenResult
   "Follow the real circuit using only wheel motors, brakes and steering.
   No SetTransform/SetVelocity, progress stepping or lane correction is allowed." [[seconds :u32] [cruise-speed :f32]
-                   [lane-period :u32] [lane-amplitude :f32] [analytic? :bool] [planned? :bool]]
+                                                                                  [lane-period :u32] [lane-amplitude :f32] [analytic? :bool] [planned? :bool]]
   (let [world (physics/create-world -9.81)
         surface (terrain/create! world)
         p (circuit/at-distance 0.0 0.0)
         car (physics/create-vehicle world
-              (b3/b3Pos {:x (a/field p x) :y (a/field p y) :z (+ (a/field p z) 0.76)})
-              (a/field p heading))
+                                    (b3/b3Pos {:x (a/field p x) :y (a/field p y) :z (ak/+ (a/field p z) 0.76)})
+                                    (a/field p heading))
         ^:var lane-plan (mem/zeroes (a/type driver/LanePlan))]
     (ak/defer (terrain/destroy! surface))
     (ak/defer (physics/destroy-world! world))
@@ -155,76 +155,76 @@
           ^{:var :f32} maximum-projection-step 0.0
           ^:var previous-body (physics/body-state (a/field car chassis))
           started (b3/b3GetTicks)]
-      (dotimes [tick (* seconds 120)]
+      (dotimes [tick (ak/* seconds 120)]
         (let [requested-lane
-              (if (or (ak/== lane-period 0) (< tick 2400))
+              (if (ak/or (ak/== lane-period 0) (ak/< tick 2400))
                 (ak/as 0.0 :f32)
-                (if (ak/== (mod (ak/divTrunc (- tick 2400) (* lane-period 120)) 2) 0)
-                  lane-amplitude (- lane-amplitude)))
+                (if (ak/== (ak/mod (ak/divTrunc (ak/- tick 2400) (ak/* lane-period 120)) 2) 0)
+                  lane-amplitude (ak/- lane-amplitude)))
               control (if planned?
                         (driver/follow-lane-plan car cruise-speed requested-lane (ak/& lane-plan))
                         (driver/follow car cruise-speed requested-lane))
               progress (a/field control progress)
-              delta (- progress previous)
+              delta (ak/- progress previous)
               state (physics/body-state (a/field car chassis))]
-          (let [dx (- (a/field state x) (a/field previous-body x))
-                dy (- (a/field state y) (a/field previous-body y))
-                dz (- (a/field state z) (a/field previous-body z))]
-            (ak/= physical-distance (+ physical-distance (ak/sqrt (+ (* dx dx) (* dy dy) (* dz dz)))))
+          (let [dx (ak/- (a/field state x) (a/field previous-body x))
+                dy (ak/- (a/field state y) (a/field previous-body y))
+                dz (ak/- (a/field state z) (a/field previous-body z))]
+            (ak/= physical-distance (ak/+ physical-distance (ak/sqrt (ak/+ (ak/* dx dx) (ak/* dy dy) (ak/* dz dz)))))
             (ak/= previous-body state)
             (ak/= maximum-projection-step
                   (ak/max maximum-projection-step
-                    (* 4309.0 (ak/abs (cond (> delta 0.5) (- delta 1.0)
-                                            (< delta -0.5) (+ delta 1.0)
-                                            :else delta))))))
-          (when (and (< tick 43200) (ak/== (mod tick 120) 0))
+                          (ak/* 4309.0 (ak/abs (cond (ak/> delta 0.5) (ak/- delta 1.0)
+                                                     (ak/< delta -0.5) (ak/+ delta 1.0)
+                                                     :else delta))))))
+          (when (ak/and (ak/< tick 43200) (ak/== (ak/mod tick 120) 0))
             (ak/= (a/index lap-trace (ak/divTrunc tick 120))
-                  (a/init [(/ (ak/as (ak/floatFromInt tick) :f32) 120.0)
-                    progress (a/field control lane) (a/field control speed)
-                    (a/field control throttle) (a/field control brake) (a/field control steering)
-                    (- 1.0 (* 2.0 (+ (* (a/field state qx) (a/field state qx))
-                                      (* (a/field state qy) (a/field state qy)))))
-                    (b3/b3WheelJoint_GetSteeringAngle (a/index (a/field car joints) 0))
-                    (b3/b3WheelJoint_GetSteeringAngle (a/index (a/field car joints) 1))
-                    (a/field state wz)] [:array 11 :f32])))
-          (ak/= distance (+ distance (* 4309.0 (cond (> delta 0.5) (- delta 1.0)
-                                                    (< delta -0.5) (+ delta 1.0)
-                                                    :else delta))))
+                  (a/init [(ak// (ak/as (ak/floatFromInt tick) :f32) 120.0)
+                           progress (a/field control lane) (a/field control speed)
+                           (a/field control throttle) (a/field control brake) (a/field control steering)
+                           (ak/- 1.0 (ak/* 2.0 (ak/+ (ak/* (a/field state qx) (a/field state qx))
+                                                     (ak/* (a/field state qy) (a/field state qy)))))
+                           (b3/b3WheelJoint_GetSteeringAngle (a/index (a/field car joints) 0))
+                           (b3/b3WheelJoint_GetSteeringAngle (a/index (a/field car joints) 1))
+                           (a/field state wz)] [:array 11 :f32])))
+          (ak/= distance (ak/+ distance (ak/* 4309.0 (cond (ak/> delta 0.5) (ak/- delta 1.0)
+                                                           (ak/< delta -0.5) (ak/+ delta 1.0)
+                                                           :else delta))))
           (ak/= previous progress)
           ;; Crossing times come from body-derived distance at fixed 120Hz,
           ;; not a distance/average-speed estimate or a wall-clock speedup.
-          (when (and (>= distance 4309.0) (ak/== first-lap 0.0))
-            (ak/= first-lap (/ (ak/as (ak/floatFromInt tick) :f32) 120.0))
+          (when (ak/and (ak/>= distance 4309.0) (ak/== first-lap 0.0))
+            (ak/= first-lap (ak// (ak/as (ak/floatFromInt tick) :f32) 120.0))
             (ak/= first-lap-metres physical-distance))
-          (when (and (>= distance 8618.0) (ak/== flying-lap 0.0))
-            (ak/= flying-lap (- (/ (ak/as (ak/floatFromInt tick) :f32) 120.0) first-lap)))
-          (when (> (ak/abs (a/field control lane)) lane)
+          (when (ak/and (ak/>= distance 8618.0) (ak/== flying-lap 0.0))
+            (ak/= flying-lap (ak/- (ak// (ak/as (ak/floatFromInt tick) :f32) 120.0) first-lap)))
+          (when (ak/> (ak/abs (a/field control lane)) lane)
             (ak/= lane (ak/abs (a/field control lane)))
-            (ak/= worst-distance (* progress 4309.0))
-            (ak/= worst-time (/ (ak/as (ak/floatFromInt tick) :f32) 120.0)))
+            (ak/= worst-distance (ak/* progress 4309.0))
+            (ak/= worst-time (ak// (ak/as (ak/floatFromInt tick) :f32) 120.0)))
           (ak/= speed (ak/max speed (a/field control speed)))
-          (ak/= up (ak/min up (- 1.0 (* 2.0 (+ (* (a/field state qx) (a/field state qx))
-                                             (* (a/field state qy) (a/field state qy)))))))
+          (ak/= up (ak/min up (ak/- 1.0 (ak/* 2.0 (ak/+ (ak/* (a/field state qx) (a/field state qx))
+                                                        (ak/* (a/field state qy) (a/field state qy)))))))
           (dotimes [_ (ak/divTrunc physics/step-rate 120)]
             (driver/apply! car control)
             (when analytic? (tire-probe/apply-ray-tires-probe! car))
             (physics/step! world))))
       (DrivenResult {:distance distance :maximum_lane_error lane :minimum_up up
-                      :maximum_speed speed :final_speed (a/field (driver/follow car cruise-speed 0.0) speed)
-                      :milliseconds (b3/b3GetMilliseconds started)
-                      :worst_distance worst-distance :worst_time worst-time
-                      :first_lap_seconds first-lap :flying_lap_seconds flying-lap
-                      :first_lap_metres first-lap-metres
-                      :maximum_projection_step maximum-projection-step}))))
+                     :maximum_speed speed :final_speed (a/field (driver/follow car cruise-speed 0.0) speed)
+                     :milliseconds (b3/b3GetMilliseconds started)
+                     :worst_distance worst-distance :worst_time worst-time
+                     :first_lap_seconds first-lap :flying_lap_seconds flying-lap
+                     :first_lap_metres first-lap-metres
+                     :maximum_projection_step maximum-projection-step}))))
 
 (a/defn driven-route-contact-probe DrivenResult
   "Compare contacts without changing the production controller." [[seconds :u32] [cruise-speed :f32]
-                   [lane-period :u32] [lane-amplitude :f32] [analytic? :bool]]
+                                                                  [lane-period :u32] [lane-amplitude :f32] [analytic? :bool]]
   (driven-route-controller-probe seconds cruise-speed lane-period lane-amplitude analytic? false))
 
 (a/defn driven-route-probe DrivenResult
   "Production world-managed contacts and continuous lane planner, as in the game." [[seconds :u32] [cruise-speed :f32]
-                   [lane-period :u32] [lane-amplitude :f32]]
+                                                                                    [lane-period :u32] [lane-amplitude :f32]]
   (driven-route-controller-probe seconds cruise-speed lane-period lane-amplitude false true))
 
 (a/defn driven-circuit-probe DrivenResult
@@ -247,42 +247,42 @@
     (assert-lane-change-result (a/value (driven-route-probe 140 76.0 8 amplitude)))))
 
 (defn assert-cornering-result [cruise result]
-    (is (> (:distance result) 4309.0) (pr-str result))
+  (is (> (:distance result) 4309.0) (pr-str result))
     ;; Reject timing credited by a projection jumping to another track branch.
-    (is (< 4200.0 (:first_lap_metres result) 4400.0) (pr-str result))
-    (is (< (:maximum_projection_step result) 2.0) (pr-str result))
-    (is (< (:maximum_lane_error result) 4.5) (pr-str result))
-    (is (> (:minimum_up result) 0.8) (pr-str result))
-    (is (> (:maximum_speed result) (if (> cruise 40.0) 70.0 30.0)) (pr-str result))
+  (is (< 4200.0 (:first_lap_metres result) 4400.0) (pr-str result))
+  (is (< (:maximum_projection_step result) 2.0) (pr-str result))
+  (is (< (:maximum_lane_error result) 4.5) (pr-str result))
+  (is (> (:minimum_up result) 0.8) (pr-str result))
+  (is (> (:maximum_speed result) (if (> cruise 40.0) 70.0 30.0)) (pr-str result))
     ;; Approximately 1m30 or faster flying laps; do not reject a clean lap
     ;; merely for being faster than 80s. A credited lap cannot be shorter than
     ;; the accepted physical distance floor / measured peak speed. The lane,
     ;; upright, physical-distance and projection checks still reject shortcuts.
-    (when (> cruise 40.0)
-      (is (< 0.0 (:first_lap_seconds result) 97.0) (pr-str result))
-      (let [peak (:maximum_speed result)
-            minimum-seconds (if (pos? peak) (/ 4200.0 peak) Double/POSITIVE_INFINITY)]
-        (is (< minimum-seconds (:flying_lap_seconds result) 92.0) (pr-str result))))
-    (is (> (:final_speed result) 5.0) (pr-str result)))
+  (when (> cruise 40.0)
+    (is (< 0.0 (:first_lap_seconds result) 97.0) (pr-str result))
+    (let [peak (:maximum_speed result)
+          minimum-seconds (if (pos? peak) (/ 4200.0 peak) Double/POSITIVE_INFINITY)]
+      (is (< minimum-seconds (:flying_lap_seconds result) 92.0) (pr-str result))))
+  (is (> (:final_speed result) 5.0) (pr-str result)))
 
 (deftest motor-driven-cornering-test
   ;; Include the model's ordinary 76m/s pace, not only an idealized faster
   ;; request. The cornering/braking controller must still deliver clean laps.
   (doseq [cruise [40.0 76.0 80.0 90.0]]
     (assert-cornering-result cruise
-      (a/value (driven-circuit-probe (if (= cruise 40.0) 180 230) cruise)))))
+                             (a/value (driven-circuit-probe (if (= cruise 40.0) 180 230) cruise)))))
 
 (deftest planned-analytic-lane-changes-test
   ;; Exactly the same abrupt intents and acceptance bounds as production.
   (doseq [amplitude [3.75 -3.75]]
     (assert-lane-change-result
-      (a/value (driven-route-controller-probe 140 76.0 8 amplitude true true)))))
+     (a/value (driven-route-controller-probe 140 76.0 8 amplitude true true)))))
 
 (deftest planned-analytic-cornering-test
   (doseq [cruise [40.0 76.0 80.0 90.0]]
     (assert-cornering-result cruise
-      (a/value (driven-route-controller-probe
-                  (if (= cruise 40.0) 180 230) cruise 0 0.0 true true)))))
+                             (a/value (driven-route-controller-probe
+                                       (if (= cruise 40.0) 180 230) cruise 0 0.0 true true)))))
 
 (deftest traffic-reflex-only-changes-pedals-test
   (let [intent {:throttle 1.0 :brake 0.0 :steering 0.12
@@ -291,7 +291,7 @@
         clear (a/value (driver/yield-to-traffic control 500.0 20.0))
         blocked (a/value (driver/yield-to-traffic control 40.0 20.0))
         stopped (a/value (driver/yield-to-traffic
-                           (driver/Control (assoc intent :speed 0.0)) 5.0 0.0))]
+                          (driver/Control (assoc intent :speed 0.0)) 5.0 0.0))]
     (is (= 1.0 (:throttle clear)))
     (is (= 0.0 (:brake clear)))
     (is (= 0.0 (:throttle blocked)))
@@ -305,15 +305,15 @@
   (let [intent {:throttle 1.0 :brake 0.0 :steering 0.4
                 :progress 0.5 :lane 0.0 :speed 0.0}
         observe #(a/value (driver/yield-to-offset-obstacle
-                            (driver/Control intent) 5.9 0.0 %))
+                           (driver/Control intent) 5.9 0.0 %))
         away (observe -2.45)
         toward (observe 2.45)
         centred (observe 0.0)
         beside (a/value (driver/yield-to-offset-obstacle
-                           (driver/Control intent) 3.0 0.0 -2.45))
+                         (driver/Control intent) 3.0 0.0 -2.45))
         slowing (a/value (driver/yield-to-offset-obstacle
-                            (driver/Control (assoc intent :speed 1.8))
-                            3.0 0.0 -2.45))]
+                          (driver/Control (assoc intent :speed 1.8))
+                          3.0 0.0 -2.45))]
     (is (< 0.0 (:throttle away) 0.16))
     (is (= 0.0 (:brake away)))
     (is (pos? (:throttle beside)) "Do not deadlock halfway through clearance")
@@ -326,20 +326,20 @@
       (is (= 1.0 (:brake stopped))))))
 
 (a/defstruct PitResult {:layout :extern}
-  [[:progress :f32] [:max_error :f32] [:minimum_up :f32]
-   [:stopped_seconds :f32] [:stop_error :f32] [:final_speed :f32]
-   [:service_max_speed :f32] [:service_drift :f32]])
+             [[:progress :f32] [:max_error :f32] [:minimum_up :f32]
+              [:stopped_seconds :f32] [:stop_error :f32] [:final_speed :f32]
+              [:service_max_speed :f32] [:service_drift :f32]])
 
 (a/defn driven-pit-contact-probe PitResult
   "Enter the pit, brake to rest, hold three seconds, then merge under power.
   Measures the actual body; no parking pose or velocity is assigned." [[analytic? :bool]]
   (let [world (physics/create-world -9.81)
         surface (terrain/create! world)
-        start (circuit/at-distance (* 0.92 4309.0) 0.0)
+        start (circuit/at-distance (ak/* 0.92 4309.0) 0.0)
         car (physics/create-vehicle world
-              (b3/b3Pos {:x (a/field start x) :y (a/field start y)
-                         :z (+ (a/field start z) 0.76)})
-              (a/field start heading))
+                                    (b3/b3Pos {:x (a/field start x) :y (a/field start y)
+                                               :z (ak/+ (a/field start z) 0.76)})
+                                    (a/field start heading))
         ^{:var :f32} stopped 0.0
         ^{:var :f32} stop-error 1000.0
         ^{:var :f32} error-max 0.0
@@ -357,56 +357,56 @@
       (physics/drive! car 0.0 1.0 0.0)
       (when analytic? (tire-probe/apply-ray-tires-probe! car))
       (physics/step! world))
-    (dotimes [_ (* 75 120)]
+    (dotimes [_ (ak/* 75 120)]
       (let [observation (driver/follow-pit car 0.0 6.0)
             q (a/field observation progress)
-            unwrapped (if (< q 0.5) (+ q 1.0) q)
-            remaining (* (- 0.99 unwrapped) 4309.0)
-            released (>= stopped 3.0)
+            unwrapped (if (ak/< q 0.5) (ak/+ q 1.0) q)
+            remaining (ak/* (ak/- 0.99 unwrapped) 4309.0)
+            released (ak/>= stopped 3.0)
             requested (if released (ak/as 22.0 :f32)
-                         (ak/sqrt (* 6.0 (ak/max 0.0 (- remaining 0.5)))))
+                          (ak/sqrt (ak/* 6.0 (ak/max 0.0 (ak/- remaining 0.5)))))
             ^:var control (driver/follow-pit car requested 6.0)
             state (physics/body-state (a/field car chassis))]
         (ak/= progress unwrapped)
         (ak/= speed (a/field control speed))
-        (when (and (ak/! released) (< (ak/abs remaining) 2.0) (< speed 0.02))
+        (when (ak/and (ak/! released) (ak/< (ak/abs remaining) 2.0) (ak/< speed 0.02))
           (when (ak/== stopped 0.0)
             (ak/= stop-x (a/field state x))
             (ak/= stop-y (a/field state y)))
-          (ak/= stopped (+ stopped (/ 1.0 120.0)))
+          (ak/= stopped (ak/+ stopped (ak// 1.0 120.0)))
           (ak/= stop-error (ak/abs remaining)))
-        (when (and (ak/! released) (> stopped 0.0))
-          (let [dx (- (a/field state x) stop-x)
-                dy (- (a/field state y) stop-y)]
+        (when (ak/and (ak/! released) (ak/> stopped 0.0))
+          (let [dx (ak/- (a/field state x) stop-x)
+                dy (ak/- (a/field state y) stop-y)]
             (ak/= service-speed (ak/max service-speed speed))
-            (ak/= service-drift (ak/max service-drift (ak/sqrt (+ (* dx dx) (* dy dy))))))
+            (ak/= service-drift (ak/max service-drift (ak/sqrt (ak/+ (ak/* dx dx) (ak/* dy dy))))))
           (ak/= (a/field control throttle) 0.0)
           (ak/= (a/field control brake) 1.0))
         (ak/= error-max (ak/max error-max
-          (ak/abs (- (a/field control lane) (track/pit-offset q 6.0)))))
-        (ak/= up (ak/min up (- 1.0 (* 2.0 (+ (* (a/field state qx) (a/field state qx))
-                                           (* (a/field state qy) (a/field state qy)))))))
-        (when (> progress 1.075) (ak/break))
+                                (ak/abs (ak/- (a/field control lane) (track/pit-offset q 6.0)))))
+        (ak/= up (ak/min up (ak/- 1.0 (ak/* 2.0 (ak/+ (ak/* (a/field state qx) (a/field state qx))
+                                                      (ak/* (a/field state qy) (a/field state qy)))))))
+        (when (ak/> progress 1.075) (ak/break))
         (dotimes [_ (ak/divTrunc physics/step-rate 120)]
           (driver/apply! car control)
           (when analytic? (tire-probe/apply-ray-tires-probe! car))
           (physics/step! world))))
     (PitResult {:progress progress :max_error error-max :minimum_up up
-                 :stopped_seconds stopped :stop_error stop-error :final_speed speed
-                 :service_max_speed service-speed :service_drift service-drift})))
+                :stopped_seconds stopped :stop_error stop-error :final_speed speed
+                :service_max_speed service-speed :service_drift service-drift})))
 
 (a/defn driven-pit-probe PitResult []
   (driven-pit-contact-probe false))
 
 (defn assert-pit-result [result]
-    (is (> (:progress result) 1.075) (pr-str result))
-    (is (< (:max_error result) 2.5) (pr-str result))
-    (is (> (:minimum_up result) 0.8) (pr-str result))
-    (is (>= (:stopped_seconds result) 3.0) (pr-str result))
-    (is (< (:stop_error result) 2.0) (pr-str result))
-    (is (> (:final_speed result) 10.0) (pr-str result))
-    (is (< (:service_max_speed result) 0.02) (pr-str result))
-    (is (< (:service_drift result) 0.02) (pr-str result)))
+  (is (> (:progress result) 1.075) (pr-str result))
+  (is (< (:max_error result) 2.5) (pr-str result))
+  (is (> (:minimum_up result) 0.8) (pr-str result))
+  (is (>= (:stopped_seconds result) 3.0) (pr-str result))
+  (is (< (:stop_error result) 2.0) (pr-str result))
+  (is (> (:final_speed result) 10.0) (pr-str result))
+  (is (< (:service_max_speed result) 0.02) (pr-str result))
+  (is (< (:service_drift result) 0.02) (pr-str result)))
 
 (deftest physical-pit-entry-service-exit-test
   (assert-pit-result (a/value (driven-pit-probe))))

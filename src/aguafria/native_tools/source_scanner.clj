@@ -1,6 +1,7 @@
 (ns aguafria.native-tools.source-scanner
   "Bounded lexical facts and rewrite spans from Zig's tokenizer."
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.mem :as mem]
             [aguafria.std.zig.Tokenizer :as tokenizer]
             [aguafria.zig :as a]))
@@ -37,13 +38,13 @@
 (a/defn- append_import :u32
   [[facts [:* Facts]] [state [:* State]] [complete :bool]]
   (let [index (:import_count facts)]
-    (when (k/>= index max_imports) (k/return 6))
-    (k/= (a/get (:imports facts) index)
-         (Import {:start (if complete (:argument_start state) 0)
-                  :end (if complete (:argument_end state) 0)
-                  :kind (:import_kind state)}))
-    (k/+= (:import_count facts) 1)
-    (k/= (:import_phase state) 0))
+    (when (>= index max_imports) (return 6))
+    (= (a/get (:imports facts) index)
+       (Import {:start (if complete (:argument_start state) 0)
+                :end (if complete (:argument_end state) 0)
+                :kind (:import_kind state)}))
+    (+= (:import_count facts) 1)
+    (= (:import_phase state) 0))
   0)
 
 (a/defn- collect_import :u32
@@ -53,27 +54,27 @@
   (let [tag (:tag token)
         status (k/var 0 :u32)]
     (cond
-      (k/== (:import_phase state) 1)
-      (if (k/== tag :l_paren)
-        (k/= (:import_phase state) 2)
-        (k/= status (append_import facts state false)))
+      (== (:import_phase state) 1)
+      (if (== tag :l_paren)
+        (= (:import_phase state) 2)
+        (= status (append_import facts state false)))
 
-      (k/== (:import_phase state) 2)
-      (if (k/== tag :builtin)
-        (k/= status (append_import facts state false))
-        (a/merge! state {:argument_start (k/intCast (:start (:loc token)))
-                         :argument_end (k/intCast (:end (:loc token)))
+      (== (:import_phase state) 2)
+      (if (== tag :builtin)
+        (= status (append_import facts state false))
+        (a/merge! state {:argument_start (intCast (:start (:loc token)))
+                         :argument_end (intCast (:end (:loc token)))
                          :import_phase 3}))
 
-      (k/== (:import_phase state) 3)
-      (if (k/== tag :comma)
-        (k/= (:import_phase state) 4)
-        (k/= status (append_import facts state (k/== tag :r_paren))))
+      (== (:import_phase state) 3)
+      (if (== tag :comma)
+        (= (:import_phase state) 4)
+        (= status (append_import facts state (== tag :r_paren))))
 
-      (k/== (:import_phase state) 4)
-      (k/= status (append_import facts state (k/== tag :r_paren))))
-    (when (k/!= status 0) (k/return status))
-    (when (k/== tag :builtin)
+      (== (:import_phase state) 4)
+      (= status (append_import facts state (== tag :r_paren))))
+    (when (!= status 0) (return status))
+    (when (== tag :builtin)
       (when (or (mem/eql :u8 text "@import") (mem/eql :u8 text "@embedFile"))
         (a/merge! state {:import_phase 1
                          :import_kind (if (mem/eql :u8 text "@import") 1 2)}))))
@@ -83,39 +84,39 @@
   [[text [:slice-const :u8]] [token :anytype] [facts [:* Facts]] [state [:* State]]]
   (let [tag (:tag token)]
     (cond
-      (k/== (:export_phase state) 1)
-      (if (k/== tag :keyword_fn)
-        (k/= (:export_phase state) 2)
-        (do (k/= (:external_exports facts) 1)
-            (k/= (:export_phase state) 0)))
+      (== (:export_phase state) 1)
+      (if (== tag :keyword_fn)
+        (= (:export_phase state) 2)
+        (do (= (:external_exports facts) 1)
+            (= (:export_phase state) 0)))
 
-      (k/== (:export_phase state) 2)
+      (== (:export_phase state) 2)
       (let [index (:export_count facts)]
-        (when (k/>= index max_exports) (k/return 3))
-        (k/= (a/get (:exports facts) index)
-             (Span {:start (k/intCast (:start (:loc token)))
-                    :end (k/intCast (:end (:loc token)))}))
-        (k/+= (:export_count facts) 1)
-        (when (or (k/!= tag :identifier) (k/<= (:len text) 11)
-                  (k/! (mem/startsWith :u8 text "__aguafria_")))
-          (k/= (:external_exports facts) 1))
-        (k/= (:export_phase state) 0)))
-    (when (k/== tag :keyword_export) (k/= (:export_phase state) 1))
-    (when (k/== tag :keyword_extern) (k/= (:external_syntax facts) 1))
-    (when (and (k/== tag :builtin) (mem/eql :u8 text "@export"))
-      (k/= (:dynamic_exports facts) 1)))
+        (when (>= index max_exports) (return 3))
+        (= (a/get (:exports facts) index)
+           (Span {:start (intCast (:start (:loc token)))
+                  :end (intCast (:end (:loc token)))}))
+        (+= (:export_count facts) 1)
+        (when (or (!= tag :identifier) (<= (:len text) 11)
+                  (! (mem/startsWith :u8 text "__aguafria_")))
+          (= (:external_exports facts) 1))
+        (= (:export_phase state) 0)))
+    (when (== tag :keyword_export) (= (:export_phase state) 1))
+    (when (== tag :keyword_extern) (= (:external_syntax facts) 1))
+    (when (and (== tag :builtin) (mem/eql :u8 text "@export"))
+      (= (:dynamic_exports facts) 1)))
   0)
 
 (a/defn- collect_identifier :u32
   [[text [:slice-const :u8]] [token :anytype] [facts [:* Facts]]]
-  (when (and (k/== (:tag token) :identifier)
+  (when (and (== (:tag token) :identifier)
              (mem/startsWith :u8 text "__aguafria_"))
     (let [index (:identifier_count facts)]
-      (when (k/>= index max_identifiers) (k/return 7))
-      (k/= (a/get (:identifiers facts) index)
-           (Span {:start (k/intCast (:start (:loc token)))
-                  :end (k/intCast (:end (:loc token)))}))
-      (k/+= (:identifier_count facts) 1)))
+      (when (>= index max_identifiers) (return 7))
+      (= (a/get (:identifiers facts) index)
+         (Span {:start (intCast (:start (:loc token)))
+                :end (intCast (:end (:loc token)))}))
+      (+= (:identifier_count facts) 1)))
   0)
 
 (a/defn- collect_file :u32
@@ -134,39 +135,39 @@
                      :external_syntax 0
                      :import_count 0
                      :identifier_count 0})
-    (k/while (k/<= steps length)
+    (while (<= steps length)
       (let [token (tokenizer/next (k/& lexer))
             tag (:tag token)
             text (a/slice source (:start (:loc token)) (:end (:loc token)))]
-        (when (k/== tag :eof)
-          (if (k/!= (:import_phase state) 0)
-            (k/return (append_import facts (k/& state) false))
-            (k/return 0)))
-        (when (k/== tag :invalid) (k/return 4))
-        (when (and (k/!= tag :doc_comment) (k/!= tag :container_doc_comment))
+        (when (== tag :eof)
+          (if (!= (:import_phase state) 0)
+            (return (append_import facts (k/& state) false))
+            (return 0)))
+        (when (== tag :invalid) (return 4))
+        (when (and (!= tag :doc_comment) (!= tag :container_doc_comment))
           (let [export_status (collect_export text token facts (k/& state))
                 import_status (collect_import text token facts (k/& state))
                 identifier_status (collect_identifier text token facts)]
-            (when (k/!= export_status 0) (k/return export_status))
-            (when (k/!= import_status 0) (k/return import_status))
-            (when (k/!= identifier_status 0) (k/return identifier_status)))))
-      (k/+= steps 1)))
+            (when (!= export_status 0) (return export_status))
+            (when (!= import_status 0) (return import_status))
+            (when (!= identifier_status 0) (return identifier_status)))))
+      (+= steps 1)))
   5)
 
-(a/defn collect_batch :u32 {:attrs #{k/export}}
+(a/defn collect_batch :u32 {:attrs #{export}}
   [[buffer [:many-const :u8]] [buffer_len :u32]
    [offsets [:many-const :u32]] [lengths [:many-const :u32]]
    [file_count :u32] [output [:many Facts]]]
-  (when (or (k/> file_count max_files) (k/> buffer_len max_bytes)) (k/return 1))
+  (when (or (> file_count max_files) (> buffer_len max_bytes)) (return 1))
   (let [file (k/var 0 :u32)]
-    (k/while (k/< file file_count)
+    (while (< file file_count)
       (let [offset (a/get offsets file)
             length (a/get lengths file)
-            end (k/+ (k/u64 offset) (k/u64 length))]
-        (when (or (k/>= end buffer_len) (k/!= (a/get buffer end) 0)) (k/return 2))
-        (let [status (collect_file (k/+ buffer offset) length (k/& (a/get output file)))]
-          (when (k/!= status 0) (k/return status))))
-      (k/+= file 1)))
+            end (+ (u64 offset) (u64 length))]
+        (when (or (>= end buffer_len) (!= (a/get buffer end) 0)) (return 2))
+        (let [status (collect_file (+ buffer offset) length (k/& (a/get output file)))]
+          (when (!= status 0) (return status))))
+      (+= file 1)))
   0)
 
-(a/defn facts_size :u32 {:attrs #{k/export}} [] (k/sizeOf Facts))
+(a/defn facts_size :u32 {:attrs #{export}} [] (sizeOf Facts))

@@ -1,5 +1,6 @@
 (ns learn.example.runtime-invalid-enum-cast
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as a]))
 
@@ -9,8 +10,8 @@
    :c])
 
 (a/defn- foo :void [[a :u2]]
-  (let [b (k/as (k/fromBackingInt a) Foo)]
-    (debug/print "value: {s}\n" [(k/tagName b)])))
+  (let [b (as (fromBackingInt a) Foo)]
+    (debug/print "value: {s}\n" [(tagName b)])))
 
 (a/defn main :void []
   (foo 3))

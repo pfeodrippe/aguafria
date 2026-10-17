@@ -1,10 +1,11 @@
 (ns learn.example.compile-time-duck-typing
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defn- max T
-  [[T {:attrs #{k/comptime}} :type] [a T] [b T]]
-  (if (k/> a b) a b))
+  [[T {:attrs #{comptime}} :type] [a T] [b T]]
+  (if (> a b) a b))
 
 (a/defn- gimmeTheBiggerFloat :f32 [[a :f32] [b :f32]]
   (max :f32 a b))

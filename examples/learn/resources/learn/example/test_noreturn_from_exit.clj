@@ -1,5 +1,6 @@
 (ns learn.example.test-noreturn-from-exit
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
@@ -11,7 +12,7 @@
   1234)
 
 (a/deftest foo
-  (let [value (catch (bar) (ExitProcess 1))]
+  (let [value (k/catch (bar) (ExitProcess 1))]
     (k/try (testing/expectEqual 1234 value))))
 
 (comment

@@ -13,7 +13,7 @@
                     (range 4))]
     (let [[a b c] boxes]
       (is (< (abs (- (* (- (:x b) (:x a)) (- (:y c) (:y a)))
-                       (* (- (:y b) (:y a)) (- (:x c) (:x a))))) 1.0e-7)))
+                     (* (- (:y b) (:y a)) (- (:x c) (:x a))))) 1.0e-7)))
     ;; Metre-sized garages are 10.5m wide; world coordinates are km.
     (is (every? #(> (distance (first %) (second %)) 0.0105)
                 (partition 2 1 boxes))))

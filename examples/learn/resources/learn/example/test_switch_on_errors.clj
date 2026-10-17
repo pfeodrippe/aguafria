@@ -1,5 +1,6 @@
 (ns learn.example.test-switch-on-errors
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defconst FileOpenError0
@@ -9,14 +10,14 @@
   (a/error-value :OutOfMemory))
 
 (a/deftest unreachable-else-prong
-  (k/switch (open-file-0)
+  (switch (open-file-0)
     ((a/error-value :AccessDenied) (a/error-value :FileNotFound))
-    (a/with-block :_ [e] (k/return e))
+    (a/with-block :_ [e] (return e))
     (a/error-value :OutOfMemory) (a/block)
     ;; 'openFile0' cannot return any more errors, so an 'else' prong would be
     ;; statically known to be unreachable. Nonetheless, in this case, adding
     ;; one does not raise an "unreachable else prong" compile error:
-    (k/unreachable))
+    (unreachable))
   ;; Allowed unreachable else prongs are:
   ;;    `else => unreachable,`
   ;;    `else => return,`
@@ -30,15 +31,15 @@
   (a/error-value :SystemResources))
 
 (a/defn- open-file-generic
-  (k/switch kind 0 FileOpenError0 1 FileOpenError1)
-  [[kind {:attrs #{k/comptime}} :u1]]
-  (k/switch kind 0 (open-file-0) 1 (open-file-1)))
+  (switch kind 0 FileOpenError0 1 FileOpenError1)
+  [[kind {:attrs #{comptime}} :u1]]
+  (switch kind 0 (open-file-0) 1 (open-file-1)))
 
 (a/deftest comptime-unreachable-errors-not-in-error-set
-  (k/switch (open-file-generic 1)
+  (switch (open-file-generic 1)
     ((a/error-value :AccessDenied) (a/error-value :FileNotFound))
-    (a/with-block :_ [e] (k/return e))
-    (a/error-value :OutOfMemory) (k/comptime (k/unreachable)) ; not in `FileOpenError1`!
+    (a/with-block :_ [e] (return e))
+    (a/error-value :OutOfMemory) (comptime (unreachable)) ; not in `FileOpenError1`!
     (a/error-value :SystemResources) (a/block)))
 
 (comment

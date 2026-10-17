@@ -261,11 +261,11 @@
       ((requiring-resolve 'aguafria-examples-native.bindings/ensure-loaded!))
       (native! :shared)
       (a/configure! {:module-zig-args
-                      (assoc (:module-zig-args (a/configuration)) "la-professeure.miniaudio"
-                             [(str "-I" (io/file (root) "build/vendor/miniaudio"))])
-                      :zig-args (into (vec (:zig-args (a/configuration)))
-                                      (concat [(str (native-path :shared))
-                                               (str "-I" (io/file (root) "build/vendor/miniaudio"))] audio-frameworks))})
+                     (assoc (:module-zig-args (a/configuration)) "la-professeure.miniaudio"
+                            [(str "-I" (io/file (root) "build/vendor/miniaudio"))])
+                     :zig-args (into (vec (:zig-args (a/configuration)))
+                                     (concat [(str (native-path :shared))
+                                              (str "-I" (io/file (root) "build/vendor/miniaudio"))] audio-frameworks))})
       (reset! native-loaded true))))
 
 (defn standalone! []
@@ -290,22 +290,22 @@
         (Files/copy (.toPath file) (.toPath target)
                     (into-array StandardCopyOption [StandardCopyOption/REPLACE_EXISTING]))))
     (select-keys (a/build! 'la-professeure.scene
-                            {:kind :exe :name "la-professeure" :output output :optimize "fast"
-                             :reloadable? false :async? false
-                             :module-zig-args {"la-professeure.miniaudio"
-                                               [(str "-I" (io/file (root) "build/vendor/miniaudio"))]}
-                             :zig-args (vec (concat (native/standalone-link-arguments)
-                                                    [(str (native-path :static))
-                                                     (str "-I" (io/file (root) "build/vendor/miniaudio"))] audio-frameworks))})
+                           {:kind :exe :name "la-professeure" :output output :optimize "fast"
+                            :reloadable? false :async? false
+                            :module-zig-args {"la-professeure.miniaudio"
+                                              [(str "-I" (io/file (root) "build/vendor/miniaudio"))]}
+                            :zig-args (vec (concat (native/standalone-link-arguments)
+                                                   [(str (native-path :static))
+                                                    (str "-I" (io/file (root) "build/vendor/miniaudio"))] audio-frameworks))})
                  [:output-path :duration-ms :optimize])))
 
 (defn tool! []
   (let [output (io/file (root) "build/tools/dialogue-tool")]
     (io/make-parents output)
     (select-keys (a/build! 'la-professeure.recording-tool
-                            {:kind :exe :name "dialogue-tool" :output output
-                             :optimize "fast" :reloadable? false :async? false
-                             :zig-args ["-lc"]}) [:output-path :duration-ms])))
+                           {:kind :exe :name "dialogue-tool" :output output
+                            :optimize "fast" :reloadable? false :async? false
+                            :zig-args ["-lc"]}) [:output-path :duration-ms])))
 
 (defn -main [& [command]]
   (prn (case command "standalone" (standalone!) "tool" (tool!) (prepare!)))

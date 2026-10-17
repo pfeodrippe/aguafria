@@ -10,6 +10,21 @@
             [clojure.java.io :as io]
             [clojure.string :as str]))
 
+;; Clear installed tokens and syntax helpers before compiling any host code
+;; on reload. The cleanup itself cannot depend on names that we expose below.
+(clojure.core/let [removed (clojure.core/->> (clojure.core/ns-interns clojure.core/*ns*)
+                                             (clojure.core/keep
+                                              (clojure.core/fn [[name v]]
+                                                (clojure.core/when (clojure.core/or (:aguafria/token (clojure.core/meta v))
+                                                                                    (:aguafria/core-syntax (clojure.core/meta v)))
+                                                  name)))
+                                             clojure.core/vec)]
+  (clojure.core/doseq [name removed]
+    (clojure.core/ns-unmap clojure.core/*ns* name))
+  (clojure.core/doseq [name removed
+                       :when (clojure.core/contains? (clojure.core/ns-publics 'clojure.core) name)]
+    (clojure.core/refer 'clojure.core :only [name])))
+
 (def ^:private catalog-resource
   "aguafria/zig-keyword.edn")
 
@@ -23,19 +38,6 @@
 
 (def ^:private generated-catalog
   (load-catalog))
-
-;; Remove generated Vars before compiling the rest of this namespace on
-;; `require :reload`. In particular, a previous `k/fn` or `k/if` Var must
-;; not shadow Clojure's own special-form spelling while this file is read.
-(let [removed (->> (ns-interns *ns*)
-                   (keep #(when (:aguafria/token (meta (val %))) (key %)))
-                   vec)]
-  (doseq [sym removed]
-    (ns-unmap *ns* sym))
-  ;; Re-refer any clojure.core name that an older generated catalog shadowed.
-  (doseq [sym removed
-          :when (contains? (ns-publics 'clojure.core) sym)]
-    (refer 'clojure.core :only [sym])))
 
 ;; Clojure keeps removed definitions across `require :reload`. Clean the old
 ;; pre-singular API so a long-running REPL observes the rename immediately.
@@ -194,9 +196,6 @@
 (defn- token-root
   [token]
   (cond
-    (= "comptime" (:zig-token token))
-    identity
-
     (= "try" (:zig-token token))
     value/try-value!
 
@@ -291,15 +290,19 @@
         (ns-resolve target-ns (symbol (name sym)))))))
 
 (defn resolve-token
-  "Resolve a qualified generated keyword symbol in `context-ns`.
+  "Resolve a native token Var in `context-ns`, including explicitly referred Vars.
 
-  The result describes the Zig call/operator and includes its canonical
-  `aguafria.keyword/...` symbol. Unqualified Zig forms intentionally return
-  nil so ordinary forms such as `if` and `field` retain their meanings."
+  Spelling alone never selects a native operator. The resolved Var must carry
+  native token metadata. Callers performing lexical analysis must respect local
+  bindings before resolving namespace Vars. Results carry a canonical symbol
+  so captured native code retains its meaning outside the source namespace."
   [context-ns op]
-  (some-> (resolve-qualified-var context-ns op)
-          meta
-          :aguafria/token))
+  (when (and (symbol? op) (not (:aguafria/local? (meta op))))
+    (some-> (if (namespace op)
+              (resolve-qualified-var context-ns op)
+              (ns-resolve context-ns op))
+            meta
+            :aguafria/token)))
 
 (defn normalize-attributes
   "Normalize an attribute set for native declaration emission.
@@ -419,7 +422,7 @@
        {:aguafria/token token
         :arglists '([& forms])
         :doc (str (when (= "comptime" (:zig-token token))
-                    "Inside an Aguafria declaration, evaluate one expression, statement, or block during Zig compilation. Use (k/comptime expression), (k/comptime (do ...)), or (k/comptime (let [...] ...)). In ordinary JVM evaluation this is identity: its argument evaluates normally once and its result is returned unchanged.\n\n")
+                    "Evaluate one native expression, statement, or block at Zig compile time. JVM/REPL calls capture syntax and lexical bindings through the native scoped bridge; the body is not evaluated as Clojure. Use native operator Vars, qualified or referred. Zig enforces which captures and operations are comptime-valid. Use (k/comptime expression), (k/comptime (do ...)), or (k/comptime (let [...] ...)).\n\n")
                   (when (= "var" (:zig-token token))
                     "JVM: (k/var value) or (k/var value type) creates owned mutable native storage. Assign with (k/= handle value). In an Aguafria let initializer, declares a Zig var.\n\n")
                   (when (= "try" (:zig-token token))
@@ -432,6 +435,17 @@
         :zig/name (:zig-token token)
         :zig/source (get-in generated-catalog [:sources :tokenizer :path])
         :zig/version (:zig-version generated-catalog)})
+      (when (= "comptime" (:zig-token token))
+        (let [v (ns-resolve *ns* (symbol (:name token)))]
+          (alter-var-root v
+                          (constantly
+                           (fn [form environment & expressions]
+                             (when-not (= 1 (count expressions))
+                               (throw (ex-info "k/comptime expects one native expression or block"
+                                               {:form form :arguments expressions})))
+                             (scoped-token-expansion form environment true))))
+          (alter-meta! v assoc :macro true :aguafria/scoped? true
+                       :arglists '([expression]))))
       (when (contains? #{"for" "while" "switch"} (:zig-token token))
         (let [v (ns-resolve *ns* (symbol (:name token)))]
           (alter-var-root v (constantly (fn [form environment & _]
@@ -484,3 +498,81 @@
       :zig/name (:zig-token token)
       :zig/source (get-in generated-catalog [:sources :primitives :path])
       :zig/version (:zig-version generated-catalog)})))
+
+;; These are the ordinary Clojure macros, not new native execution scopes.
+;; Sharing their macro implementations keeps standalone JVM behavior unchanged.
+;; Native declaration capture continues to lower its supported binding syntax.
+(clojure.core/doseq [name '[let -> ->> as-> cond cond-> cond->> some-> some->>
+                            doto when when-not dotimes comment]]
+  (clojure.core/let [source (clojure.core/ns-resolve 'clojure.core name)
+                     source-symbol (clojure.core/symbol "clojure.core" (clojure.core/str name))]
+    (clojure.core/assert (:macro (clojure.core/meta source)))
+    (clojure.core/assert (clojure.core/not (:aguafria/token
+                                            (clojure.core/meta (clojure.core/ns-resolve clojure.core/*ns* name)))))
+    (clojure.core/ns-unmap clojure.core/*ns* name)
+    (clojure.core/let [target (clojure.core/intern clojure.core/*ns* name @source)]
+      (clojure.core/alter-meta!
+       target clojure.core/merge
+       (clojure.core/select-keys (clojure.core/meta source) [:macro :arglists :doc])
+       {:aguafria/core-syntax source-symbol}
+       (clojure.core/when (clojure.core/contains? '#{let when when-not dotimes comment} name)
+         {:aguafria/syntax {:kind :syntax :name (clojure.core/str name)
+                            :symbol (clojure.core/symbol "aguafria.keyword" (clojure.core/str name))}})))))
+
+;; BEGIN GENERATED KEYWORD LINT MODEL
+;; Generated by aguafria.generate-keyword; no runtime definitions.
+(clojure.core/comment
+  (clojure.core/declare
+    ! != % %= & &= * *% *%= *=
+    *| *|= + +% +%= ++ += +| +|= -
+    -% -%= -= -> ->> -| -|= / < <<
+    <<= <<| <<|= <= = == > >= >> >>=
+    Enum EnumLiteral FieldType Fn Frame Int Pointer SpirvType Struct This
+    Tuple TypeOf Union Vector abs addWithOverflow addrSpaceCast addrspace align alignCast
+    alignOf allowzero and anyerror anyframe anyopaque anytype as as-> asm
+    atomicLoad atomicRmw atomicStore backingInt bit-not bit-xor bitCast bitOffsetOf bitReverse bitSizeOf
+    bool branchHint break breakpoint byteSwap cVaArg cVaCopy cVaEnd cVaStart c_char
+    c_int c_long c_longdouble c_longlong c_short c_uint c_ulong c_ulonglong c_ushort call
+    callconv catch ceil clz cmpxchgStrong cmpxchgWeak comment compileError compileLog comptime
+    comptime_float comptime_int cond cond-> cond->> const constCast continue cos ctz
+    defer disableInstrumentation disableIntrinsics div-assign divCeil divExact divFloor divTrunc dotimes doto
+    else embedFile enum enumFromInt errdefer error errorCast errorFromInt errorName errorReturnTrace
+    exp exp2 export extern f128 f16 f32 f64 f80 field
+    fieldParentPtr floatCast floatFromInt floor fn for frame frameAddress fromBackingInt hasDecl
+    hasField i0 i1 i10 i100 i101 i102 i103 i104 i105
+    i106 i107 i108 i109 i11 i110 i111 i112 i113 i114
+    i115 i116 i117 i118 i119 i12 i120 i121 i122 i123
+    i124 i125 i126 i127 i128 i13 i14 i15 i16 i17
+    i18 i19 i2 i20 i21 i22 i23 i24 i25 i26
+    i27 i28 i29 i3 i30 i31 i32 i33 i34 i35
+    i36 i37 i38 i39 i4 i40 i41 i42 i43 i44
+    i45 i46 i47 i48 i49 i5 i50 i51 i52 i53
+    i54 i55 i56 i57 i58 i59 i6 i60 i61 i62
+    i63 i64 i65 i66 i67 i68 i69 i7 i70 i71
+    i72 i73 i74 i75 i76 i77 i78 i79 i8 i80
+    i81 i82 i83 i84 i85 i86 i87 i88 i89 i9
+    i90 i91 i92 i93 i94 i95 i96 i97 i98 i99
+    if import inComptime inline intCast intFromBool intFromEnum intFromError intFromFloat intFromPtr
+    isize keyword-export keyword-extern let linksection log log10 log2 max memcpy
+    memmove memset min mod mulAdd mulWithOverflow noalias noinline noreturn nosuspend
+    null offsetOf opaque or orelse packed panic popCount prefetch ptrCast
+    ptrFromInt pub reduce rem resume return returnAddress round select setEvalBranchQuota
+    setFloatMode setRuntimeSafety shlExact shlWithOverflow shrExact shuffle sin sizeOf some-> some->>
+    splat sqrt src struct subWithOverflow suspend switch tagName tan test
+    threadlocal trap trunc truncate try type typeInfo typeName u0 u1
+    u10 u100 u101 u102 u103 u104 u105 u106 u107 u108
+    u109 u11 u110 u111 u112 u113 u114 u115 u116 u117
+    u118 u119 u12 u120 u121 u122 u123 u124 u125 u126
+    u127 u128 u13 u14 u15 u16 u17 u18 u19 u2
+    u20 u21 u22 u23 u24 u25 u26 u27 u28 u29
+    u3 u30 u31 u32 u33 u34 u35 u36 u37 u38
+    u39 u4 u40 u41 u42 u43 u44 u45 u46 u47
+    u48 u49 u5 u50 u51 u52 u53 u54 u55 u56
+    u57 u58 u59 u6 u60 u61 u62 u63 u64 u65
+    u66 u67 u68 u69 u7 u70 u71 u72 u73 u74
+    u75 u76 u77 u78 u79 u8 u80 u81 u82 u83
+    u84 u85 u86 u87 u88 u89 u9 u90 u91 u92
+    u93 u94 u95 u96 u97 u98 u99 undefined union unionInit
+    unreachable usize var void volatile volatileCast wasmMemoryGrow wasmMemorySize when when-not
+    while workGroupId workGroupSize workItemId | |= ||))
+;; END GENERATED KEYWORD LINT MODEL

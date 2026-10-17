@@ -38,7 +38,7 @@
         (alias 'builtin 'aguafria.std.lang)
         (eval '(a/defn location builtin/SourceLocation []
                  (a/init {:module "example" :file "example.clj" :fn_name "location" :line 42 :column 3}
-                          builtin/SourceLocation))))
+                         builtin/SourceLocation))))
       (is (= :prepared (:status (runtime/precompile-function! (symbol module "location")))))
       (is (empty? (:native-generations (runtime/module-info module))))
       (swap! (var-get #'runtime/registry) update module
@@ -55,8 +55,8 @@
 
 (deftest exact-materialization-selects-only-its-own-jvm-wrapper
   (doseq [request-key [:jvm-callable-declaration-keys
-                      :jvm-value-declaration-keys
-                      :jvm-type-declaration-keys]]
+                       :jvm-value-declaration-keys
+                       :jvm-type-declaration-keys]]
     (with-redefs-fn
       {#'runtime/registry
        (atom {"owner" {request-key #{[:fn 'helper] [:fn 'caller]}}
@@ -80,7 +80,7 @@
           (binding [*ns* context runtime/*source-only-registration?* true]
             (refer 'clojure.core)
             (alias 'a 'aguafria.zig)
-            (eval '(a/defn helper :i32 [[x :i32]] (+ x 1)))
+            (eval '(a/defn helper :i32 [[x :i32]] (aguafria.keyword/+ x 1)))
             (eval '(a/defn caller :i32 [[x :i32]] (helper x))))
           (doseq [name order]
             (is (= :prepared
@@ -95,11 +95,11 @@
             (is (= 42 (a/value ((ns-resolve context 'caller) 41))))
             (is (= 42 (a/value ((ns-resolve context 'helper) 41)))))
           (is (empty? (filter #(and (= module (:module %))
-                                   (= :compiled (:event %))) @events)))
+                                    (= :compiled (:event %))) @events)))
           (is (= 2 (count (filter #(and (= module (:module %))
-                                       (= :disk-cache-hit (:event %))) @events))))
+                                        (= :disk-cache-hit (:event %))) @events))))
           (binding [*ns* context]
-            (eval '(a/defn helper :i32 [[x :i32]] (+ x 2))))
+            (eval '(a/defn helper :i32 [[x :i32]] (aguafria.keyword/+ x 2))))
           (runtime/await! module)
           (is (= 43 (a/value ((ns-resolve context 'caller) 41))))
           (is (= 43 (a/value ((ns-resolve context 'helper) 41))))

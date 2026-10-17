@@ -1,10 +1,11 @@
 (ns aguafria.zig.discovery-variadic-fixture
-  (:require [aguafria.keyword :as k]
-            [aguafria.std.c :as c]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
+            [aguafria.std.c :as libc]
             [aguafria.zig :as a]))
 
 (a/deftest never-run
-  (k/= :_ (c/printf ""))
-  (k/= :_ (c/printf "%d\n" (k/i32 12)))
-  (k/= :_ (c/printf "%s=%d\n" "value" (k/i32 42)))
-  (k/unreachable))
+  (= :_ (libc/printf ""))
+  (= :_ (libc/printf "%d\n" (i32 12)))
+  (= :_ (libc/printf "%s=%d\n" "value" (i32 42)))
+  (unreachable))

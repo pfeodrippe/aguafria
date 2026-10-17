@@ -1,5 +1,6 @@
 (ns aguafria.zig.precompile-private-payload-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defstruct Holder
@@ -7,7 +8,7 @@
    [:maybe [:optional Payload]]])
 
 (a/defunion Command
-  {:attrs #{k/enum}}
+  {:attrs #{enum}}
   [(a/struct-decl Payload [[:value :u32]])
    [:payload Payload]
    [:empty :void]])

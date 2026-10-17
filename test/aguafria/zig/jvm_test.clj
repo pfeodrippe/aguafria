@@ -887,7 +887,7 @@
                        "expected type 'bool'"))))
 
 (deftest comptime-only-mutable-captures-write-back-after-native-execution
-  (with-open [i (ak/var 0 nil {:attrs #{ak/comptime}})
+  (with-open [i (ak/var 0 nil {:attrs #{:comptime}})
               sum (ak/var 0 :usize)]
     (is (= :comptime_int (value/qualified-type i)))
     (is (value/comptime-mutable? i))
@@ -906,7 +906,7 @@
     (is (= :comptime_int (value/qualified-type i)))))
 
 (deftest failed-native-scopes-do-not-publish-comptime-writebacks
-  (with-open [i (ak/var 0 nil {:attrs #{ak/comptime}})]
+  (with-open [i (ak/var 0 nil {:attrs #{:comptime}})]
     (is (thrown-with-msg?
          clojure.lang.ExceptionInfo #"comptime writeback failure"
          (a/while-loop {:inline? true :continue (a/assign-expr "+=" i 1)}
@@ -1230,11 +1230,11 @@
       (finally (remove-ns (ns-name namespace))))))
 
 (deftest attribute-sets-work-in-native-and-jvm-declarations
-  (with-open [number (ak/var 1 :i32 {:attrs #{ak/comptime}})]
+  (with-open [number (ak/var 1 :i32 {:attrs #{:comptime}})]
     (ak/+= number 1)
     (is (values= 2 @number)))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #":attrs must be a set"
-                        (ak/var 1 :i32 {:attrs ak/comptime})))
+                        (ak/var 1 :i32 {:attrs #'ak/comptime})))
   (let [namespace (fixture)]
     (try
       (binding [*ns* namespace]
@@ -1243,7 +1243,7 @@
         (is (thrown? Exception
                      (eval '(a/defvar bad :i32 {:attrs ak/threadlocal} 1))))
         (eval '(a/defn compile-counter :i32 []
-                 (let [counter (ak/var 1 :i32 {:attrs #{ak/comptime}})]
+                 (let [counter (ak/var 1 :i32 {:attrs #{:comptime}})]
                    (ak/+= counter 1)
                    counter))))
       (is (values= 2 ((ns-resolve namespace 'compile-counter))))
@@ -1313,7 +1313,7 @@
                    (ak/defer (array-list/deinit list testing/allocator))
                    (try (array-list/append list testing/allocator \☔))
                    (try (testing/expectEqual 1 (-> list array-list/-items array-list-slice/-len)))
-                   (try (testing/expect (> (array-list/-capacity list) 0)))))))
+                   (try (testing/expect (ak/> (array-list/-capacity list) 0)))))))
       (is (values= :passed (:status ((ns-resolve namespace 'field-vars-work-in-native-code)))))
       (finally (remove-ns (ns-name namespace))))))
 
@@ -1445,7 +1445,7 @@
         (eval '(a/defstruct Point "A point." [[:x :i32]]))
         (eval '(a/defconst limit :u32 42))
         (eval '(a/defvar counter :u32 7))
-        (eval '(a/defn add :i32 [[x :i32]] (+ x 1)))
+        (eval '(a/defn add :i32 [[x :i32]] (ak/+ x 1)))
         (eval '(a/deftest addition-test (debug/assert true))))
       (doseq [[name expected] [['Point "/// A point."]
                                ['limit "const limit: u32 = 42;"]
@@ -1521,9 +1521,9 @@
                      (a/defconst permissions (a/number-literal "0o7_5_5"))
                      (a/defconst big-address (a/number-literal "0xFF80_0000_0000_0000"))
                      (a/defconst inf (math/inf :f32))
-                     (a/defconst negative-inf (- (math/inf :f64)))
+                     (a/defconst negative-inf (ak/- (math/inf :f64)))
                      (a/defconst nan (math/nan :f128))
-                     (a/defconst computed (+ 40 2))]]
+                     (a/defconst computed (ak/+ 40 2))]]
         (eval form)))
     (let [read-constant #(value/value @(ns-resolve namespace %))]
       (is (values= [493 240 1000000000 511 493 18410715276690587648N 42]
@@ -1644,13 +1644,13 @@
         (is (var? (eval '(a/defn identity-generic T
                            [[T {:attrs #{ak/comptime}} :type] [x T]] x))))
         (let [failure (try
-                        (eval '(a/defn invalid :i32 [[a :i32] [b :i32]] (/ a b)))
+                        (eval '(a/defn invalid :i32 [[a :i32] [b :i32]] (ak// a b)))
                         (catch Throwable failure failure))]
           (is (str/includes? (:aguafria/report (runtime/error-data failure))
                              "signed integers must use")))
         (let [failure (try
                         (eval '(a/defn invalid-array [:array 1 :i32]
-                                 [[a :i32] [b :i32]] [(/ a b)]))
+                                 [[a :i32] [b :i32]] [(ak// a b)]))
                         (catch Throwable failure failure))]
           (is (str/includes? (:aguafria/report (runtime/error-data failure))
                              "signed integers must use")))
@@ -1676,9 +1676,9 @@
     (binding [*ns* namespace]
       (eval '(a/defn- maximum T
                [[T {:zig/prefix "comptime"} :type] [left T] [right T]]
-               (if (== T :bool)
-                 (or left right)
-                 (if (> left right) left right)))))
+               (if (ak/== T :bool)
+                 (ak/or left right)
+                 (if (ak/> left right) left right)))))
     (let [maximum (ns-resolve namespace 'maximum)]
       (is (true? (maximum :bool false true)))
       (is (false? (maximum :bool false false)))
@@ -1690,9 +1690,9 @@
       (binding [*ns* namespace]
         (eval '(a/defn- maximum T
                  [[T {:zig/prefix "comptime"} :type] [left T] [right T]]
-                 (if (== T :bool)
-                   (and left right)
-                   (if (< left right) left right)))))
+                 (if (ak/== T :bool)
+                   (ak/and left right)
+                   (if (ak/< left right) left right)))))
       (is (false? (maximum :bool false true)))
       (is (values= 3 (maximum :i32 3 8))))))
 
@@ -1702,7 +1702,7 @@
       (eval '(a/defvar calls :i64 0))
       (eval '(a/defn count-call :i64 [[T {:zig/prefix "comptime"} :type] [x T]]
                (ak/= :_ x)
-               (ak/= calls (+ calls 1))
+               (ak/= calls (ak/+ calls 1))
                calls))
       (eval '(a/defn count-now :i64 [] calls)))
     (let [count-call (ns-resolve namespace 'count-call)
@@ -1751,9 +1751,9 @@
         (eval '(a/defn- inline-add :i32 {:zig/prefix "inline"}
                  [[left :i32] [right :i32]]
                  (debug/print "inside inline call\n" [])
-                 (+ left right)))
+                 (ak/+ left right)))
         (eval '(a/defn main :void []
-                 (when (!= (inline-add 1200 34) 1234)
+                 (when (ak/!= (inline-add 1200 34) 1234)
                    (ak/compileError "inline result no longer folds")))))
       (binding [*err* err]
         (is (nil? ((ns-resolve namespace 'main)))))
@@ -1804,7 +1804,7 @@
         (eval '(a/deffield second-value :u64))
         (eval '(a/defconst Record (ak/This)))
         (eval '(a/defn make-record Record [[value :u32]]
-                 (a/object [[:first-value value] [:second-value (* value 10)]]))))
+                 (a/object [[:first-value value] [:second-value (ak/* value 10)]]))))
       (let [result ((ns-resolve namespace 'make-record) 42)]
         (try
           (is (values= {:first-value 42 :second-value 420} (a/value result)))
@@ -1819,7 +1819,7 @@
                  (a/container {:kind :enum :type :c_int}
                               [(a/enum-field-decl :idle)
                                (a/enum-field-decl :running)])))
-        (eval '(a/defn running? :bool [[mode Mode]] (== mode :running))))
+        (eval '(a/defn running? :bool [[mode Mode]] (ak/== mode :running))))
       (let [running? (ns-resolve namespace 'running?)]
         (is (false? (running? :idle)))
         (is (true? (running? :running)))

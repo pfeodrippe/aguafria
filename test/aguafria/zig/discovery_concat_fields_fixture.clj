@@ -1,13 +1,14 @@
 (ns aguafria.zig.discovery-concat-fields-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defstruct Settings [[:one :u32] [:two :bool]])
 
 (a/deftest never-run
-  (a/inline-for [field-name (:field_names (:struct (k/typeInfo Settings)))]
-                (k/= :_ (k/++ "prefix." field-name)))
-  (k/unreachable))
+  (a/inline-for [field-name (:field_names (:struct (typeInfo Settings)))]
+                (= :_ (++ "prefix." field-name)))
+  (unreachable))
 
 (a/defstruct WideSettings
   [[:setting_0 :u32] [:setting_1 :u32] [:setting_2 :u32] [:setting_3 :u32]
@@ -20,6 +21,6 @@
    [:setting_28 :u32] [:setting_29 :u32] [:setting_30 :u32] [:setting_31 :u32]])
 
 (a/deftest never-run-many-fields
-  (a/inline-for [field-name (:field_names (:struct (k/typeInfo WideSettings)))]
-                (k/= :_ (k/++ "wide." field-name)))
-  (k/unreachable))
+  (a/inline-for [field-name (:field_names (:struct (typeInfo WideSettings)))]
+                (= :_ (++ "wide." field-name)))
+  (unreachable))

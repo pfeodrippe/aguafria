@@ -1,5 +1,6 @@
 (ns learn.example.test-for
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
@@ -7,31 +8,31 @@
   (let [items (a/array [4 5 3 4 0] :i32)
         sum (k/var 0 :i32)]
     ;; For loops iterate over slices and arrays.
-    (k/for [value items]
+    (for [value items]
       ;; Break and continue are supported.
-      (when (k/== value 0)
-        (k/continue))
-      (k/+= sum value))
+      (when (== value 0)
+        (continue))
+      (+= sum value))
     (k/try (testing/expectEqual 16 sum))
 
     ;; To iterate over a portion of a slice, reslice.
-    (k/for [value (a/slice items 0 1)]
-      (k/+= sum value))
+    (for [value (a/slice items 0 1)]
+      (+= sum value))
     (k/try (testing/expectEqual 20 sum))
 
     ;; To access the index of iteration, specify a second condition as well
     ;; as a second capture value.
     (let [sum2 (k/var 0 :i32)]
-      (k/for [_ items i (a/range 0)]
-        (k/try (testing/expectEqual :usize (k/TypeOf i)))
-        (k/+= sum2 (k/as (k/intCast i) :i32)))
+      (for [_ items i (a/range 0)]
+        (k/try (testing/expectEqual :usize (TypeOf i)))
+        (+= sum2 (as (intCast i) :i32)))
       (k/try (testing/expectEqual 10 sum2)))
 
     ;; To iterate over consecutive integers, use the range syntax.
     ;; Unbounded range is always a compile error.
     (let [sum3 (k/var 0 :usize)]
-      (k/for [i (a/range 0 5)]
-        (k/+= sum3 i))
+      (for [i (a/range 0 5)]
+        (+= sum3 i))
       (k/try (testing/expectEqual 10 sum3)))))
 
 (a/deftest multi-object-for
@@ -41,16 +42,16 @@
     ;; Iterate over multiple objects.
     ;; All lengths must be equal at the start of the loop, otherwise detectable
     ;; illegal behavior occurs.
-    (k/for [i items j items2]
-      (k/+= count (k/+ i j)))
+    (for [i items j items2]
+      (+= count (+ i j)))
     (k/try (testing/expectEqual 21 count))))
 
 (a/deftest for-reference
   (let [items (k/var (a/array [3 4 2] :i32))]
     ;; Iterate over the slice by reference by
     ;; specifying that the capture value is a pointer.
-    (k/for [(k/* value) (k/& items)]
-      (k/+= @value 1))
+    (for [(* value) (k/& items)]
+      (+= @value 1))
     (k/try (testing/expectEqual 4 (a/get items 0)))
     (k/try (testing/expectEqual 5 (a/get items 1)))
     (k/try (testing/expectEqual 3 (a/get items 2)))))
@@ -61,13 +62,13 @@
         sum (k/var 0 :i32)]
     ;; For loops can also be used as expressions.
     ;; Similar to while loops, when you break from a for loop, the else branch is not evaluated.
-    (let [result (k/for [value items]
-                   (when (k/!= value nil)
-                     (k/+= sum (a/unwrap value)))
+    (let [result (for [value items]
+                   (when (!= value nil)
+                     (+= sum (a/unwrap value)))
                    (a/else-expression
                     (a/with-block :blk
                       (k/try (testing/expectEqual 12 sum))
-                      (k/break :blk sum))))]
+                      (break :blk sum))))]
       (k/try (testing/expectEqual 12 result)))))
 
 (comment

@@ -11,19 +11,19 @@
   :note "A UTF-8 string literal; its spelling is unchanged."}
 
  "' '"
- {:clojure-source "\\space" :kind :expr :standalone? true
+ {:clojure-source "\space" :kind :expr :standalone? true
   :note "The space character."}
 
  "'\\n'"
- {:clojure-source "\\newline" :kind :expr :standalone? true
+ {:clojure-source "\newline" :kind :expr :standalone? true
   :note "The line-feed character."}
 
  "'\\r'"
- {:clojure-source "\\return" :kind :expr :standalone? true
+ {:clojure-source "\return" :kind :expr :standalone? true
   :note "The carriage-return character."}
 
  "'\\t'"
- {:clojure-source "\\tab" :kind :expr :standalone? true
+ {:clojure-source "\tab" :kind :expr :standalone? true
   :note "The horizontal-tab character."}
 
  "0"
@@ -135,7 +135,7 @@
   :note "An opaque type with unknown size and alignment."}
 
  "@\"foo\""
- {:clojure-source "(a/identifier-literal \"@\\\"foo\\\"\")" :kind :expr
+ {:clojure-source "(a/identifier-literal \"@\\"foo\\"\")" :kind :expr
   :note "An explicitly quoted Zig identifier, not a string value."}
 
  "@Int(.unsigned, 18)"
@@ -179,7 +179,7 @@
   :note "Exact division has no remainder."}
 
  "@divExact(a, b) * b == a"
- {:clojure-source "(k/== (* (k/divExact a b) b) a)" :kind :expr
+ {:clojure-source "(k/== (k/* (k/divExact a b) b) a)" :kind :expr
   :note "The exact-division identity, subject to the builtin's preconditions."}
 
  "@divFloor(-5, 3) == -2"
@@ -191,7 +191,8 @@
   :note "Truncating division rounds toward zero."}
 
  "@divTrunc(numerator, denominator) * denominator == numerator"
- {:clojure-source "(k/== (* (k/divTrunc numerator denominator) denominator)\n    numerator)" :kind :expr
+ {:clojure-source "(k/== (k/* (k/divTrunc numerator denominator) denominator)
+    numerator)" :kind :expr
   :note "The surrounding exact-division precondition; numerator and denominator are local parameters."}
 
  "@mod(-5, 3) == 1"
@@ -203,15 +204,15 @@
   :note "Remainder pairs with truncating division."}
 
  "(@divFloor(a, b) * b) + @mod(a, b) == a"
- {:clojure-source "(k/== (+ (* (k/divFloor a b) b) (k/mod a b)) a)" :kind :expr
+ {:clojure-source "(k/== (k/+ (k/* (k/divFloor a b) b) (k/mod a b)) a)" :kind :expr
   :note "Reconstruct the dividend from floor quotient and modulo."}
 
  "(@divTrunc(a, b) * b) + @rem(a, b) == a"
- {:clojure-source "(k/== (+ (* (k/divTrunc a b) b) (k/rem a b)) a)" :kind :expr
+ {:clojure-source "(k/== (k/+ (k/* (k/divTrunc a b) b) (k/rem a b)) a)" :kind :expr
   :note "Reconstruct the dividend from truncated quotient and remainder."}
 
  "(a * b) + c"
- {:clojure-source "(+ (* a b) c)" :kind :expr
+ {:clojure-source "(k/+ (k/* a b) c)" :kind :expr
   :note "Separate multiplication and addition, unlike a fused multiply-add."}
 
  "@sizeOf(@TypeOf(value)) == @sizeOf(DestType)"
@@ -247,15 +248,18 @@
   :note "GPU work-group size for the selected dimension; requires a GPU execution context."}
 
  "!(@typeInfo(T) == .int and T.is_signed and numerator == std.math.minInt(T) and denominator == -1)"
- {:clojure-source "(not (and (k/== (k/typeInfo T) :int)\n          (:is_signed T)\n          (k/== numerator (aguafria.std.math/minInt T))\n          (k/== denominator -1)))" :kind :expr
+ {:clojure-source "(k/! (k/and (k/== (k/typeInfo T) :int)
+          (:is_signed T)
+          (k/== numerator (aguafria.std.math/minInt T))
+          (k/== denominator -1)))" :kind :expr
   :note "The upstream division-overflow condition, preserved as written. T.is_signed is historical prose syntax, not a valid field on current integer types; current code reads signedness through k/typeInfo. This contextual fragment is not claimed to execute."}
 
  "a * b"
- {:clojure-source "(* a b)" :kind :expr
+ {:clojure-source "(k/* a b)" :kind :expr
   :note "Multiply the surrounding operands."}
 
  "a - b"
- {:clojure-source "(- a b)" :kind :expr
+ {:clojure-source "(k/- a b)" :kind :expr
   :note "Subtract the surrounding operands."}
 
  "a << b"
@@ -295,7 +299,7 @@
   :note "The remainder operator; its permitted operand types follow Zig's rules."}
 
  "numerator / denominator"
- {:clojure-source "(/ numerator denominator)" :kind :expr
+ {:clojure-source "(k// numerator denominator)" :kind :expr
   :note "Divide the surrounding operands; use explicit builtins when signed rounding must be selected."}
 
  "error.OutOfMem"
@@ -351,11 +355,12 @@
   :note "Index a pointer to structs, then read the selected struct's member."}
 
  "shift_amt >= @typeInfo(@TypeOf(a)).int.bits"
- {:clojure-source "(>= shift-amt\n    (a/get-in (k/typeInfo (k/TypeOf a)) [:int :bits]))" :kind :expr
+ {:clojure-source "(k/>= shift-amt
+    (a/get-in (k/typeInfo (k/TypeOf a)) [:int :bits]))" :kind :expr
   :note "Check whether the shift amount reaches the operand's bit width."}
 
  "shift_amt >= @typeInfo(T).int.bits"
- {:clojure-source "(>= shift-amt (a/get-in (k/typeInfo T) [:int :bits]))" :kind :expr
+ {:clojure-source "(k/>= shift-amt (a/get-in (k/typeInfo T) [:int :bits]))" :kind :expr
   :note "Check whether the shift amount reaches T's bit width."}
 
  "~@as(i32, 0)"
@@ -383,7 +388,10 @@
   :note "A public top-level _start declaration disables Zig's default startup routine; it is not a function body."}
 
  "const assert = @import(\"std\").debug.assert;\ncomptime {\n    assert(*u32 == *align(@alignOf(u32)) u32);\n}"
- {:clojure-source "(a/defcomptime verify-pointer-alignment\n  (aguafria.std.debug/assert\n    (k/== (a/type [:* :u32])\n        (a/type [:* {:align (k/alignOf :u32)} :u32]))))"
+ {:clojure-source "(a/defcomptime verify-pointer-alignment
+  (aguafria.std.debug/assert
+    (k/== (a/type [:* :u32])
+        (a/type [:* {:align (k/alignOf :u32)} :u32]))))"
   :kind :declarations
   :expected-compile-error "reached unreachable code"
   :note "A module-level pointer-alignment assertion, preserved from the reference. The original and translated assertion both fail with the pinned compiler on this target; it is not a successful compilation example."}}

@@ -25,18 +25,18 @@
         (audit/plan
          "(ns fixture.audit)
           (a/defconst a 1)
-          (a/defn- add :i32 [[x :i32]] (+ x a))
+          (a/defn- add :i32 [[x :i32]] (k/+ x a))
           (a/deftest check
-            (let [x (k/var 0 :i32) y (+ a 2)]
+            (let [x (k/var 0 :i32) y (k/+ a 2)]
               (k/= x y)
               (debug/assert (k/== x 3))))")]
     (is (= #{'a 'add 'check}
            (set (map :declaration (filter #(= :var (:kind %)) cases)))))
     (is (= :requires-arguments (:status (first (filter #(= :function-body (:kind %)) cases)))))
-    (is (some #(= '(let [x (k/var 0 :i32)] (+ a 2))
+    (is (some #(= '(let [x (k/var 0 :i32)] (k/+ a 2))
                   (let [f (:form %)] (if (and (seq? f) (= 'do (first f))) (second f) f)))
               cases))
-    (is (some #(= '(do (let [x (k/var 0 :i32) y (+ a 2)]
+    (is (some #(= '(do (let [x (k/var 0 :i32) y (k/+ a 2)]
                          (do (k/= x y) (k/== x 3))))
                   (:form %)) cases))
     (is (some #(= '(check) (:form %)) cases))))

@@ -1,7 +1,8 @@
 (ns learn.example.test-comptime-shlExact-overflow
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defcomptime reject-lost-high-bits
-  (let [x (k/shlExact (k/u8 2r01010101) 2)]
-    (k/= :_ x)))
+  (let [x (shlExact (u8 2r01010101) 2)]
+    (= :_ x)))

@@ -1,12 +1,13 @@
 (ns learn.example.runtime-out-of-bounds-float-to-integer-cast
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defn main :void []
   (let [float (k/var 4294967296 :f32)] ; runtime-known
-    (k/= :_ (k/& float))
-    (let [int (k/i32 (k/intFromFloat float))]
-      (k/= :_ int))))
+    (= :_ (k/& float))
+    (let [int (i32 (intFromFloat float))]
+      (= :_ int))))
 
 (comment
   ;; This deliberately triggers native safety failure; it can terminate this JVM.

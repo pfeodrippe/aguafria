@@ -1,17 +1,18 @@
 (ns learn.example.string-literals
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.debug :as debug]
-            [aguafria.std.mem :as mem] ; will be used to compare bytes
+            [aguafria.std.mem :as mem]
             [aguafria.zig :as a]))
 
 (a/defn main :void
   []
   (let [bytes "hello"]
-    (debug/print "{}\n" [(k/TypeOf bytes)]) ; *const [5:0]u8
+    (debug/print "{}\n" [(TypeOf bytes)]) ; *const [5:0]u8
     (debug/print "{d}\n" [(a/field bytes :len)]) ; 5
     (debug/print "{c}\n" [(a/get bytes 1)]) ; 'e'
     (debug/print "{d}\n" [(a/get bytes 5)]) ; 0
-    (debug/print "{}\n" [(k/== \e (a/char-literal "'\\x65'"))]) ; true
+    (debug/print "{}\n" [(== \e (a/char-literal "'\\x65'"))]) ; true
     (debug/print "{d}\n" [(a/char-literal "'\\u{1f4a9}'")]) ; 128169
     (debug/print "{d}\n" [(a/char-literal "'💯'")]) ; 128175
     (debug/print "{u}\n" [\⚡])

@@ -94,7 +94,7 @@
         (is (= 1 (count @calls)))))
     (with-redefs [runtime/inspect-module! (fn [& _] {:exit 1 :err "type mismatch"})]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"could not confirm"
-                           (#'jvm/confirm-type-argument-source! context :u8 :u16))))))
+                            (#'jvm/confirm-type-argument-source! context :u8 :u16))))))
 
 (deftest explicit-tag-layout-inherits-only-the-compiled-type-root
   (let [context (create-ns (symbol (str "aguafria.tag-layout-" (random-uuid))))
@@ -155,9 +155,9 @@
                                  :parallelism 1 :report-file ~(str cache "/report.edn")})]
                    (prn {:bundles (:bundles report#) :coverage (:coverage report#)}))))
              (let [forms# (with-open [reader# (java.io.PushbackReader.
-                                              (clojure.java.io/reader
-                                               (clojure.java.io/resource
-                                                "aguafria/zig/jvm_metadata_parity_fixture.clj")))]
+                                               (clojure.java.io/reader
+                                                (clojure.java.io/resource
+                                                 "aguafria/zig/jvm_metadata_parity_fixture.clj")))]
                             (binding [*read-eval* false]
                               (into [] (take-while some?)
                                     (repeatedly #(read {:eof nil} reader#)))))
@@ -188,7 +188,7 @@
         packs (filter #(= :bundle-loaded (:event %)) events)
         hits (filter #(= :bundle-cache-hit (:event %)) events)
         misses (filter #(and (contains? #{:compiled :disk-cache-hit} (:event %))
-                              (nil? (:bundle-id %))) events)
+                             (nil? (:bundle-id %))) events)
         pack (get-in producer [:bundles :packs 0 :id])]
     (is (= 2 (count (:outputs consumer))))
     (is (= [nil {:ok nil}] (:outputs consumer)))

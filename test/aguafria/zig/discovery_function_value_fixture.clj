@@ -1,5 +1,6 @@
 (ns aguafria.zig.discovery-function-value-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defstruct Command
@@ -7,7 +8,7 @@
 
 (a/defn increment :i32
   [[value :i32]]
-  (k/+ value 1))
+  (+ value 1))
 
 (a/defconst command (Command {:function increment}))
 

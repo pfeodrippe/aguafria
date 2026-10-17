@@ -1,10 +1,11 @@
 (ns aguafria.zig.discovery-alias-initializer-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defn Box :type
-  [[T {:attrs #{k/comptime}} :type]
-   [buffer-capacity {:attrs #{k/comptime}} :usize]]
+  [[T {:attrs #{comptime}} :type]
+   [buffer-capacity {:attrs #{comptime}} :usize]]
   (a/struct [[:items [:array buffer-capacity T]]]))
 
 (a/defconst make-box Box)

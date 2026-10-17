@@ -1,5 +1,6 @@
 (ns learn.example.runtime-wrong-union-field-access
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as a]))
 
@@ -8,7 +9,7 @@
    [:int :u32]])
 
 (a/defn- bar :void [[f [:* Foo]]]
-  (k/= (:float f) 12.34)
+  (= (:float f) 12.34)
   (debug/print "value: {}\n" [(:float f)]))
 
 (a/defn main :void []

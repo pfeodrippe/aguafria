@@ -112,7 +112,7 @@
                           (require 'aguafria.zig.jvm-enum-coercion-fixture)
                           (assert (= :ready_now
                                      (aguafria.zig/value
-                                      ((resolve 'aguafria.zig/field)
+                                      ((clojure.core/resolve 'aguafria.zig/field)
                                        (var-get (resolve 'aguafria.zig.jvm-enum-coercion-fixture/Tag))
                                        :ready-now))))
                           (with-open [reader# (java.io.PushbackReader.

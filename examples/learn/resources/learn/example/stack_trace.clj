@@ -1,12 +1,13 @@
 (ns learn.example.stack-trace
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defn- bang1 :bool []
   false)
 
 (a/defn- bang2 :void []
-  (k/panic "PermissionDenied"))
+  (panic "PermissionDenied"))
 
 (a/defn- baz :bool []
   (bang1))
@@ -23,7 +24,7 @@
     (hello)))
 
 (a/defn- foo :void [[x :i32]]
-  (if (k/>= x 5)
+  (if (>= x 5)
     (bar)
     (bang2)))
 

@@ -103,7 +103,7 @@
                              (into-array StandardCopyOption
                                          [StandardCopyOption/REPLACE_EXISTING]))
                  [name {:status :packaged :output output}]))))
-        ["racing"])))
+         ["racing"])))
 
 (defn package-manifest!
   []
@@ -225,9 +225,9 @@
   (model/verify!)
   (zig-build/load-source-only! 'racing-game.language-probe)
   (a/build! 'racing-game.language-probe
-    {:kind :exe :name "language-probe"
-     :output (io/file (project-root) "build/standalone/language-probe")
-     :optimize "fast" :reloadable? false :async? false :zig-args ["-lc"]}))
+            {:kind :exe :name "language-probe"
+             :output (io/file (project-root) "build/standalone/language-probe")
+             :optimize "fast" :reloadable? false :async? false :zig-args ["-lc"]}))
 
 (defn build-inference-probe!
   "Build the same native graph without a window for repeatable timing."
@@ -291,11 +291,11 @@
   (case (or command "prepare")
     "prepare" (prn (prepare!))
     "standalone" (prn {:prepare (prepare!)
-                        :artifact (build-standalone!)})
+                       :artifact (build-standalone!)})
     "inference-probe" (prn {:prepare (prepare!)
-                             :artifact (build-inference-probe!)})
+                            :artifact (build-inference-probe!)})
     "asset-probe" (prn {:prepare (prepare!)
-                         :artifact (build-asset-probe!)})
+                        :artifact (build-asset-probe!)})
     "replay-parity-probe"
     (prn {:prepare (prepare!)
           :artifact (build-replay-parity-probe!)})

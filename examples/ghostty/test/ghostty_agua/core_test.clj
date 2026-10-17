@@ -45,18 +45,18 @@
 
 (deftest macos-app-build-uses-upstream-swift-build-script-test
   (let [directory (.toFile (java.nio.file.Files/createTempDirectory
-                           "ghostty-build-command-"
-                           (make-array java.nio.file.attribute.FileAttribute 0)))
+                            "ghostty-build-command-"
+                            (make-array java.nio.file.attribute.FileAttribute 0)))
         app (io/file directory "macos/build/Debug/Ghostty.app")
         commands (atom [])]
     (with-redefs-fn
       {#'generate/project-paths (constantly {:standalone-root (str directory)})
        #'generate/materialize! (constantly {:file-count 1})
        #'generate/run-command! (fn [command cwd]
-                                (swap! commands conj [command cwd])
-                                (when (= "macos/build.nu" (first command))
-                                  (.mkdirs app))
-                                {:command command :exit 0})}
+                                 (swap! commands conj [command cwd])
+                                 (when (= "macos/build.nu" (first command))
+                                   (.mkdirs app))
+                                 {:command command :exit 0})}
       (fn []
         (let [result (generate/build-macos-app!)]
           (is (= 2 (count @commands)))

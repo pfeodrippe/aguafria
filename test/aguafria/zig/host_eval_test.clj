@@ -68,10 +68,10 @@
      (doseq [value [nil false 7 "hello" \h {:x [1 2]} #{:one :two}]]
        (is (= value (eval (list 'a/clj! (list 'quote value))))))
      (doseq [form '[(a/clj!)
-                   (a/clj! {:as :form} '(k/+ 1 2))
-                   (a/clj! '(System/exit 0))
-                   (a/clj! {:nested '(k/+ 1 2)})
-                   (a/clj! (Object.))]]
+                    (a/clj! {:as :form} '(k/+ 1 2))
+                    (a/clj! '(System/exit 0))
+                    (a/clj! {:nested '(k/+ 1 2)})
+                    (a/clj! (Object.))]]
        (is (thrown? Exception (eval form)) (pr-str form))))))
 
 (deftest host-failures-retain-cause-and-source

@@ -264,9 +264,7 @@
 
   ;; Long-running Zig mains stop at their own cooperative/natural safe point;
   ;; Aguafria deliberately does not kill arbitrary native execution.)
-
   )
-
 (comment
 
   ;; COMPLETE TRANSACTION-VISIBLE HOT-RELOAD WALKTHROUGH
@@ -392,19 +390,19 @@
   (a/defn HotAmountType :type
     [[bonus {:attrs #{k/comptime}} :u64]]
     (a/container
-      {:kind :struct}
-      [(a/field-decl base :u64)
-       (a/const-decl Self (k/This))
-       (a/fn-decl amount :u64
-         {:public false}
-         [[self [:*const Self]]]
-         (+ (a/field self base) bonus))]))
+     {:kind :struct}
+     [(a/field-decl base :u64)
+      (a/const-decl Self (k/This))
+      (a/fn-decl amount :u64
+                 {:public false}
+                 [[self [:*const Self]]]
+                 (k/+ (a/field self base) bonus))]))
 
   (a/defn comptime-amount :u64
     [[base :u64]]
     (k/var calculator
-            (HotAmountType 5)
-            (a/object [[:base base]]))
+           (HotAmountType 5)
+           (a/object [[:base base]]))
     ((a/field calculator amount)))
 
   (await-module-reload! 'tigerbeetle-agua.core)

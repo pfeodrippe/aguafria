@@ -1,19 +1,20 @@
 (ns learn.example.float-mode-obj
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
-(a/defconst big (k/as (k/<< 1 40) :f64))
+(a/defconst big (as (<< 1 40) :f64))
 
 (a/defn foo_strict :f64
-  {:attrs #{k/export}}
+  {:attrs #{export}}
   [[x :f64]]
-  (k/- (k/+ x big) big))
+  (- (+ x big) big))
 
 (a/defn foo_optimized :f64
-  {:attrs #{k/export}}
+  {:attrs #{export}}
   [[x :f64]]
-  (k/setFloatMode :optimized)
-  (k/- (k/+ x big) big))
+  (setFloatMode :optimized)
+  (- (+ x big) big))
 
 (comment
   (foo_strict 0.001)

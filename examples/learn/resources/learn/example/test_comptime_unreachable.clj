@@ -1,16 +1,17 @@
 (ns learn.example.test-comptime-unreachable
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as a]))
 
 (a/deftest type-of-unreachable
-  (k/comptime
+  (comptime
    ;; The type of unreachable is noreturn.
 
    ;; However this assertion will still fail to compile because
    ;; unreachable expressions are compile errors.
 
-   (debug/assert (k/== (k/TypeOf (k/unreachable)) :noreturn))))
+   (debug/assert (== (TypeOf (unreachable)) :noreturn))))
 
 (comment
   (type-of-unreachable))

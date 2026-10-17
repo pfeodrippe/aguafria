@@ -1,6 +1,8 @@
 (ns aguafria-examples-native.mesh
   "Shared mapped Vulkan vertex ABI; examples own their frame construction."
-  (:require [aguafria.zig :as a]))
+  (:refer-clojure :only [])
+  (:require [aguafria.zig :as a]
+            [aguafria.keyword :as k :refer :all]))
 
 (a/defstruct GpuVertex
   "64-byte vertex: projected position, albedo, world normal/position,

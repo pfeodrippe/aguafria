@@ -1,5 +1,6 @@
 (ns learn.example.test-wrong-union-access
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defunion Payload
@@ -9,7 +10,7 @@
 
 (a/deftest simple-union
   (let [payload (k/var (Payload {:int 1234}))]
-    (k/= (:float payload) 12.34)))
+    (= (:float payload) 12.34)))
 
 (comment
   ;; This deliberately panics and can terminate this JVM.

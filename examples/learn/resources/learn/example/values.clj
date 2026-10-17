@@ -1,5 +1,6 @@
 (ns learn.example.values
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as a]))
 
@@ -12,37 +13,37 @@
 (a/defn main :void
   []
   ;; integers
-  (let [one-plus-one (k/i32 (k/+ 1 1))]
+  (let [one-plus-one (i32 (+ 1 1))]
     (debug/print "1 + 1 = {}\n" [one-plus-one]))
 
   ;; floats
-  (let [seven-div-three (k/f32 (k// 7.0 3.0))]
+  (let [seven-div-three (f32 (/ 7.0 3.0))]
     (debug/print "7.0 / 3.0 = {}\n" [seven-div-three]))
 
   ;; boolean
-  (debug/print "{}\n{}\n{}\n" [(and true false) (or true false) (k/! true)])
+  (debug/print "{}\n{}\n{}\n" [(and true false) (or true false) (! true)])
 
   ;; optional
-  (let [optional-value (k/var (k/as nil [:optional [:slice-const :u8]]))]
-    (debug/assert (k/== optional-value nil))
+  (let [optional-value (k/var (as nil [:optional [:slice-const :u8]]))]
+    (debug/assert (== optional-value nil))
     (debug/print "\noptional 1\ntype: {}\nvalue: {?s}\n"
-                 [(k/TypeOf optional-value) optional-value])
+                 [(TypeOf optional-value) optional-value])
 
-    (k/= optional-value "hi")
-    (debug/assert (k/!= optional-value nil))
+    (= optional-value "hi")
+    (debug/assert (!= optional-value nil))
     (debug/print "\noptional 2\ntype: {}\nvalue: {?s}\n"
-                 [(k/TypeOf optional-value) optional-value]))
+                 [(TypeOf optional-value) optional-value]))
 
   ;; error union
   (let [number-or-error (-> (:ExampleErrorVariant ExampleErrorSet)
-                            (k/as [:error-union ExampleErrorSet :i32])
+                            (as [:error-union ExampleErrorSet :i32])
                             k/var)]
     (debug/print "\nerror union 1\ntype: {}\nvalue: {!}\n"
-                 [(k/TypeOf number-or-error) number-or-error])
+                 [(TypeOf number-or-error) number-or-error])
 
-    (k/= number-or-error 1234)
+    (= number-or-error 1234)
     (debug/print "\nerror union 2\ntype: {}\nvalue: {!}\n"
-                 [(k/TypeOf number-or-error) number-or-error])))
+                 [(TypeOf number-or-error) number-or-error])))
 
 (comment
   (main))

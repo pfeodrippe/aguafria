@@ -1,5 +1,6 @@
 (ns learn.example.test-multidimensional-arrays
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
@@ -19,13 +20,13 @@
   (k/try (testing/expectEqual 9.9 (a/get-in mat4x5 [3 4])))
 
   ;; Here we iterate with for loops.
-  (k/for [row mat4x5 row-index (a/range 0)]
-    (k/for [cell row column-index (a/range 0)]
-      (when (k/== row-index column-index)
+  (for [row mat4x5 row-index (a/range 0)]
+    (for [cell row column-index (a/range 0)]
+      (when (== row-index column-index)
         (k/try (testing/expectEqual 1.0 cell)))))
 
   ;; Initialize a multidimensional array to zeros.
-  (let [all-zero (k/as (k/splat (k/splat 0)) [:array 4 [:array 5 :f32]])]
+  (let [all-zero (as (splat (splat 0)) [:array 4 [:array 5 :f32]])]
     (k/try (testing/expectEqual 0 (a/get-in all-zero [0 0])))))
 
 (comment

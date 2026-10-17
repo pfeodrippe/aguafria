@@ -1,5 +1,6 @@
 (ns aguafria.zig.discovery-union-tag-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defunion Tagged {:enum? true :type :u8}
@@ -7,5 +8,5 @@
    [:empty :void]])
 
 (a/defn tag-size :usize []
-  (let [Tag (a/unwrap (:tag_type (:union (k/typeInfo Tagged))))]
-    (k/sizeOf Tag)))
+  (let [Tag (a/unwrap (:tag_type (:union (typeInfo Tagged))))]
+    (sizeOf Tag)))

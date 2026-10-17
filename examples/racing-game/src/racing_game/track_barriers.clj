@@ -1,27 +1,29 @@
 (ns racing-game.track-barriers
   "Blender-authored containment. The renderer and collider share one mesh."
+  (:refer-clojure :only [])
   (:require [aguafria.std]
-            [aguafria.keyword :as ak]
+            [aguafria.keyword :as ak :refer :all]
             [aguafria.std.mem :as mem]
             [aguafria.zig :as a]
             [racing-game.physics :as physics]
             [aguafria-examples-native.box3d]
             [aguafria-examples-native.bindings.box3d :as b3]
             [clojure.edn :as edn]
-            [clojure.java.io :as io]))
+            [clojure.java.io :as io]
+            [clojure.core :as c]))
 
 (let [{:keys [units vertices triangles]} (edn/read-string
-                                          (slurp (io/resource "geometry/barriers.edn")))]
-  (when-not (and (= :metres units) (seq vertices) (seq triangles)
-                 (every? #(and (= 3 (count %))
-                                (every? (fn [v] (and (number? v) (Double/isFinite (double v)))) %)) vertices)
-                 (every? #(and (= 3 (count %))
-                                (every? (fn [i] (and (integer? i) (<= 0 i) (< i (count vertices)))) %)) triangles))
-    (throw (ex-info "Invalid Blender containment export" {})))
-  (eval `(a/defconst ~'vertices [:array ~(count vertices) [:array 3 :f32]] ~vertices))
-  (eval `(a/defconst ~'triangles [:array ~(count triangles) [:array 3 :i32]] ~triangles))
-  (eval `(a/defconst ~'vertex-count :usize ~(count vertices)))
-  (eval `(a/defconst ~'triangle-count :usize ~(count triangles))))
+                                          (c/slurp (io/resource "geometry/barriers.edn")))]
+  (when-not (c/and (c/= :metres units) (c/seq vertices) (c/seq triangles)
+                   (c/every? #(c/and (c/= 3 (c/count %))
+                                     (c/every? (c/fn [v] (c/and (c/number? v) (Double/isFinite (c/double v)))) %)) vertices)
+                   (c/every? #(c/and (c/= 3 (c/count %))
+                                     (c/every? (c/fn [i] (c/and (c/integer? i) (c/<= 0 i) (c/< i (c/count vertices)))) %)) triangles))
+    (throw (c/ex-info "Invalid Blender containment export" {})))
+  (c/eval `(a/defconst ~'vertices [:array ~(clojure.core/count vertices) [:array 3 :f32]] ~vertices))
+  (c/eval `(a/defconst ~'triangles [:array ~(clojure.core/count triangles) [:array 3 :i32]] ~triangles))
+  (c/eval `(a/defconst ~'vertex-count :usize ~(clojure.core/count vertices)))
+  (c/eval `(a/defconst ~'triangle-count :usize ~(clojure.core/count triangles))))
 
 (a/defn create! [:* b3/b3MeshData]
   "Attach static, finite-height physical walls. No position/velocity overrides.
@@ -35,24 +37,24 @@
         ^:var shape (b3/b3DefaultShapeDef)]
     (dotimes [i vertex-count]
       (let [v (a/index vertices i)]
-        (ak/= (a/index points i)
-              (b3/b3Vec3 {:x (a/index v 0) :y (a/index v 1) :z (a/index v 2)}))))
-    (ak/= (a/field definition vertices) (ak/& points))
-    (ak/= (a/field definition indices) (ak/ptrCast (ak/& indices)))
-    (ak/= (a/field definition vertexCount) (ak/intCast vertex-count))
-    (ak/= (a/field definition triangleCount) (ak/intCast triangle-count))
-    (ak/= (a/field definition weldVertices) true)
-    (ak/= (a/field definition weldTolerance) 0.001)
-    (ak/= (a/field definition identifyEdges) true)
-    (ak/= (a/field definition useMedianSplit) true)
-    (ak/= (a/field (a/field shape baseMaterial) friction) 0.45)
-    (ak/= (a/field (a/field shape baseMaterial) restitution) 0.05)
-    (ak/= (a/field shape enableHitEvents) true)
-    (ak/= (a/field (a/field shape filter) categoryBits) physics/solid-category)
-    (let [data (a/unwrap (b3/b3CreateMesh (ak/& definition) ak/null 0))
+        (= (a/index points i)
+           (b3/b3Vec3 {:x (a/index v 0) :y (a/index v 1) :z (a/index v 2)}))))
+    (= (a/field definition vertices) (ak/& points))
+    (= (a/field definition indices) (ptrCast (ak/& indices)))
+    (= (a/field definition vertexCount) (intCast vertex-count))
+    (= (a/field definition triangleCount) (intCast triangle-count))
+    (= (a/field definition weldVertices) true)
+    (= (a/field definition weldTolerance) 0.001)
+    (= (a/field definition identifyEdges) true)
+    (= (a/field definition useMedianSplit) true)
+    (= (a/field (a/field shape baseMaterial) friction) 0.45)
+    (= (a/field (a/field shape baseMaterial) restitution) 0.05)
+    (= (a/field shape enableHitEvents) true)
+    (= (a/field (a/field shape filter) categoryBits) physics/solid-category)
+    (let [data (a/unwrap (b3/b3CreateMesh (ak/& definition) null 0))
           body (b3/b3CreateBody world (ak/& body-definition))]
-      (ak/= :_ (b3/b3CreateMeshShape body (ak/& shape) data
-                  (b3/b3Vec3 {:x 1.0 :y 1.0 :z 1.0})))
+      (= :_ (b3/b3CreateMeshShape body (ak/& shape) data
+                                  (b3/b3Vec3 {:x 1.0 :y 1.0 :z 1.0})))
       data)))
 
 (a/defn destroy! :void [[data [:* b3/b3MeshData]]]

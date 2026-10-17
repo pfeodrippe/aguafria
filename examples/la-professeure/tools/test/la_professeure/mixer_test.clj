@@ -8,7 +8,7 @@
 (a/defvar output [:array 2048 :f32] ak/undefined)
 
 (a/defn block! :void [[frames :u32]]
-  (when (<= frames 1024) (mixer/process! (ak/& output) frames)))
+  (when (ak/<= frames 1024) (mixer/process! (ak/& output) frames)))
 
 (a/defn sample-at :f32 [[index :usize]] (a/index output index))
 

@@ -205,9 +205,19 @@
   []
   logical-type-name-helper)
 
+(defn- resolve-token
+  [context-ns op]
+  (when-not (and (symbol? op)
+                 (or (:aguafria/local? (meta op))
+                     (:aguafria/zig-reference (meta op))
+                     (contains? *lexical-bindings* op)
+                     (contains? *local-type-bindings* op)
+                     (contains? *local-name-bindings* op)))
+    (keyword/resolve-token (or context-ns *ns*) op)))
+
 (defn- current-keyword-token
   [op]
-  (keyword/resolve-token (or *keyword-context* *ns*) op))
+  (resolve-token (or *keyword-context* *ns*) op))
 
 (defn- resolve-context-var
   [context-ns sym]
@@ -222,13 +232,22 @@
 
 (defn- resolved-syntax-operator
   [context-ns op]
-  (or (when (structural-operator? op) op)
-      ;; The Clojure reader expands @pointer to clojure.core/deref. Resolve
-      ;; that exact Var, not arbitrary qualified functions named deref.
-      (when (= #'clojure.core/deref (resolve-context-var context-ns op))
-        'deref)
-      (some-> (resolve-context-var context-ns op)
-              meta :aguafria/syntax :name symbol)))
+  (when-not (or (:aguafria/local? (meta op))
+                (contains? *lexical-bindings* op)
+                (contains? *local-type-bindings* op)
+                (contains? *local-name-bindings* op))
+    (or (when (and (structural-operator? op)
+                   (nil? (resolve-token context-ns op))) op)
+        ;; Macro expansions (as->, doto, etc.) use the actual core let Var.
+        ;; Its binding syntax is already part of captured native declarations.
+        (when (= #'clojure.core/let (resolve-context-var context-ns op))
+          'let)
+        ;; The reader's @pointer denotes this exact core Var, not a
+        ;; same-named native Var or lexical callable.
+        (when (= #'clojure.core/deref (resolve-context-var context-ns op))
+          'deref)
+        (some-> (resolve-context-var context-ns op)
+                meta :aguafria/syntax :name symbol))))
 
 (defn- declared-project-reference
   [context-ns sym]
@@ -417,10 +436,40 @@
                      (:signature reference))
             (:args (signature/declaration (:signature reference))))))))
 
-(def ^:private preserved-clojure-macro-operators
-  "Clojure macros whose spelling is also a direct, zero-cost Zig operator.
-  Structural Aguafria forms are preserved separately."
-  #{"and" "or"})
+(def ^:private keyword-infix-operators #{"and" "or" "orelse" "catch"})
+
+(def ^:private native-operator-replacements
+  (merge
+   (into {} (mapcat (fn [{:keys [name zig-token]}]
+                      (let [replacement (symbol "aguafria.keyword" name)]
+                        [[name replacement] [zig-token replacement]]))
+                    (keyword/reader-tokens)))
+   (into {} (map #(vector % (symbol "aguafria.keyword" %))
+                 (conj keyword-infix-operators "mod")))
+   {".." 'aguafria.zig/range "^=" 'aguafria.zig/assign}))
+
+(declare declared-zig-operator?)
+
+(defn- validate-native-operator!
+  [context-ns form]
+  (let [op (first form)
+        metadata (some-> (resolve-context-var context-ns op) meta)
+        source-macro? (and (:macro metadata)
+                           (not= 'clojure.core (some-> metadata :ns ns-name))
+                           (nil? (:aguafria/token metadata)))]
+    (when (and (symbol? op)
+               (contains? native-operator-replacements (name op))
+               (not source-macro?)
+               (not (declared-zig-operator? context-ns op))
+               (nil? (resolve-token context-ns op))
+               (not (:aguafria/local? (meta op)))
+               (not (contains? *lexical-bindings* op))
+               (not (contains? *local-name-bindings* op))
+               (nil? (resolve-zig-reference context-ns op))
+               (nil? (some-> (resolve-context-var context-ns op) meta :aguafria/zig-reference)))
+      (fail! "Native operators must resolve to aguafria.keyword Vars; Clojure operators are not native aliases"
+             form {:operator op
+                   :replacement (get native-operator-replacements (name op))}))))
 
 (defn- declared-zig-operator?
   [context-ns op]
@@ -433,19 +482,17 @@
 
 (defn- expand-clojure-macro-once
   [context-ns form]
+  (validate-native-operator! context-ns form)
   (let [op (first form)
         structural? (some? (resolved-syntax-operator context-ns op))
-        token (when-not structural? (keyword/resolve-token context-ns op))
+        token (when-not structural? (resolve-token context-ns op))
         declared-zig? (declared-zig-operator? context-ns op)
         macro-var (when (and (symbol? op)
                              (nil? token)
                              (not declared-zig?)
                              (not (contains? *lexical-bindings* op)))
                     (resolve-context-var context-ns op))]
-    (when (and (not structural?)
-               (not (contains? preserved-clojure-macro-operators
-                               (when (symbol? op) (name op))))
-               (:macro (meta macro-var)))
+    (when (and (not structural?) (:macro (meta macro-var)))
       (try
         (binding [*ns* context-ns
                   *native-macro-expansion?* true]
@@ -532,7 +579,7 @@
             (concat (when-let [alias (:as pattern)]
                       (destructure-binding alias source))
                     (mapcat (fn [[binding key]]
-                              (destructure-binding binding (list 'field source key)))
+                              (destructure-binding binding (list 'aguafria.zig/field source key)))
                             entries))))
 
     (vector? pattern)
@@ -746,7 +793,7 @@
                          (cond
                            (symbol? capture) (vary-meta capture assoc :aguafria/local? true)
                            (and (seq? capture)
-                                (= "*" (:zig-token (keyword/resolve-token context-ns (first capture)))))
+                                (= "*" (:zig-token (resolve-token context-ns (first capture)))))
                            (do
                              (when-not (and (= 2 (count capture)) (symbol? (second capture)))
                                (fail! "Pointer capture expects (k/* name)" capture))
@@ -853,7 +900,7 @@
               (let [_ (when (some #(contains? (meta target) %) [:capture :inline])
                         (fail! "Switch capture/inline metadata is not supported" target))
                     inline (and (seq? target)
-                                (= "inline" (:zig-token (keyword/resolve-token context (first target)))))
+                                (= "inline" (:zig-token (resolve-token context (first target)))))
                     _ (when (and inline (not= 2 (count target)))
                         (fail! "Inline switch branch expects one result expression" target))
                     target (if inline (second target) target)
@@ -865,7 +912,7 @@
                     capture (when capture?
                               (mapv (fn [binding]
                                       (if (and (seq? binding)
-                                               (= "*" (:zig-token (keyword/resolve-token context (first binding)))))
+                                               (= "*" (:zig-token (resolve-token context (first binding)))))
                                         (do
                                           (when-not (= 2 (count binding))
                                             (fail! "Pointer capture expects one binding" binding))
@@ -918,7 +965,7 @@
   (let [[op & raw-args] form
         structural-op (resolved-syntax-operator context-ns op)
         structural? (some? structural-op)
-        token (when-not structural? (keyword/resolve-token context-ns op))
+        token (when-not structural? (resolve-token context-ns op))
         reference (when-not (or structural? (contains? *local-type-bindings* op))
                     (resolve-zig-reference context-ns op))
         parameters (when-not (or structural? token)
@@ -979,12 +1026,16 @@
                            (if (and (seq? argument)
                                     (= 'type (resolved-syntax-operator context-ns (first argument))))
                              (qualify-form context-ns argument)
-                             (list 'type (qualify-type context-ns argument)))
+                             (list 'aguafria.zig/type (qualify-type context-ns argument)))
                            (qualify-form context-ns argument)))
                        (range) raw-args)))
         qualified-op (cond
-                       structural? structural-op
-                       (= :keyword (:kind token)) (symbol (:zig-token token))
+                       structural? (if (#{'field 'type} structural-op)
+                                     (symbol "aguafria.zig" (name structural-op))
+                                     structural-op)
+                       (and (= :keyword (:kind token))
+                            (not (contains? keyword-infix-operators (:zig-token token))))
+                       (symbol (:zig-token token))
                        token (:symbol token)
                        reference (reference-symbol context-ns op reference)
                        :else (qualify-form context-ns op))]
@@ -1004,13 +1055,13 @@
         (when-not (= 1 (count args))
           (fail! "Native keyword field access expects exactly one value; defaults are not supported"
                  form))
-        (with-meta (list 'field (first args) op) (meta form)))
+        (with-meta (list 'aguafria.zig/field (first args) op) (meta form)))
 
       (:field-accessor? reference)
       (do
         (when-not (= 1 (count args))
           (fail! "A field accessor requires exactly one receiver" form))
-        (with-meta (list 'field (first args) (keyword (:member-name reference)))
+        (with-meta (list 'aguafria.zig/field (first args) (keyword (:member-name reference)))
           (cond-> (meta form)
             (:owner-type reference)
             (assoc :aguafria/field-owner (:owner-type reference)))))
@@ -1019,7 +1070,7 @@
       (do
         (when-not (seq args)
           (fail! "A container method requires its receiver as the first argument" form))
-        (with-meta (apply list (list 'field (first args) (keyword (:member-name reference)))
+        (with-meta (apply list (list 'aguafria.zig/field (first args) (keyword (:member-name reference)))
                           (rest args))
           (meta form)))
 
@@ -1061,11 +1112,11 @@
                  form)
           operator (when (seq? form)
                      (or (resolved-syntax-operator context-ns (first form))
-                         (some-> (keyword/resolve-token context-ns (first form))
+                         (some-> (resolve-token context-ns (first form))
                                  :zig-token symbol)))
           form (normalize-switch-form context-ns operator form)
           form (if (and (seq? form)
-                        (or (scoped-native-token? (keyword/resolve-token context-ns (first form)))
+                        (or (scoped-native-token? (resolve-token context-ns (first form)))
                             (contains? #{'with-block 'block 'if-capture 'if-capture-stmt
                                          'catch-capture 'switch 'switch-stmt 'labeled-switch
                                          'labeled-switch-stmt 'while-loop
@@ -1143,7 +1194,7 @@
         (and (seq? form)
              (or (contains? #{'for 'inline-for 'for-loop}
                             (resolved-syntax-operator context-ns (first form)))
-                 (= "for" (:zig-token (keyword/resolve-token context-ns (first form))))))
+                 (= "for" (:zig-token (resolve-token context-ns (first form))))))
         (qualify-for context-ns form
                      (or (resolved-syntax-operator context-ns (first form)) 'for))
 
@@ -1201,8 +1252,8 @@
                                           :aguafria/local-type? (get *local-type-bindings* form)))
             replacement))
 
-        (and (symbol? form) (keyword/resolve-token context-ns form))
-        (:symbol (keyword/resolve-token context-ns form))
+        (and (symbol? form) (resolve-token context-ns form))
+        (:symbol (resolve-token context-ns form))
 
         (and (symbol? form) (nil? (namespace form))
              (namespace-root-reference context-ns form))
@@ -1239,7 +1290,7 @@
                   (if-not (seq? value)
                     []
                     (let [form-operator (first value)
-                          token (keyword/resolve-token context-ns form-operator)
+                          token (resolve-token context-ns form-operator)
                           operator (or (resolved-syntax-operator context-ns
                                                                  form-operator)
                                        (when (= :keyword (:kind token))
@@ -1271,7 +1322,7 @@
   [context-ns form]
   (let [operator (fn [form]
                    (or (resolved-syntax-operator context-ns (first form))
-                       (some-> (keyword/resolve-token context-ns (first form)) :zig-token symbol)
+                       (some-> (resolve-token context-ns (first form)) :zig-token symbol)
                        (first form)))
         else-expression? (and (seq? (last form))
                               (= 'else-expression (operator (last form))))]
@@ -1287,7 +1338,7 @@
   (letfn [(operator [form]
             (when (seq? form)
               (or (resolved-syntax-operator context-ns (first form))
-                  (some-> (keyword/resolve-token context-ns (first form)) :zig-token symbol)
+                  (some-> (resolve-token context-ns (first form)) :zig-token symbol)
                   (first form))))
           (contextual? [form]
             (if (keyword/enum-literal-keyword? form)
@@ -1297,10 +1348,10 @@
                   (or (and (keyword? head) (str/starts-with? (name head) "."))
                       (and (seq? head) (= 'enum-literal (operator head)))
                       (keyword/result-context-required?
-                       (:zig-name (keyword/resolve-token context-ns head)))
+                       (:zig-name (resolve-token context-ns head)))
                       (case (operator form)
                         if (or (contextual? (nth form 2 nil)) (contextual? (nth form 3 nil)))
-                        (let do block) (contextual? (last form))
+                        (let do block comptime) (contextual? (last form))
                         (switch labeled-switch)
                         (some #(contextual? (last %))
                               (switch-clauses context-ns
@@ -1331,6 +1382,7 @@
        if-capture
        (or (contextual? (nth form 3 nil)) (contextual? (nth form 4 nil)))
        catch-capture (contextual? (nth form 3 nil))
+       comptime (contextual? (second form))
        (switch labeled-switch while-loop) (contextual? form)
        false))))
 
@@ -1344,7 +1396,7 @@
       (letfn [(operator [form]
                 (let [head (first form)]
                   (or (resolved-syntax-operator context-ns head)
-                      (some-> (keyword/resolve-token context-ns head) :zig-token symbol)
+                      (some-> (resolve-token context-ns head) :zig-token symbol)
                       head)))
               (names [captures]
                 (mapcat (fn [capture]
@@ -1478,7 +1530,7 @@
   (or (contains? names sym)
       (and (= (:module *qualified-reference-scope*) (namespace sym))
            (contains? (:names *qualified-reference-scope*) (symbol (name sym))))
-      (keyword/resolve-token context-ns sym)
+      (resolve-token context-ns sym)
       (resolved-syntax-operator context-ns sym)
       (namespace-root-reference context-ns sym)
       (when-let [qualifier (some-> sym namespace symbol)]
@@ -1504,7 +1556,7 @@
 
     (seq? form)
     (let [[op & args] form
-          token (keyword/resolve-token context-ns op)
+          token (resolve-token context-ns op)
           op (or (resolved-syntax-operator context-ns op)
                  (when (= :keyword (:kind token)) (symbol (:zig-token token)))
                  op)
@@ -1666,7 +1718,7 @@
             (if-not (seq? form)
               scope
               (let [op (first form)
-                    token (keyword/resolve-token context-ns op)
+                    token (resolve-token context-ns op)
                     op (or (resolved-syntax-operator context-ns op)
                            (when (= :keyword (:kind token))
                              (symbol (:zig-token token))) op)]
@@ -1890,7 +1942,7 @@
 
     :else
     (letfn [(normalize [part]
-              (let [token (when (symbol? part) (keyword/resolve-token context-ns part))]
+              (let [token (when (symbol? part) (resolve-token context-ns part))]
                 (cond
                   (or (= :primitive (:kind token)) (= "anytype" (:zig-token token)))
                   (keyword (:zig-token token))
@@ -1919,7 +1971,7 @@
   [t]
   (cond
     (symbol? t)
-    (let [token (keyword/resolve-token (or *keyword-context* *ns*) t)]
+    (let [token (resolve-token (or *keyword-context* *ns*) t)]
       (if (or (= :primitive (:kind token)) (= "anytype" (:zig-token token)))
         (:zig-token token)
         (if-let [reference (current-zig-reference t)]
@@ -2615,12 +2667,15 @@
                  (when (= :keyword (:kind source-token))
                    (symbol (:zig-token source-token)))
                  source-op)
-          token (when-not (= :keyword (:kind source-token)) source-token)
+          token (cond
+                  (contains? keyword-infix-operators (:zig-token source-token))
+                  (assoc source-token :kind :operator)
+                  (not= :keyword (:kind source-token)) source-token)
           expansion (expand-clojure-macro-once (or *keyword-context* *ns*) form)]
       (cond
         (and (keyword? source-op) (not (str/starts-with? (name source-op) ".")))
         (if (= 1 (count args))
-          (emit-expr (list 'field (first args) source-op))
+          (emit-expr (list 'aguafria.zig/field (first args) source-op))
           (fail! "Native keyword field access expects exactly one value; defaults are not supported"
                  form))
 
@@ -2973,23 +3028,6 @@
           (str "nosuspend " (emit-expr (first args)))
           (fail! "nosuspend expects one expression" form))
 
-        (= "mod" (operator-name op))
-        (if (= 2 (count args))
-          (let [rendered (str "@mod(" (emit-expr (first args)) ", "
-                              (emit-expr (second args)) ")")]
-            (record-native-call! 'aguafria.keyword/mod args form)
-            rendered)
-          (fail! "Clojure mod expects a numerator and denominator" form))
-
-        (contains? infix-operators (operator-name op))
-        (if (and (= 1 (count args))
-                 (contains? prefix-operators (operator-name op)))
-          (prefix-expression (get prefix-operators (operator-name op)) args form)
-          (parenthesized-infix (get infix-operators (operator-name op)) args form))
-
-        (and (contains? prefix-operators (operator-name op)) (= 1 (count args)))
-        (prefix-expression (get prefix-operators (operator-name op)) args form)
-
         (and (known-type-reference op)
              (= 1 (count args))
              (or (map? (first args))
@@ -3067,13 +3105,13 @@
                                        (or (when (find-ns 'aguafria.zig)
                                              (find-var (symbol "aguafria.zig"
                                                                (name (first observed-form)))))
-                                           ;; Qualification retains structural `for`
-                                           ;; and `while`, not clojure.core's macros.
-                                           ;; Route them back to their public native
-                                           ;; scoped token contract for observation.
-                                           (when (contains? '#{for while switch} (first observed-form))
-                                             (find-var (symbol "aguafria.keyword"
-                                                               (name (first observed-form)))))))
+                                           ;; Qualification retains structural syntax,
+                                           ;; not host macros. Restore the public scoped
+                                           ;; token contract (including comptime) for
+                                           ;; discovery and prepared-handler identity.
+                                           (when-let [token-name (keyword/token-name (name (first observed-form)))]
+                                             (let [v (find-var (symbol "aguafria.keyword" token-name))]
+                                               (when (:aguafria/scoped? (meta v)) v)))))
                                      (resolve-context-var (or *keyword-context* *ns*) (first observed-form))) meta)
                :render (fn [expression]
                          (binding [*expression-observer* nil *inspection-placement* nil]
@@ -3468,7 +3506,7 @@
 
     (and (seq? capture)
          (or (= 'pointer-capture (first capture))
-             (= "*" (:zig-token (keyword/resolve-token *keyword-context* (first capture)))))
+             (= "*" (:zig-token (resolve-token *keyword-context* (first capture)))))
          (= 2 (count capture)))
     (str "*" (identifier (second capture)))
 
@@ -3548,7 +3586,8 @@
      (let [rendered
            (if-not (seq? form)
              (str (emit-expr form) ";")
-             (let [[source-op & args] form
+             (let [_ (validate-native-operator! (or *keyword-context* *ns*) form)
+                   [source-op & args] form
                    source-token (current-keyword-token source-op)
                    op (or (resolved-syntax-operator (or *keyword-context* *ns*) source-op)
                           (when (= :keyword (:kind source-token))
@@ -3625,13 +3664,6 @@
                      (fail! "assign expects an assignment operator string, target, and value"
                             form {:operator operator}))
                    (str (emit-expr target) " " operator " " (emit-expr value) ";"))
-                 (contains? assignment-operators (operator-name op))
-                 (if (= 2 (count args))
-                   (str (emit-expr (first args)) " "
-                        (get assignment-operators (operator-name op)) " "
-                        (emit-expr (second args)) ";")
-                   (fail! "Assignment operator expects a target and value" form
-                          {:operator op}))
                  (= op 'if) (emit-if-stmt args level form)
                  (= op 'when)
                  (let [[test & body] args]
@@ -3767,9 +3799,7 @@
              assignment (cond
                           (= op 'set!) "="
                           (and (= :assignment (:kind token)) (not= "=" (:zig-token token)))
-                          (:zig-token token)
-                          (contains? assignment-operators (operator-name op))
-                          (get assignment-operators (operator-name op)))
+                          (:zig-token token))
              scoped-statement? (contains? #{'block 'with-block 'if-capture-stmt
                                             'switch 'labeled-switch
                                             'switch-stmt 'labeled-switch-stmt 'while-loop
@@ -3821,9 +3851,15 @@
     "if-capture-stmt"
     "switch-stmt" "labeled-switch-stmt" "block"
     "defer" "errdefer" "break" "break-label" "continue"
-    "unreachable" "comment"
-    "=" "+=" "-=" "*=" "/=" "%=" "+%=" "-%=" "*%="
-    "+|=" "-|=" "*|=" "&=" "|=" "^=" "<<=" "<<|=" ">>="})
+    "unreachable" "comment"})
+
+(defn- non-value-statement? [op]
+  (let [context (or *keyword-context* *ns*)
+        token (resolve-token context op)]
+    (or (= :assignment (:kind token))
+        (contains? non-value-statement-ops
+                   (or (some-> (resolved-syntax-operator context op) name)
+                       (when (= :keyword (:kind token)) (:zig-token token)))))))
 
 (defn- emit-returning-tail
   [form level]
@@ -3866,7 +3902,7 @@
               (and (= op 'while-loop) (contains? (first args) :else-expression))
               (str "return " (emit-expr form) ";")
 
-              (contains? non-value-statement-ops (operator-name op))
+              (non-value-statement? op)
               ;; Keep incomplete native bodies incomplete. Zig owns return-path
               ;; validation; a statement tail must not acquire a made-up value.
               (emit-stmt form level)
@@ -3875,7 +3911,7 @@
               (str "return " (emit-function-result form) ";"))))]
     (if (and (seq? form)
              (or (contains? #{'return 'unreachable} (first form))
-                 (contains? non-value-statement-ops (operator-name (first form)))
+                 (non-value-statement? (first form))
                  (and (= 'if (first form)) (= 3 (count form)))))
       rendered
       (str (form-source-comment form) rendered))))

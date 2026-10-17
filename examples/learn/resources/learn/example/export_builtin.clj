@@ -1,5 +1,6 @@
 (ns learn.example.export-builtin
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defn- internalName :void
@@ -7,7 +8,7 @@
   [])
 
 (a/defcomptime export-foo
-  (k/export (k/& internalName) {:name "foo" :linkage :strong}))
+  (export (k/& internalName) {:name "foo" :linkage :strong}))
 
 (comment
   (internalName))

@@ -1,6 +1,8 @@
 (ns aguafria.zig.discovery-try-operand-fixture
+  (:refer-clojure :only [])
   (:require [aguafria.std.testing :as testing]
-            [aguafria.zig :as a]))
+            [aguafria.zig :as a]
+            [aguafria.keyword :as k :refer :all]))
 
 (a/defn checked [:error-union :i32] [[input :i32]]
   input)

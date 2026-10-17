@@ -8,7 +8,7 @@
   "Content fingerprint for invalidating immutable GPU uploads after asset edits."
   [vertices]
   (let [digest (.digest (java.security.MessageDigest/getInstance "SHA-256")
-                       (.getBytes (pr-str vertices) java.nio.charset.StandardCharsets/UTF_8))]
+                        (.getBytes (pr-str vertices) java.nio.charset.StandardCharsets/UTF_8))]
     (bigint (java.math.BigInteger. 1 (java.util.Arrays/copyOf digest 8)))))
 
 (let [data (edn/read-string (slurp (io/resource "geometry/racing.edn")))

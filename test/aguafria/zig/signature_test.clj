@@ -191,7 +191,7 @@
         process (.start (doto (ProcessBuilder.
                                ^java.util.List
                                [(str (System/getProperty "java.home") "/bin/java")
-                                "--enable-native-access=ALL-UNNAMED" "-Xmx2g"
+                                "--enable-native-access=ALL-UNNAMED" "-Xmx768m"
                                 "-cp" (System/getProperty "java.class.path")
                                 "clojure.main" "-e" (pr-str code)])
                           (.redirectErrorStream true)

@@ -257,7 +257,7 @@
                (prn (assoc output# :events @events#))))
            (shutdown-agents))
         process (shell/sh (str (System/getProperty "java.home") "/bin/java")
-                          "--enable-native-access=ALL-UNNAMED" "-cp" (System/getProperty "java.class.path")
+                          "-Xmx768m" "--enable-native-access=ALL-UNNAMED" "-cp" (System/getProperty "java.class.path")
                           "clojure.main" "-e" (pr-str code))]
     (spit (str cache (if producer? "/producer-process.edn" "/consumer-process.edn")) (pr-str process))
     (when-not (zero? (:exit process))

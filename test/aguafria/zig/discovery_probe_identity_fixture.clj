@@ -1,5 +1,6 @@
 (ns aguafria.zig.discovery-probe-identity-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defstruct Choice
@@ -12,7 +13,7 @@
 
 (a/defn typed-member-local :i32
   [[input :i32]]
-  (k/const choice (a/field Choices :Entry)
-           (a/with-block :result
-             (k/break :result ((a/enum-literal ".first") input))))
-  (k/+ (:value choice) 10))
+  (const choice (a/field Choices :Entry)
+         (a/with-block :result
+           (break :result ((a/enum-literal ".first") input))))
+  (+ (:value choice) 10))

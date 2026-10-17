@@ -1,17 +1,18 @@
 (ns learn.example.inline-call
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as a]))
 
 (a/defn- foo :i32
-  {:attrs #{k/inline}}
+  {:attrs #{inline}}
   [[a :i32] [b :i32]]
   (debug/print "runtime a = {} b = {}" [a b])
-  (k/+ a b))
+  (+ a b))
 
 (a/defn main :void []
-  (when (k/!= (foo 1200 34) 1234)
-    (k/compileError "bad")))
+  (when (!= (foo 1200 34) 1234)
+    (compileError "bad")))
 
 (comment
   (main))

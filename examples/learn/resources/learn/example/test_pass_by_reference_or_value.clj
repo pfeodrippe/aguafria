@@ -1,5 +1,6 @@
 (ns learn.example.test-pass-by-reference-or-value
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
@@ -10,7 +11,7 @@
   ;; can ignore the difference and treat it as a value. Be very careful
   ;; taking the address of the parameter - it should be treated as if
   ;; the address will become invalid when the function returns.
-  (k/+ (:x point) (:y point)))
+  (+ (:x point) (:y point)))
 
 (a/deftest pass-struct-to-function
   (k/try (testing/expectEqual 3 (foo (Point {:x 1 :y 2})))))

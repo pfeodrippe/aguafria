@@ -1,32 +1,33 @@
 (ns learn.example.error-union-parsing-u64
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.math :as math]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
 (a/defn- char-to-digit :u8 [[c :u8]]
-  (k/switch c
-    (k/... \0 \9) (k/- c \0)
-    (k/... \A \Z) (k/+ (k/- c \A) 10)
-    (k/... \a \z) (k/+ (k/- c \a) 10)
+  (switch c
+    (k/... \0 \9) (- c \0)
+    (k/... \A \Z) (+ (- c \A) 10)
+    (k/... \a \z) (+ (- c \a) 10)
     (math/maxInt :u8)))
 
 (a/defn parseU64 [:error-union :u64]
   [[buf [:slice-const :u8]] [radix :u8]]
   (let [x (k/var 0 :u64)]
-    (k/for [c buf]
+    (for [c buf]
       (let [digit (char-to-digit c)]
-        (when (k/>= digit radix)
-          (k/return (a/error-value :InvalidChar)))
+        (when (>= digit radix)
+          (return (a/error-value :InvalidChar)))
         ;; x *= radix
-        (let [ov (k/var (k/mulWithOverflow x radix))]
-          (when (k/!= (a/get ov 1) 0)
-            (k/return (a/error-value :OverFlow)))
+        (let [ov (k/var (mulWithOverflow x radix))]
+          (when (!= (a/get ov 1) 0)
+            (return (a/error-value :OverFlow)))
           ;; x += digit
-          (k/= ov (k/addWithOverflow (a/get ov 0) digit))
-          (when (k/!= (a/get ov 1) 0)
-            (k/return (a/error-value :OverFlow)))
-          (k/= x (a/get ov 0)))))
+          (= ov (addWithOverflow (a/get ov 0) digit))
+          (when (!= (a/get ov 1) 0)
+            (return (a/error-value :OverFlow)))
+          (= x (a/get ov 0)))))
     x))
 
 (a/deftest parse-u64

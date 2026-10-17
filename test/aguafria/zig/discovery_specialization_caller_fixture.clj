@@ -1,5 +1,6 @@
 (ns aguafria.zig.discovery-specialization-caller-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]
             [aguafria.zig.discovery-specialization-leaf-fixture :as leaf]))
 
@@ -9,7 +10,7 @@
 
 (a/defn runtime-caller :u32
   [[value :u32]]
-  (k/= :_ value)
+  (= :_ value)
   (leaf/scale 9))
 
 (a/defn array-size :usize [] (leaf/element-size [:array 3 :u8]))

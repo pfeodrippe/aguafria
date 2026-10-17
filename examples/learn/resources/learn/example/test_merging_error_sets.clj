@@ -1,5 +1,6 @@
 (ns learn.example.test-merging-error-sets
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defconst A
@@ -12,17 +13,17 @@
                        ;; B doc comment
                        :PathNotFound]]))
 
-(a/defconst C (k/|| A B))
+(a/defconst C (|| A B))
 
 (a/defn- foo [:error-union C :void] []
   (a/error-value :NotDir))
 
 (a/deftest merge-error-sets
   (a/if-capture-stmt {:error [err]} (foo)
-                     (k/panic "unexpected")
-                     (k/switch err
-                       (a/error-value :OutOfMemory) (k/panic "unexpected")
-                       (a/error-value :PathNotFound) (k/panic "unexpected")
+                     (panic "unexpected")
+                     (switch err
+                       (a/error-value :OutOfMemory) (panic "unexpected")
+                       (a/error-value :PathNotFound) (panic "unexpected")
                        (a/error-value :NotDir) (a/block))))
 
 (comment

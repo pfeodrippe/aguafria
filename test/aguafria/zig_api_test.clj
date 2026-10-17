@@ -37,11 +37,11 @@
 
 (deftest descriptor-expansion-retains-shared-lexical-provenance
   (let [bindings (vec (mapcat (fn [index]
-                              [(symbol (str "local" index))
-                               (if (zero? index)
-                                 1
-                                 (list 'ak/+ (symbol (str "local" (dec index))) 0))])
-                            (range 40)))
+                                [(symbol (str "local" index))
+                                 (if (zero? index)
+                                   1
+                                   (list 'ak/+ (symbol (str "local" (dec index))) 0))])
+                              (range 40)))
         descriptor (emitter/prepare-declaration
                     *ns* {:kind :fn :name 'shared-source
                           :module "fixture.descriptor-sharing"
@@ -62,12 +62,12 @@
                 (meta (second (:aguafria/jvm-initializer metadata))))))))
 
 (deftest attributes-require-sets-in-every-declaration-context
-  (doseq [attributes [:comptime 'ak/comptime ak/comptime [:comptime]
+  (doseq [attributes [:comptime 'ak/comptime #'ak/comptime [:comptime]
                       '(:comptime) nil {:comptime true}]]
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #":attrs must be a set"
                           (ak/normalize-attributes *ns* {:attrs attributes}))))
   (is (= {:attrs #{:comptime} :zig/prefix "comptime"}
-         (ak/normalize-attributes *ns* {:attrs #{ak/comptime}})))
+         (ak/normalize-attributes *ns* {:attrs #{#'ak/comptime}})))
   (doseq [attributes [#{ak/export} '#{ak/export} '#{aguafria.keyword/export}]]
     (is (= {:attrs #{:export}}
            (ak/normalize-attributes *ns* {:attrs attributes}))))
@@ -120,7 +120,7 @@
         (eval '(a/defn clean-function :u32
                  "Inspectable function."
                  {:export false :public true} [[x :u32]]
-                 (+ x clean-variable)))
+                 (ak/+ x clean-variable)))
         (eval '(a/defstruct CleanPoint
                  "Inspectable struct."
                  {:public false}

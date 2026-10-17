@@ -14,43 +14,43 @@
         ^{:var :usize} y 0
         ^{:var [:array 3 :usize]} values [0 0 0]]
     (a/set-many!
-      x (+ x 1)
-      y (* x 2)
-      x (- x 2)
-      (a/index values x) y
-      (a/index values (+ x 1)) (+ (a/index values x) 5))
+     x (aguafria.keyword/+ x 1)
+     y (aguafria.keyword/* x 2)
+     x (aguafria.keyword/- x 2)
+     (a/index values x) y
+     (a/index values (aguafria.keyword/+ x 1)) (aguafria.keyword/+ (a/index values x) 5))
     (a/index values 2)))
 
 (deftest native-sequential-target-and-value-evaluation
-  (is (= 11 (sequential-result))))
+  (is (= 11 (a/value (sequential-result)))))
 
 (deftest ordered-assignment-expansion
-  (is (= '(do (set! x (+ x 1))
-              (set! y (* x 2))
+  (is (= '(do (set! x (aguafria.keyword/+ x 1))
+              (set! y (aguafria.keyword/* x 2))
               (set! (a/index buffer x) y))
          (expand-once '(a/set-many!
-           x (+ x 1)
-           y (* x 2)
-           (a/index buffer x) y))))
+                        x (aguafria.keyword/+ x 1)
+                        y (aguafria.keyword/* x 2)
+                        (a/index buffer x) y))))
   (is (= '(do) (expand-once '(a/set-many!)))))
 
 (deftest malformed-assignments
   (doseq [form ['(a/set-many! x 1 y)
-               '(a/set-many! {x 1})
-               '(a/set-many! (x 1))]]
+                '(a/set-many! {x 1})
+                '(a/set-many! (x 1))]]
     (is (thrown? clojure.lang.Compiler$CompilerException (expand-once form)))))
 
 (deftest assignments-emit-in-order
   (let [declaration
         (emit/prepare-declaration (the-ns 'aguafria.zig.set-many-test)
-          {:kind :fn :name 'ordered :args [] :return :i32
-           :body '[(let [^{:var :i32} x 2
-                         ^{:var :i32} y 0]
-                     (a/set-many!
-                       x (+ x 3)
-                       y (* x 2)
-                       x (+ y 1))
-                     x)]})
+                                  {:kind :fn :name 'ordered :args [] :return :i32
+                                   :body '[(let [^{:var :i32} x 2
+                                                 ^{:var :i32} y 0]
+                                             (a/set-many!
+                                              x (aguafria.keyword/+ x 3)
+                                              y (aguafria.keyword/* x 2)
+                                              x (aguafria.keyword/+ y 1))
+                                             x)]})
         source (emit/emit-declaration declaration)
         first-write (str/index-of source "x = (x + 3);")
         second-write (str/index-of source "y = (x * 2);")

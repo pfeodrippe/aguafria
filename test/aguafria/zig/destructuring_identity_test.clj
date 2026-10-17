@@ -25,7 +25,7 @@
           :body [(let [{:keys [y]} {:y x}
                        __aguafria_binding_2 __aguafria_binding_0
                        {:keys [z]} {:z y}]
-                   (+ z __aguafria_binding_2))]}
+                   (aguafria.keyword/+ z __aguafria_binding_2))]}
         first-declaration (emitter/prepare-declaration context declaration)
         first-source (emitter/emit-declaration first-declaration)
         _ (advance-unrelated-destructuring! context 31)
@@ -137,7 +137,7 @@
                            :command-times @command-times#))))
            (shutdown-agents))
         result (shell/sh (str (System/getProperty "java.home") "/bin/java")
-                         "--enable-native-access=ALL-UNNAMED" "-cp" (System/getProperty "java.class.path")
+                         "-Xmx768m" "--enable-native-access=ALL-UNNAMED" "-cp" (System/getProperty "java.class.path")
                          "clojure.main" "-e" (pr-str code))]
     (when-not (zero? (:exit result))
       (throw (ex-info "Destructuring identity JVM failed" result)))

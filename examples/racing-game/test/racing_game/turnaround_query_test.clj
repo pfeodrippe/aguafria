@@ -17,7 +17,7 @@
 (a/defn static-query-probe [:array 3 :bool] []
   (let [world (physics/create-world 0.0)
         box (physics/create-box world (b3/b3Pos {:x 0.0 :y 0.0 :z 0.0})
-              (b3/b3Vec3 {:x 1.0 :y 1.0 :z 1.0}) 0.0 10.0)]
+                                (b3/b3Vec3 {:x 1.0 :y 1.0 :z 1.0}) 0.0 10.0)]
     (ak/defer (physics/destroy-world! world))
     (b3/b3Body_SetType box b3/b3_staticBody)
     (let [blocked (turnaround/static-clearance world 0.0 0.0 0.0 0.0)
@@ -83,18 +83,18 @@
 
 (deftest passing-clearance-includes-both-oriented-footprints-test
   (doseq [[yaw other-yaw expected] [[0.0 0.0 3.24]
-                                   [0.0 Math/PI 3.24]
-                                   [(/ Math/PI 2.0) 0.0 4.32]]]
+                                    [0.0 Math/PI 3.24]
+                                    [(/ Math/PI 2.0) 0.0 4.32]]]
     (is (< (Math/abs (- expected
                         (turnaround/recovery-side-clearance
-                          (test-body 0.0 0.0 yaw) (test-body 0.0 0.0 other-yaw) 0.0)))
+                         (test-body 0.0 0.0 yaw) (test-body 0.0 0.0 other-yaw) 0.0)))
            0.00001))))
 
 (deftest requested-steering-predicts-forward-and-reverse-yaw-test
   (doseq [steering [-0.45 -0.16 0.0 0.16 0.45]
           distance [-0.35 0.35]]
     (let [[x y yaw] (a/value (turnaround/motion-pose (test-body 0.0 0.0 0.0)
-                                                   steering distance))]
+                                                     steering distance))]
       (is (pos? (* distance x)) "Reverse must actually predict backwards travel")
       (if (zero? steering)
         (do (is (< (Math/abs (double (- x distance))) 0.00001))
@@ -110,7 +110,7 @@
   (let [world (physics/create-world 0.0)]
     (ak/defer (physics/destroy-world! world))
     (turnaround/guard-recovery-control control (a/index bodies self)
-      bodies 8 self gear world 35.0)))
+                                       bodies 8 self gear world 35.0)))
 
 (deftest captured-pileup-does-not-allow-r0-to-push-through-test
   (let [capture (edn/read-string (slurp (io/resource "fixtures/blocked-grid-2026-09-08.edn")))
@@ -121,7 +121,7 @@
         guarded (a/value (captured-pedal-guard-probe padded 0 (driver/Control control) gear))
         ;; Counterfactual QUERY inputs only: no real race transforms are changed.
         empty-corridor (mapv (fn [i body] (if (zero? i) body (update body :x + 100.0)))
-                            (range (a/value protocol/racer-count)) padded)
+                             (range (a/value protocol/racer-count)) padded)
         clear (a/value (captured-pedal-guard-probe empty-corridor 0 (driver/Control control) gear))]
     (is (= 8 (count bodies)))
     (is (pos? (:throttle control)) "Reproduce the real captured unsafe request")

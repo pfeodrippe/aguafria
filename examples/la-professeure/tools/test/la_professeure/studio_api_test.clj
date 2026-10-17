@@ -14,7 +14,7 @@
   ;; Real temporary WAVs and the production native validator; intercept only
   ;; publication/project side effects so this isolated suite cannot touch voices.
   (let [directory (java.nio.file.Files/createTempDirectory
-                    "studio-publish-" (make-array java.nio.file.attribute.FileAttribute 0))]
+                   "studio-publish-" (make-array java.nio.file.attribute.FileAttribute 0))]
     (doseq [kind [:dry :wet]
             [level valid?] [[0.1 true] [0.0 false] [2.0 false]]]
       (let [path (str (.resolve directory (str (name kind) "-" level ".wav")))
@@ -58,9 +58,9 @@
 
 (deftest publication-rejects-missing-selection-before-native-or-file-effects
   (doseq [[id entry] [["voice-qa" {}]
-                     ["voice-qa" {:selected "absent.wav" :history []}]
-                     ["../unsafe" {:selected "test.wav" :history [{:path "test.wav" :kind :dry}]}]
-                     [nil {}]]]
+                      ["voice-qa" {:selected "absent.wav" :history []}]
+                      ["../unsafe" {:selected "test.wav" :history [{:path "test.wav" :kind :dry}]}]
+                      [nil {}]]]
     (with-redefs-fn
       {#'studio/focused-id (constantly id)
        #'studio/takes (atom {id entry})
@@ -72,7 +72,7 @@
 
 (deftest comparison-readiness-follows-real-takes-and-passage
   (let [directory (java.nio.file.Files/createTempDirectory
-                    "studio-comparison-" (make-array java.nio.file.attribute.FileAttribute 0))
+                   "studio-comparison-" (make-array java.nio.file.attribute.FileAttribute 0))
         a (str (.resolve directory "a.wav"))
         b (str (.resolve directory "b.wav"))
         missing (str (.resolve directory "missing.wav"))
@@ -101,7 +101,7 @@
 
 (deftest comparison-playback-does-not-lend-a-cursor-to-b
   (let [directory (java.nio.file.Files/createTempDirectory
-                    "studio-comparison-playback-" (make-array java.nio.file.attribute.FileAttribute 0))
+                   "studio-comparison-playback-" (make-array java.nio.file.attribute.FileAttribute 0))
         a (str (.resolve directory "a.wav"))
         b (str (.resolve directory "b.wav"))
         _ (doseq [path [a b]] (.createNewFile (io/file path)))
@@ -181,7 +181,7 @@
         (#'studio/remember! "voice" :dry "dry.wav")
         (reset! session nil)
         (#'studio/remember! "voice" :wet "processed.wav"
-                           {:dialogue-hash "captured-before-edit" :interrupted? true :path "ignored"})
+                            {:dialogue-hash "captured-before-edit" :interrupted? true :path "ignored"})
         (#'studio/remember! "voice" :dry "imported.wav")
         (let [[dry wet imported] (get-in @state ["voice" :history])]
           (is (= "captured-before-edit" (:dialogue-hash dry)))
@@ -216,7 +216,7 @@
         (#'studio/refresh-dialogue-status!)
         (is (= 2 @reads) "A published script invalidates cached text")
         (reset! take-state {"voice" {:selected "take.wav"
-                                    :history [{:path "take.wav" :dialogue-hash fingerprint}]}})
+                                     :history [{:path "take.wav" :dialogue-hash fingerprint}]}})
         (#'studio/refresh-dialogue-status!)
         (is (= 3 @reads))
         (is (= :recorded (:recording-status (first @display))))))))
@@ -229,8 +229,8 @@
        #'studio/render! (fn [_] {:source 2 :fx? true})
        #'recorder/initialize! (constantly true)
        #'recorder/start-input-check! (fn [source fx?]
-                                      (swap! calls conj [:start source fx?])
-                                      true)
+                                       (swap! calls conj [:start source fx?])
+                                       true)
        #'recorder/stop-input-check! #(swap! calls conj [:stop])}
       (fn []
         (#'studio/check-input! true)
@@ -254,7 +254,7 @@
 (deftest monitor-level-api-is-bounded-without-owning-recording
   (doseq [percent [-1 51 100 0.5 "15" nil]]
     (is (thrown? clojure.lang.ExceptionInfo
-          (#'studio/validate-command! {:op :routing/monitor-level :args {:percent percent}}))))
+                 (#'studio/validate-command! {:op :routing/monitor-level :args {:percent percent}}))))
   (let [levels (atom [])
         capture {:id "ongoing-recording"}]
     (with-redefs-fn
@@ -266,7 +266,7 @@
       (fn []
         (doseq [percent [0 15 50]]
           (let [command (#'studio/validate-command!
-                          {:op :routing/monitor-level :args {:percent percent}})]
+                         {:op :routing/monitor-level :args {:percent percent}})]
             (is (:accepted? (#'studio/execute-command! command)))))
         (is (= [0 15 50] @levels))
         (is (= capture @studio/session))
@@ -292,13 +292,13 @@
   ;; Test both the focused take control and the general transport. A failed
   ;; reopen is not a request to start the file again from zero.
   (doseq [[play results] [[#'studio/audition-transport! [false true false]]
-                         [#'studio/play-transport! [true false]]]]
+                          [#'studio/play-transport! [true false]]]]
     (let [remaining (atom results)]
       (with-redefs-fn
         {#'studio/render! (fn [_]
-                           (let [result (first @remaining)]
-                             (swap! remaining rest)
-                             result))
+                            (let [result (first @remaining)]
+                              (swap! remaining rest)
+                              result))
          #'studio/preview! #(throw (AssertionError. "Keep the decoded take and cursor"))}
         (fn []
           (is (= :playback-device
@@ -342,8 +342,8 @@
          #'studio/checkpoint! (fn [force?] (is force?))
          #'recorder/available-frames #(if % wet dry)
          #'recorder/write-take! (fn [path processed?]
-                                 (swap! writes conj (if processed? :wet :dry))
-                                 true)
+                                  (swap! writes conj (if processed? :wet :dry))
+                                  true)
          #'studio/remember! (fn [id kind path]
                               (swap! takes update-in [id :history] (fnil conj []) {:path path :kind kind}))
          #'studio/change-takes! (fn [_ change] (swap! takes change))
@@ -382,10 +382,10 @@
         (with-open [out (io/output-stream (io/file directory name))]
           (.write out pcm)))
       (files/atomic-edn! manifest
-        (cond-> {:id "voice-recovery" :completed? false
-                 :streams {:dry {:file "dry.pcm" :frames 3}
-                           :wet {:file "wet.pcm" :frames 2}}}
-          hash (assoc :dialogue-hash hash)))
+                         (cond-> {:id "voice-recovery" :completed? false
+                                  :streams {:dry {:file "dry.pcm" :frames 3}
+                                            :wet {:file "wet.pcm" :frames 2}}}
+                           hash (assoc :dialogue-hash hash)))
       (with-redefs-fn
         {#'studio/session (atom nil)
          #'studio/armed (atom nil)
@@ -409,7 +409,7 @@
         (fn []
           (when failure-stage
             (is (thrown-with-msg? clojure.lang.ExceptionInfo #"recovery write failure"
-                  (studio/recover!)))
+                                  (studio/recover!)))
             (is (false? (:completed? (files/read-state manifest nil))))
             (is (= (if (= :project failure-stage) 0 2)
                    (count (get-in @takes ["voice-recovery" :history]))))
@@ -425,7 +425,7 @@
             (is (= 1 (:revision saved)) "Both streams recover as one project edit")
             (is (= ["Recover takes"] (mapv :label (:undo saved))))
             (is (= 2 (count (filter #(.endsWith (.getName %) ".wav")
-                                   (.listFiles directory))))
+                                    (.listFiles directory))))
                 "Failed project/manifest writes must not multiply WAV files")
             (is (= #{:dry :wet} (set (map :kind history))))
             (is (= @takes (:takes saved)))
@@ -437,14 +437,14 @@
               (is (= hash dialogue-hash))
               (is (= :interrupted
                      (studio/recording-freshness
-                       (studio/dialogue-fingerprint 86 "Edited after capture") entry)))
+                      (studio/dialogue-fingerprint 86 "Edited after capture") entry)))
               (is (= (vec (take (* 8 (if (= :dry kind) 3 2)) pcm))
                      (vec (files/pcm path)))
                   "Recover only the durable prefix, not uncommitted PCM"))
             (doseq [name ["dry.pcm" "wet.pcm"]]
               (is (= (vec pcm)
                      (vec (java.nio.file.Files/readAllBytes
-                            (.toPath (io/file directory name)))))))
+                           (.toPath (io/file directory name)))))))
             (is (:completed? (files/read-state manifest nil)))
             (is (:recovered? (files/read-state manifest nil)))
             (is (= 0 (studio/recover!)))
@@ -462,7 +462,7 @@
        #'recorder/write-take! (constantly false)}
       (fn []
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"PCM retained"
-              (#'studio/save-interrupted-take!)))
+                              (#'studio/save-interrupted-take!)))
         (is (= initial @session))))))
 
 (deftest input-check-blocks-routing-without-changing-project
@@ -503,9 +503,9 @@
            form))
     (with-redefs [a/value #(get @fields %)
                   a/set-value! (fn [field value]
-                                  (swap! writes conj [field value])
-                                  (swap! fields assoc field value)
-                                  value)]
+                                 (swap! writes conj [field value])
+                                 (swap! fields assoc field value)
+                                 value)]
       (is (= 2 (eval (list 'let '[first-field :first second-field :second] form)))))
     (is (= [[:first 1] [:second 2]] @writes))
     (is (= {:first 1 :second 2} @fields))
@@ -535,8 +535,8 @@
        #'studio/set-wave! (fn [i value] (swap! uploaded assoc i value))
        #'recorder/wave-bin (fn [_ _] 0.8)
        #'files/waveform (fn [path]
-                         (swap! decoded conj path)
-                         {:frames 96000 :bins (vec (repeat 128 0.2))})}
+                          (swap! decoded conj path)
+                          {:frames 96000 :bins (vec (repeat 128 0.2))})}
       (fn []
         (#'studio/refresh-selected-waveform! "voice-a" "saved.wav" {} true)
         (is (nil? @cache) "Live PCM invalidates saved-file display identity")
@@ -585,8 +585,8 @@
                    1)
        #'studio/passage-data (fn [_] @passage)
        #'studio/capture-script! (fn [id text]
-                                 (swap! uploaded conj [id text])
-                                 true)}
+                                  (swap! uploaded conj [id text])
+                                  true)}
       (fn []
         (let [snapshot (#'studio/capture-script-snapshot! "voice-a")]
           (swap! passage assoc :revision 2 :text "Edited while recording")
@@ -608,8 +608,8 @@
        #'studio/display-cache cache
        #'studio/upload-selected-waveform! (fn [_ upload!] (upload!) true)
        #'a/set-value! (fn [field value]
-                         (assert (identical? field studio/take-seconds))
-                         (is (zero? value)))
+                        (assert (identical? field studio/take-seconds))
+                        (is (zero? value)))
        #'studio/set-wave! (fn [_ value] (swap! writes conj value))
        #'studio/reset-take-name! (fn [name] (is (= "" name)))
        #'recorder/wave-bin (fn [& _] (throw (AssertionError. "Wrong passage must not read live PCM")))}
@@ -664,17 +664,17 @@
                           (swap! events conj [:render])
                           (f))
        #'a/value (fn [field]
-                    (if (number? field)
-                      field
-                      (let [key (key-for field)]
-                        (when-not (contains? @state key)
-                          (throw (AssertionError. (str "Uninitialized test field: " key))))
-                        (get @state key))))
+                   (if (number? field)
+                     field
+                     (let [key (key-for field)]
+                       (when-not (contains? @state key)
+                         (throw (AssertionError. (str "Uninitialized test field: " key))))
+                       (get @state key))))
        #'a/set-value! (fn [field value]
-                         (let [key (key-for field)]
-                           (swap! events conj [:set key value])
-                           (swap! state assoc key value)
-                           value))
+                        (let [key (key-for field)]
+                          (swap! events conj [:set key value])
+                          (swap! state assoc key value)
+                          value))
        #'studio/node-id #(nth ["voice-one" "voice-two"] %)
        #'studio/capture-script-snapshot! (fn [id] {:id id :dialogue-hash "test-script"})
        #'studio/record-row-count (constantly 8)
@@ -745,8 +745,8 @@
         (with-redefs-fn
           {#'studio/mix-sources sources
            #'mixer/set-loop! (fn [& args]
-                              (swap! loop-calls conj (vec args))
-                              true)}
+                               (swap! loop-calls conj (vec args))
+                               true)}
           (fn []
             (is (= :mix-unprepared
                    (try (#'studio/execute-command! command)
@@ -852,7 +852,7 @@
 
 (deftest window-preferences-debounce-and-normal-bounds
   (let [path (java.nio.file.Files/createTempFile "studio-window-qa-" ".edn"
-               (make-array java.nio.file.attribute.FileAttribute 0))
+                                                 (make-array java.nio.file.attribute.FileAttribute 0))
         file (.toFile path) state (atom nil)
         normal {:x 10 :y 50 :width 1100 :height 760 :normal 1}
         read! #(edn/read-string (slurp file))]
@@ -900,7 +900,7 @@
   (doseq [op [:view/routing :view/routing-tools]
           args [{} {:visible 1} {:visible "true"} {:visible nil} {:visible false :mute true}]]
     (is (thrown? clojure.lang.ExceptionInfo
-          (#'studio/validate-command! {:op op :args args})))))
+                 (#'studio/validate-command! {:op op :args args})))))
 
 (deftest workspace-mode-api-schema
   (is (= #{:edit :record :takes} (set (keys (:workspace-modes (studio/capabilities))))))
@@ -911,7 +911,7 @@
   (doseq [args [{} {:mode nil} {:mode :take-grid} {:mode "record"}
                 {:mode :record :record true}]]
     (is (thrown? clojure.lang.ExceptionInfo
-          (#'studio/validate-command! {:op :view/mode :args args})))))
+                 (#'studio/validate-command! {:op :view/mode :args args})))))
 
 (deftest take-grid-api-and-snapshot-contract
   (let [take-state {"voice-a" {:dry "/qa/dry.wav"
@@ -934,14 +934,14 @@
                        (catch clojure.lang.ExceptionInfo e (:code (ex-data e)))))))
     (is (= "Clean" (:name (#'studio/known-take take-state "voice-a" "/qa/dry.wav"))))
     (is (thrown? clojure.lang.ExceptionInfo
-          (#'studio/known-take take-state "other" "/qa/dry.wav")))
+                 (#'studio/known-take take-state "other" "/qa/dry.wav")))
     (is (nil? (:path (first (#'studio/take-grid-specs ["voice-a"]
-                               (-> take-state
-                                   (assoc-in ["voice-a" :selected] "/not/in/history.wav")
-                                   (assoc-in ["voice-a" :dry] "/not/in/history.wav")))))))
+                                                      (-> take-state
+                                                          (assoc-in ["voice-a" :selected] "/not/in/history.wav")
+                                                          (assoc-in ["voice-a" :dry] "/not/in/history.wav")))))))
     (let [older (-> take-state
-                   (assoc-in ["voice-a" :selected] "/qa/older-fx.wav")
-                   (update-in ["voice-a" :history] conj {:path "/qa/older-fx.wav" :kind :wet}))
+                    (assoc-in ["voice-a" :selected] "/qa/older-fx.wav")
+                    (update-in ["voice-a" :history] conj {:path "/qa/older-fx.wav" :kind :wet}))
           cards (#'studio/take-grid-specs ["voice-a"] older)]
       (is (= "/qa/older-fx.wav" (:path (second cards))))
       (is (true? (:chosen? (second cards))))
@@ -953,18 +953,18 @@
       (let [command {:op op :args {:id "voice-a" :path (str "/qa/" (apply str (repeat 200 "x")) ".wav")}}]
         (is (= command (#'studio/validate-command! command)))))
     (doseq [args [{:slot -1 :revision 1 :audition true}
-                 {:slot 48 :revision 1 :audition true}
-                 {:slot 0 :revision -1 :audition true}
-                 {:slot 0 :revision 1 :audition 1}]]
+                  {:slot 48 :revision 1 :audition true}
+                  {:slot 0 :revision -1 :audition true}
+                  {:slot 0 :revision 1 :audition 1}]]
       (is (thrown? clojure.lang.ExceptionInfo
-            (#'studio/validate-command! {:op :take/card :args args}))))))
+                   (#'studio/validate-command! {:op :take/card :args args}))))))
 
 (deftest editor-divider-api-schema
   (let [command {:op :view/editor :args {:top 520.0}}]
     (is (= command (#'studio/validate-command! command))))
   (doseq [top [-1 Double/NaN Double/POSITIVE_INFINITY "520" nil]]
     (is (thrown? clojure.lang.ExceptionInfo
-          (#'studio/validate-command! {:op :view/editor :args {:top top}})))))
+                 (#'studio/validate-command! {:op :view/editor :args {:top top}})))))
 
 (deftest focus-marshals-to-render-thread
   (let [queued (promise) completed (promise) calls (atom [])]
@@ -1007,7 +1007,7 @@
             (let [scheduled @studio/armed]
               (is (= :recording-busy
                      (try (#'studio/execute-command!
-                            {:op :record/start :args {:id "voice-one"}})
+                           {:op :record/start :args {:id "voice-one"}})
                           (catch clojure.lang.ExceptionInfo e (:code (ex-data e))))))
               (is (= scheduled @studio/armed)))
             (#'studio/execute-command! {:op :transport/stop :args {}})
@@ -1165,7 +1165,7 @@
          (#'studio/validate-command! {:op :transport/audition :args {}})))
   (is (= :transport/audition (:op (#'studio/ui-command 35))))
   (is (thrown? clojure.lang.ExceptionInfo
-        (#'studio/validate-command! {:op :transport/audition :args {:record true}})))
+               (#'studio/validate-command! {:op :transport/audition :args {:record true}})))
   ;; Reject before touching native state or audio. This fixture must run isolated
   ;; from a live studio worker, just like the API suite's other session fixtures.
   (with-redefs [studio/session (atom {:qa true})]
@@ -1204,7 +1204,7 @@
   ;; Isolated JVM only. A failure in the first native accessor must not stop
   ;; native capture, consume a command, or escape the worker's cycle boundary.
   (let [compile-error (ex-info "Invalid edit\nvery large generated source"
-                              {:aguafria/phase :zig-compile})
+                               {:aguafria/phase :zig-compile})
         stops (atom 0)]
     (with-redefs [studio/worker-health (atom {:state :running :failures 0})
                   studio/session (atom {:id "unsaved-pcm"})
@@ -1245,136 +1245,136 @@
 
 (deftest terminal-worker-rejects-new-commands
   (isolated
-    #(do
-       (reset! studio/worker (java.util.concurrent.CompletableFuture/completedFuture nil))
-       (is (= :stopped (:state (studio/worker-status))))
-       (is (false? (:alive? (studio/worker-status))))
-       (is (= :worker-stopped
-              (try (studio/submit! {:op :transport/play})
-                   (catch clojure.lang.ExceptionInfo e (:code (ex-data e))))))
-       (is (empty? @studio/request-ledger))
-       (is (zero? (.size studio/command-queue))))))
+   #(do
+      (reset! studio/worker (java.util.concurrent.CompletableFuture/completedFuture nil))
+      (is (= :stopped (:state (studio/worker-status))))
+      (is (false? (:alive? (studio/worker-status))))
+      (is (= :worker-stopped
+             (try (studio/submit! {:op :transport/play})
+                  (catch clojure.lang.ExceptionInfo e (:code (ex-data e))))))
+      (is (empty? @studio/request-ledger))
+      (is (zero? (.size studio/command-queue))))))
 
 (deftest worker-health-never-needs-the-native-renderer
   (isolated
-    #(with-redefs-fn {#'studio/render! (fn [_] (throw (AssertionError. "Native publication is unavailable")))}
-       (fn []
-         (reset! studio/worker-health {:state :waiting-for-code :failures 1})
-         (is (= {:state :waiting-for-code :failures 1 :alive? true} (studio/worker-status)))
-         (reset! studio/worker nil)
-         (is (= :closed (:state (studio/worker-status))))))))
+   #(with-redefs-fn {#'studio/render! (fn [_] (throw (AssertionError. "Native publication is unavailable")))}
+      (fn []
+        (reset! studio/worker-health {:state :waiting-for-code :failures 1})
+        (is (= {:state :waiting-for-code :failures 1 :alive? true} (studio/worker-status)))
+        (reset! studio/worker nil)
+        (is (= :closed (:state (studio/worker-status))))))))
 
 (deftest restarting-a-live-worker-is-rejected-before-native-access
   (isolated
-    #(with-redefs-fn {#'studio/render! (fn [_] (throw (AssertionError. "Must not touch the window")))}
-       (fn []
-         (is (= :worker-running
-                (try (studio/restart-worker!)
-                     (catch clojure.lang.ExceptionInfo e (:code (ex-data e))))))))))
+   #(with-redefs-fn {#'studio/render! (fn [_] (throw (AssertionError. "Must not touch the window")))}
+      (fn []
+        (is (= :worker-running
+               (try (studio/restart-worker!)
+                    (catch clojure.lang.ExceptionInfo e (:code (ex-data e))))))))))
 
 (deftest explicit-recording-control-contract
   (isolated
-    #(do
-       (doseq [command [{:op :record/arm :args {:id "voice-test" :enabled true}}
-                        {:op :record/start :args {:id "voice-test"}}
-                        {:op :record/enable :args {:enabled true}}
-                        {:op :playback/boost :args {:enabled true}}
-                        {:op :view/routing :args {:visible false}}
-                        {:op :alert/dismiss}
-                        {:op :record/fx} {:op :record/dry} {:op :record/toggle}]]
-         (is (= :queued (:status (studio/submit! command)))))
-       (doseq [command [{:op :record/enable :args {:enabled 1}}
-                        {:op :playback/boost :args {:enabled "yes"}}
-                        {:op :view/routing :args {:visible "yes"}}
-                        {:op :record/arm :args {:id "voice-test"}}
-                        {:op :record/arm :args {:id 12 :enabled true}}
-                        {:op :routing/select :args {:source -1 :send 0 :return 0 :headphones 0}}]]
-         (is (thrown? clojure.lang.ExceptionInfo (studio/submit! command)))))))
+   #(do
+      (doseq [command [{:op :record/arm :args {:id "voice-test" :enabled true}}
+                       {:op :record/start :args {:id "voice-test"}}
+                       {:op :record/enable :args {:enabled true}}
+                       {:op :playback/boost :args {:enabled true}}
+                       {:op :view/routing :args {:visible false}}
+                       {:op :alert/dismiss}
+                       {:op :record/fx} {:op :record/dry} {:op :record/toggle}]]
+        (is (= :queued (:status (studio/submit! command)))))
+      (doseq [command [{:op :record/enable :args {:enabled 1}}
+                       {:op :playback/boost :args {:enabled "yes"}}
+                       {:op :view/routing :args {:visible "yes"}}
+                       {:op :record/arm :args {:id "voice-test"}}
+                       {:op :record/arm :args {:id 12 :enabled true}}
+                       {:op :routing/select :args {:source -1 :send 0 :return 0 :headphones 0}}]]
+        (is (thrown? clojure.lang.ExceptionInfo (studio/submit! command)))))))
 
 (deftest command-validation-and-capabilities
   (isolated
-    #(do
-       (is (= true (:multitrack? (studio/capabilities))))
-       (is (= false (:arranger? (studio/capabilities))))
-       (is (contains? (:commands (studio/capabilities)) :transport/pause))
-       (is (true? (get-in (studio/capabilities) [:mix :loop?])))
-       (doseq [command [{:op :unknown/command} {:op :transport/seek :args {:seconds Double/NaN}}
-                        {:op :transport/seek :args {:seconds -1}} {:op :view/zoom :args {:factor 0}}
-                        {:op :take/trim :args {:from 50 :to 10}} {:op :transport/play :args {:typo true}}
-                        {:op :mix/loop :args {:from 2 :to 1 :enabled true}}
-                        {:op :mix/loop :args {:from 1 :to 1 :enabled true}}
-                        {:op :mix/loop :args {:from Double/NaN :to 2 :enabled true}}
-                        {:op :mix/loop :args {:from 0 :to 2 :enabled "yes"}}]]
-         (is (thrown? clojure.lang.ExceptionInfo (studio/submit! command))))
-       (reset! studio/worker nil)
-       (is (= :closed (try (studio/submit! {:op :transport/play}) (catch Exception e (:code (ex-data e)))))))))
+   #(do
+      (is (= true (:multitrack? (studio/capabilities))))
+      (is (= false (:arranger? (studio/capabilities))))
+      (is (contains? (:commands (studio/capabilities)) :transport/pause))
+      (is (true? (get-in (studio/capabilities) [:mix :loop?])))
+      (doseq [command [{:op :unknown/command} {:op :transport/seek :args {:seconds Double/NaN}}
+                       {:op :transport/seek :args {:seconds -1}} {:op :view/zoom :args {:factor 0}}
+                       {:op :take/trim :args {:from 50 :to 10}} {:op :transport/play :args {:typo true}}
+                       {:op :mix/loop :args {:from 2 :to 1 :enabled true}}
+                       {:op :mix/loop :args {:from 1 :to 1 :enabled true}}
+                       {:op :mix/loop :args {:from Double/NaN :to 2 :enabled true}}
+                       {:op :mix/loop :args {:from 0 :to 2 :enabled "yes"}}]]
+        (is (thrown? clojure.lang.ExceptionInfo (studio/submit! command))))
+      (reset! studio/worker nil)
+      (is (= :closed (try (studio/submit! {:op :transport/play}) (catch Exception e (:code (ex-data e)))))))))
 
 (deftest optimistic-project-revision
   (isolated
-    #(with-redefs [studio/project (atom {:revision 12}) studio/session (atom nil) studio/armed (atom nil)]
-       (studio/register-command! :test/revision {:description "Revision fixture" :validate map? :handler identity})
-       (is (= :revision-conflict
-              (try (#'studio/execute-command! {:op :test/revision :args {} :expected-revision 11})
-                   (catch Exception e (:code (ex-data e))))))
-       (is (:accepted? (#'studio/execute-command! {:op :test/revision :args {} :expected-revision 12})))
-       (is (thrown? Exception (studio/submit! {:op :project/undo :expected-revision -1})))
-       (is (thrown? Exception (studio/submit! {:op :project/undo :expected-revision 1.5}))))))
+   #(with-redefs [studio/project (atom {:revision 12}) studio/session (atom nil) studio/armed (atom nil)]
+      (studio/register-command! :test/revision {:description "Revision fixture" :validate map? :handler identity})
+      (is (= :revision-conflict
+             (try (#'studio/execute-command! {:op :test/revision :args {} :expected-revision 11})
+                  (catch Exception e (:code (ex-data e))))))
+      (is (:accepted? (#'studio/execute-command! {:op :test/revision :args {} :expected-revision 12})))
+      (is (thrown? Exception (studio/submit! {:op :project/undo :expected-revision -1})))
+      (is (thrown? Exception (studio/submit! {:op :project/undo :expected-revision 1.5}))))))
 
 (deftest bounded-idempotent-requests
   (isolated
-    #(let [command {:op :transport/play :request-id "same"}]
-       (is (= :queued (:status (studio/submit! command))))
-       (is (= :known (:status (studio/submit! command))))
-       (is (= 1 (.size studio/command-queue)))
-       (is (= :pending (:status (studio/result "same"))))
-       (is (= :request-conflict (try (studio/submit! (assoc command :op :transport/stop))
+   #(let [command {:op :transport/play :request-id "same"}]
+      (is (= :queued (:status (studio/submit! command))))
+      (is (= :known (:status (studio/submit! command))))
+      (is (= 1 (.size studio/command-queue)))
+      (is (= :pending (:status (studio/result "same"))))
+      (is (= :request-conflict (try (studio/submit! (assoc command :op :transport/stop))
                                     (catch Exception e (:code (ex-data e))))))
-       (let [ticket (.poll studio/command-queue)]
-         (#'studio/complete-request! ticket {:status :done})
-         (is (= :done (:status (studio/result "same"))))
-         (studio/submit! command)
-         (is (zero? (.size studio/command-queue))))
-       (dotimes [i 64] (studio/submit! {:op :transport/play :request-id (str i)}))
-       (is (= :queue-full (try (studio/submit! {:op :transport/play}) (catch Exception e (:code (ex-data e))))))
-       (is (= 65 (count @studio/request-ledger)))
-       (is (= :unknown (:status (studio/result "not-found")))))))
+      (let [ticket (.poll studio/command-queue)]
+        (#'studio/complete-request! ticket {:status :done})
+        (is (= :done (:status (studio/result "same"))))
+        (studio/submit! command)
+        (is (zero? (.size studio/command-queue))))
+      (dotimes [i 64] (studio/submit! {:op :transport/play :request-id (str i)}))
+      (is (= :queue-full (try (studio/submit! {:op :transport/play}) (catch Exception e (:code (ex-data e))))))
+      (is (= 65 (count @studio/request-ledger)))
+      (is (= :unknown (:status (studio/result "not-found")))))))
 
 (deftest extension-and-event-contract
   (isolated
-    #(do
-       (studio/register-command! :test/hello {:description "Test extension" :validate map? :handler identity})
-       (is (= "Test extension" (get-in (studio/capabilities) [:commands :test/hello :description])))
-       (is (nil? (get-in (studio/capabilities) [:commands :test/hello :handler])))
-       (is (thrown? clojure.lang.ExceptionInfo
-                    (studio/register-command! :transport/play {:description "Override" :validate map? :handler identity})))
-       (studio/unregister-command! :test/hello)
-       (is (thrown? clojure.lang.ExceptionInfo (studio/submit! {:op :test/hello})))
-       (dotimes [i 300] (#'studio/emit-event! {:type :test :value i}))
-       (is (= 256 (count (:events (studio/events-since 0)))))
-       (is (:resync? (studio/events-since 0)))
-       (is (= 300 (:cursor (studio/events-since 299))))
-       (is (= [299] (mapv :value (:events (studio/events-since 299)))))
-       (is (false? (:resync? (studio/events-since 299))))
-       (is (:resync? (studio/events-since 301))))))
+   #(do
+      (studio/register-command! :test/hello {:description "Test extension" :validate map? :handler identity})
+      (is (= "Test extension" (get-in (studio/capabilities) [:commands :test/hello :description])))
+      (is (nil? (get-in (studio/capabilities) [:commands :test/hello :handler])))
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (studio/register-command! :transport/play {:description "Override" :validate map? :handler identity})))
+      (studio/unregister-command! :test/hello)
+      (is (thrown? clojure.lang.ExceptionInfo (studio/submit! {:op :test/hello})))
+      (dotimes [i 300] (#'studio/emit-event! {:type :test :value i}))
+      (is (= 256 (count (:events (studio/events-since 0)))))
+      (is (:resync? (studio/events-since 0)))
+      (is (= 300 (:cursor (studio/events-since 299))))
+      (is (= [299] (mapv :value (:events (studio/events-since 299)))))
+      (is (false? (:resync? (studio/events-since 299))))
+      (is (:resync? (studio/events-since 301))))))
 
 (deftest recording-rejection-and-extension-result
   (isolated
-    #(do
-       (with-redefs [studio/session (atom {:id "retained-take"}) studio/armed (atom nil)]
-         (is (= :recording-busy
-                (try (#'studio/execute-command! {:op :transport/play :args {}})
-                     (catch Exception e (:code (ex-data e))))))
-         (is (= {:id "retained-take"} @studio/session)))
-       (with-redefs [studio/session (atom nil) studio/armed (atom nil)]
-         (studio/register-command! :test/echo {:description "Echo" :validate map? :handler identity})
-         (is (= {:ok true} (:result (#'studio/execute-command! {:op :test/echo :args {:ok true}}))))))))
+   #(do
+      (with-redefs [studio/session (atom {:id "retained-take"}) studio/armed (atom nil)]
+        (is (= :recording-busy
+               (try (#'studio/execute-command! {:op :transport/play :args {}})
+                    (catch Exception e (:code (ex-data e))))))
+        (is (= {:id "retained-take"} @studio/session)))
+      (with-redefs [studio/session (atom nil) studio/armed (atom nil)]
+        (studio/register-command! :test/echo {:description "Echo" :validate map? :handler identity})
+        (is (= {:ok true} (:result (#'studio/execute-command! {:op :test/echo :args {:ok true}}))))))))
 
 (deftest synchronous-extension-recursion-is-rejected
   (isolated
-    #(binding [studio/*command-worker?* true]
-       (is (= :reentrant-command
-              (try (studio/command! {:op :transport/play})
-                   (catch Exception e (:code (ex-data e))))))
-       (is (zero? (.size studio/command-queue)))
+   #(binding [studio/*command-worker?* true]
+      (is (= :reentrant-command
+             (try (studio/command! {:op :transport/play})
+                  (catch Exception e (:code (ex-data e))))))
+      (is (zero? (.size studio/command-queue)))
        ;; Deferred follow-up work does not block the worker and remains supported.
-       (is (= :queued (:status (studio/submit! {:op :transport/stop})))))))
+      (is (= :queued (:status (studio/submit! {:op :transport/stop})))))))

@@ -1,5 +1,7 @@
 (ns learn.example.test-unhandled-enumeration-value
-  (:require [aguafria.zig :as a]))
+  (:refer-clojure :only [])
+  (:require [aguafria.zig :as a]
+            [aguafria.keyword :as k :refer :all]))
 
 (a/defenum Color
   [:auto
@@ -8,7 +10,7 @@
 
 (a/deftest exhaustive-switching
   (let [color (:off Color)]
-    (aguafria.keyword/switch color
+    (switch color
       (:auto Color) (a/block)
       (:on Color) (a/block))))
 

@@ -1,24 +1,25 @@
 (ns learn.example.test-type-coercion
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defn foo :void
   [[b :u16]]
-  (k/= :_ b))
+  (= :_ b))
 
 (a/deftest type-coercion-variable-declaration
-  (let [a (k/u8 1)
-        b (k/u16 a)]
-    (k/= :_ b)))
+  (let [a (u8 1)
+        b (u16 a)]
+    (= :_ b)))
 
 (a/deftest type-coercion-function-call
-  (let [a (k/u8 1)]
+  (let [a (u8 1)]
     (foo a)))
 
 (a/deftest type-coercion-as-builtin
-  (let [a (k/u8 1)
-        b (k/as a :u16)]
-    (k/= :_ b)))
+  (let [a (u8 1)
+        b (as a :u16)]
+    (= :_ b)))
 
 (comment
   (type-coercion-variable-declaration)

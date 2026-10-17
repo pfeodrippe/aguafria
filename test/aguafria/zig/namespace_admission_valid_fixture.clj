@@ -1,6 +1,7 @@
 (ns aguafria.zig.namespace-admission-valid-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defn increment :i32 [[x :i32]]
-  (k/+ x 1))
+  (+ x 1))

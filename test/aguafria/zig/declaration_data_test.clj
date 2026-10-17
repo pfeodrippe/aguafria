@@ -4,7 +4,7 @@
 
 (defn- chained-initializers [length]
   (reduce (fn [previous index]
-            (let [initializer (list '+ previous previous)]
+            (let [initializer (list 'aguafria.keyword/+ previous previous)]
               (with-meta (symbol (str "value" index))
                 {:line (inc index)
                  :aguafria/jvm-initializer initializer

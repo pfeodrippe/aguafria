@@ -1,5 +1,7 @@
 (ns learn.example.integer-literals
-  (:require [aguafria.zig :as a]))
+  (:refer-clojure :only [])
+  (:require [aguafria.zig :as a]
+            [aguafria.keyword :as k :refer :all]))
 
 (a/defconst decimal-int 98222)
 (a/defconst hex-int 0xff)

@@ -1,5 +1,6 @@
 (ns learn.example.test-setRuntimeSafety-builtin
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/deftest setRuntimeSafety
@@ -12,7 +13,7 @@
     ;; even in ReleaseFast and ReleaseSmall modes.
    (k/setRuntimeSafety true)
    (let [x (k/var 255 :u8)]
-     (k/+= x 1)
+     (+= x 1)
      (a/block
         ;; The value can be overridden at any scope. So here integer overflow
         ;; would not be caught in any build mode.

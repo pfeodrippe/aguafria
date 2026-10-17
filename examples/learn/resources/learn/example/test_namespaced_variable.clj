@@ -1,5 +1,6 @@
 (ns learn.example.test-namespaced-variable
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
@@ -8,7 +9,7 @@
 
 (a/defn- foo :i32
   []
-  (k/+= (:x S) 1)
+  (+= (:x S) 1)
   (:x S))
 
 (a/deftest namespaced-container-level-variable

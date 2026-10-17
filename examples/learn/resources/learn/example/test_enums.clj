@@ -1,5 +1,6 @@
 (ns learn.example.test-enums
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.lang.Type :as type-info]
             [aguafria.std.lang.Type.Enum :as enum-info]
             [aguafria.std.testing :as testing]
@@ -24,9 +25,9 @@
 ;; Now you can cast between u2 and Value.
 ;; The ordinal value starts from 0, counting up by 1 from the previous member.
 (a/deftest enum-ordinal-value
-  (k/try (testing/expectEqual 0 (k/backingInt (:zero Value))))
-  (k/try (testing/expectEqual 1 (k/backingInt (:one Value))))
-  (k/try (testing/expectEqual 2 (k/backingInt (:two Value)))))
+  (k/try (testing/expectEqual 0 (backingInt (:zero Value))))
+  (k/try (testing/expectEqual 1 (backingInt (:one Value))))
+  (k/try (testing/expectEqual 2 (backingInt (:two Value)))))
 
 ;; You can override the ordinal value for an enum.
 (a/defenum Value2
@@ -36,9 +37,9 @@
    [:million 1000000]])
 
 (a/deftest set-enum-ordinal-value
-  (k/try (testing/expectEqual 100 (k/backingInt (:hundred Value2))))
-  (k/try (testing/expectEqual 1000 (k/backingInt (:thousand Value2))))
-  (k/try (testing/expectEqual 1000000 (k/backingInt (:million Value2)))))
+  (k/try (testing/expectEqual 100 (backingInt (:hundred Value2))))
+  (k/try (testing/expectEqual 1000 (backingInt (:thousand Value2))))
+  (k/try (testing/expectEqual 1000000 (backingInt (:million Value2)))))
 
 ;; You can also override only some values.
 (a/defenum Value3
@@ -50,11 +51,11 @@
    :e])
 
 (a/deftest enum-implicit-ordinal-values-and-overridden-values
-  (k/try (testing/expectEqual 0 (k/backingInt (:a Value3))))
-  (k/try (testing/expectEqual 8 (k/backingInt (:b Value3))))
-  (k/try (testing/expectEqual 9 (k/backingInt (:c Value3))))
-  (k/try (testing/expectEqual 4 (k/backingInt (:d Value3))))
-  (k/try (testing/expectEqual 5 (k/backingInt (:e Value3)))))
+  (k/try (testing/expectEqual 0 (backingInt (:a Value3))))
+  (k/try (testing/expectEqual 8 (backingInt (:b Value3))))
+  (k/try (testing/expectEqual 9 (backingInt (:c Value3))))
+  (k/try (testing/expectEqual 4 (backingInt (:d Value3))))
+  (k/try (testing/expectEqual 5 (backingInt (:e Value3)))))
 
 ;; Enums can have methods, the same as structs and unions.
 ;; Enum methods are not special, they are only namespaced
@@ -66,11 +67,11 @@
    :hearts
    (a/fn is-clubs :bool
      [[self Suit]]
-     (k/== self (:clubs Suit)))])
+     (== self (:clubs Suit)))])
 
 (a/deftest enum-method
   (let [p (:spades Suit)]
-    (k/try (testing/expect (k/! ((:is-clubs p)))))))
+    (k/try (testing/expect (! ((:is-clubs p)))))))
 
 ;; An enum can be switched upon.
 (a/defenum Foo
@@ -80,7 +81,7 @@
 
 (a/deftest enum-switch
   (let [p (:number Foo)
-        what-is-it (k/switch p
+        what-is-it (switch p
                      (:string Foo) "this is a string"
                      (:number Foo) "this is a number"
                      (:none Foo) "this is a none")]

@@ -1,5 +1,6 @@
 (ns learn.example.packed-struct-mmio
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defstruct GpioRegister
@@ -11,11 +12,11 @@
    [:reserved {:default 0} :u4]])
 
 (a/defconst gpio [:* {:volatile? true} GpioRegister]
-  (k/ptrFromInt 0x0123))
+  (ptrFromInt 0x0123))
 
 (a/defn write-to-gpio :void [[new-states GpioRegister]]
   ;; Example of what not to do:
   ;; BAD! gpio.GPIO0 = true; BAD!
 
   ;; Instead, do this:
-  (k/= @gpio new-states))
+  (= @gpio new-states))

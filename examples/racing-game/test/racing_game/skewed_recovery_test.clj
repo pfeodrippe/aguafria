@@ -34,17 +34,16 @@
 (a/defn create-captured-car physics/Vehicle [[world b3/b3WorldId] [index :usize]]
   (let [p (a/index (a/index captured-poses index) 0)
         car (physics/create-vehicle world
-              (b3/b3Pos {:x (a/index p 0) :y (a/index p 1) :z (a/index p 2)}) 0.0)]
+                                    (b3/b3Pos {:x (a/index p 0) :y (a/index p 1) :z (a/index p 2)}) 0.0)]
     (dotimes [i 5]
       (let [pose (a/index (a/index captured-poses index) i)
             body (if (ak/== i 0) (a/field car chassis)
-                   (a/index (a/field car wheels) (- i 1)))]
+                     (a/index (a/field car wheels) (ak/- i 1)))]
         (b3/b3Body_SetTransform body
-          (b3/b3Pos {:x (a/index pose 0) :y (a/index pose 1) :z (a/index pose 2)})
-          (b3/b3Quat {:v {:x (a/index pose 3) :y (a/index pose 4) :z (a/index pose 5)}
-                       :s (a/index pose 6)}))))
+                                (b3/b3Pos {:x (a/index pose 0) :y (a/index pose 1) :z (a/index pose 2)})
+                                (b3/b3Quat {:v {:x (a/index pose 3) :y (a/index pose 4) :z (a/index pose 5)}
+                                            :s (a/index pose 6)}))))
     car))
-
 
 (a/defn skewed-probe [:array 6 :f32]
   "Captured ten-body initial conditions, no transforms/velocity writes after
@@ -63,47 +62,47 @@
         ^{:var :f32} reverse-travel 0.0]
     (ak/defer (terrain/destroy! surface))
     (ak/defer (physics/destroy-world! world))
-    (dotimes [_ (* seconds 120)]
+    (dotimes [_ (ak/* seconds 120)]
       (let [normal (driver/follow car 8.0 -3.75)
             blocked (driver/follow other 0.0 -2.1)
-            gap (* 4309.0 (mod (- (a/field blocked progress) (a/field normal progress)) 1.0))
-            side (- (a/field blocked lane) (a/field normal lane))
+            gap (ak/* 4309.0 (ak/mod (ak/- (a/field blocked progress) (a/field normal progress)) 1.0))
+            side (ak/- (a/field blocked lane) (a/field normal lane))
             body (physics/body-state (a/field car chassis))
             other-body (physics/body-state (a/field other chassis))
-            route (circuit/at-distance (* 4309.0 (a/field normal progress)) 0.0)
-            close? (< (ak/abs side) (turnaround/recovery-side-clearance body other-body
-                                     (a/field route heading)))
+            route (circuit/at-distance (ak/* 4309.0 (a/field normal progress)) 0.0)
+            close? (ak/< (ak/abs side) (turnaround/recovery-side-clearance body other-body
+                                                                           (a/field route heading)))
             traffic (if close? (driver/yield-to-offset-obstacle normal gap (a/field blocked speed) side) normal)
-            heading (math/atan2 (* 2.0 (+ (* (a/field body qw) (a/field body qz))
-                                           (* (a/field body qx) (a/field body qy))))
-                       (- 1.0 (* 2.0 (+ (* (a/field body qy) (a/field body qy))
-                                         (* (a/field body qz) (a/field body qz))))))
-            enabled (and (> (math/cos (- heading (a/field route heading))) 0.8)
-                           (< (ak/abs (a/field normal lane)) road-margin))
+            heading (math/atan2 (ak/* 2.0 (ak/+ (ak/* (a/field body qw) (a/field body qz))
+                                                (ak/* (a/field body qx) (a/field body qy))))
+                                (ak/- 1.0 (ak/* 2.0 (ak/+ (ak/* (a/field body qy) (a/field body qy))
+                                                          (ak/* (a/field body qz) (a/field body qz))))))
+            enabled (ak/and (ak/> (math/cos (ak/- heading (a/field route heading))) 0.8)
+                            (ak/< (ak/abs (a/field normal lane)) road-margin))
             output (recovery/step state normal traffic body -3.75
-                     (if close? gap 1000.0) 1000.0 0.0 enabled)
+                                  (if close? gap 1000.0) 1000.0 0.0 enabled)
             ^:var bodies (mem/zeroes (a/type [:array protocol/racer-count physics/BodyState]))]
         (ak/= (a/index bodies 0) body)
         (ak/= (a/index bodies 1) other-body)
         (ak/= state (a/field output state))
         (ak/= phases (ak/| phases (ak/<< (ak/as 1 :u8) (ak/intCast (a/field state phase)))))
         (ak/= lane (ak/max lane (ak/abs (a/field normal lane))))
-        (ak/= up (ak/min up (- 1.0 (* 2.0 (+ (* (a/field body qx) (a/field body qx))
-                                            (* (a/field body qy) (a/field body qy)))))))
-        (ak/= reverse-travel (ak/max reverse-travel (* 4309.0 (- start (a/field normal progress)))))
+        (ak/= up (ak/min up (ak/- 1.0 (ak/* 2.0 (ak/+ (ak/* (a/field body qx) (a/field body qx))
+                                                      (ak/* (a/field body qy) (a/field body qy)))))))
+        (ak/= reverse-travel (ak/max reverse-travel (ak/* 4309.0 (ak/- start (a/field normal progress)))))
         (let [control (if (ak/!= (a/field (a/field output state) phase) 0)
                         (turnaround/guard-recovery-control (a/field output control) body
-                          bodies 2 0 (a/field output gear) world road-margin)
+                                                           bodies 2 0 (a/field output gear) world road-margin)
                         (a/field output control))]
-        (dotimes [_ (ak/divTrunc physics/step-rate 120)]
-          (physics/drive-in-gear! car (a/field control throttle)
-            (a/field control brake) (a/field control steering)
-            (a/field output gear))
-          (physics/drive! other 0.0 1.0 0.0)
-          (physics/step! world)))))
+          (dotimes [_ (ak/divTrunc physics/step-rate 120)]
+            (physics/drive-in-gear! car (a/field control throttle)
+                                    (a/field control brake) (a/field control steering)
+                                    (a/field output gear))
+            (physics/drive! other 0.0 1.0 0.0)
+            (physics/step! world)))))
     (let [final (driver/follow car 8.0 -3.75)]
-      (a/init [(* 4309.0 (- (a/field final progress) start)) lane up reverse-travel
-         (ak/as (ak/floatFromInt phases) :f32) (a/field final speed)] [:array 6 :f32]))))
+      (a/init [(ak/* 4309.0 (ak/- (a/field final progress) start)) lane up reverse-travel
+               (ak/as (ak/floatFromInt phases) :f32) (a/field final speed)] [:array 6 :f32]))))
 
 (deftest skewed-wreck-clearance-test
   (let [[forward lane up reverse-distance phases speed]

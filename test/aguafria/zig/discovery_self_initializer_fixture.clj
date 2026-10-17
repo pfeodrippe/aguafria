@@ -1,5 +1,7 @@
 (ns aguafria.zig.discovery-self-initializer-fixture
-  (:require [aguafria.zig :as a]))
+  (:refer-clojure :only [])
+  (:require [aguafria.zig :as a]
+            [aguafria.keyword :as k :refer :all]))
 
 (a/defstruct Threshold
   [[:minimum :f32]

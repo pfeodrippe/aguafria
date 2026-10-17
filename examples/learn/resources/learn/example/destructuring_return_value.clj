@@ -1,12 +1,13 @@
 (ns learn.example.destructuring-return-value
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as a]))
 
 (a/defn- divmod (a/struct [(a/tuple-field-decl :u32)
                            (a/tuple-field-decl :u32)])
   [[numerator :u32] [denominator :u32]]
-  [(k// numerator denominator) (k/% numerator denominator)])
+  [(/ numerator denominator) (% numerator denominator)])
 
 (a/defn main :void
   []

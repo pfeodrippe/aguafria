@@ -1,5 +1,7 @@
 (ns aguafria.zig.discovery-import-member-fixture
-  (:require [aguafria.zig :as a]))
+  (:refer-clojure :only [])
+  (:require [aguafria.zig :as a]
+            [aguafria.keyword :as k :refer :all]))
 
 (a/defimport ascii "std" [[is-digit "ascii.isDigit"]])
 

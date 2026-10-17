@@ -1,7 +1,8 @@
 (ns racing-game.render
   "Native 3D racing presentation and screen-space start indicators."
+  (:refer-clojure :only [])
   (:require [aguafria.std]
-            [aguafria.keyword :as ak]
+            [aguafria.keyword :as ak :refer :all]
             [aguafria.std.math :as std-math]
             [aguafria.zig :as a]
             [aguafria-examples-native.mesh :as mesh]
@@ -36,29 +37,29 @@
 (a/defn- racer-color RacerColor
   "Use the same permanent identity color as the native 3D car and minimap."
   [[identifier :u8]]
-  (let [color (a/index render3d/colors (mod (ak/as identifier :usize) simulation/racer-count))]
+  (let [color (a/index render3d/colors (mod (as identifier :usize) simulation/racer-count))]
     (RacerColor {:r (a/index color 0) :g (a/index color 1) :b (a/index color 2)})))
 
 (a/defn set-debug-overlay! :bool
   "Show or hide native racer intent and cognition geometry at runtime."
   [[visible :bool]]
   (do
-    (ak/= debug-overlay-visible visible)
+    (= debug-overlay-visible visible)
     debug-overlay-visible))
 
 (a/defn toggle-debug-overlay! :bool
   "Toggle the allocation-free cognition overlay without restarting the race."
   []
-  (set-debug-overlay! (ak/! debug-overlay-visible)))
+  (set-debug-overlay! (! debug-overlay-visible)))
 
 (a/defn configure-world-scale! WorldScale
   "Fit equal world units to equal framebuffer pixels for any aspect ratio."
   [[frame-width :i32]
    [frame-height :i32]]
-  (let [width (ak/as (ak/floatFromInt (ak/max frame-width 1)) :f32)
-        height (ak/as (ak/floatFromInt (ak/max frame-height 1)) :f32)]
-    (ak/= world-x-scale (if (> width height) (/ height width) 1.0))
-    (ak/= world-y-scale (if (> height width) (/ width height) 1.0))
+  (let [width (as (floatFromInt (max frame-width 1)) :f32)
+        height (as (floatFromInt (max frame-height 1)) :f32)]
+    (= world-x-scale (if (> width height) (/ height width) 1.0))
+    (= world-y-scale (if (> height width) (/ width height) 1.0))
     (WorldScale {:x world-x-scale :y world-y-scale})))
 
 (a/defn write-vertex! :void
@@ -70,10 +71,10 @@
    [r :f32]
    [g :f32]
    [b :f32]]
-  (ak/= (a/index output index)
-        (mesh/GpuVertex {:x x :y y :z z :r r :g g :b b
-                         :nx 0.0 :ny 0.0 :nz 0.0 :wx 0.0 :wy 0.0 :wz 0.0
-                         :roughness -1.0 :vx 0.0 :vy 0.0 :vz 1.0})))
+  (= (a/index output index)
+     (mesh/GpuVertex {:x x :y y :z z :r r :g g :b b
+                      :nx 0.0 :ny 0.0 :nz 0.0 :wx 0.0 :wy 0.0 :wz 0.0
+                      :roughness -1.0 :vx 0.0 :vy 0.0 :vz 1.0})))
 
 (a/defn append-triangle! :usize
   [[output [:c-pointer mesh/GpuVertex]]
@@ -114,7 +115,7 @@
   (let [dx (- bx ax)
         dy (- by ay)
         length (std-math/sqrt (+ (* dx dx) (* dy dy)))
-        safe-length (ak/max length 0.00001)
+        safe-length (max length 0.00001)
         nx (* (/ (- dy) safe-length) width)
         ny (* (/ dx safe-length) width)]
     (append-quad! output count
@@ -137,7 +138,7 @@
   (let [dx (- bx ax)
         dy (- by ay)
         length (std-math/sqrt (+ (* dx dx) (* dy dy)))
-        safe-length (ak/max length 0.00001)
+        safe-length (max length 0.00001)
         nx (* (/ (- dy) safe-length) width)
         ny (* (/ dx safe-length) width)]
     (append-quad! output count
@@ -156,22 +157,22 @@
    [radius :f32]
    [z :f32]
    [r :f32] [g :f32] [b :f32]]
-  (let [^:var next (ak/usize count)]
+  (let [^:var next (usize count)]
     (dotimes [segment circle-segments]
-      (let [angle-a (* (/ (ak/as (ak/floatFromInt segment) :f32)
-                           (ak/as (ak/floatFromInt circle-segments) :f32))
-                        6.2831855)
-            angle-b (* (/ (ak/as (ak/floatFromInt (+ segment 1)) :f32)
-                           (ak/as (ak/floatFromInt circle-segments) :f32))
-                        6.2831855)]
-        (ak/= next
-              (append-world-line!
-               output next
-               (+ center-x (* (std-math/cos angle-a) radius))
-               (+ center-y (* (std-math/sin angle-a) radius))
-               (+ center-x (* (std-math/cos angle-b) radius))
-               (+ center-y (* (std-math/sin angle-b) radius))
-               0.0035 z r g b))))
+      (let [angle-a (* (/ (as (floatFromInt segment) :f32)
+                          (as (floatFromInt circle-segments) :f32))
+                       6.2831855)
+            angle-b (* (/ (as (floatFromInt (+ segment 1)) :f32)
+                          (as (floatFromInt circle-segments) :f32))
+                       6.2831855)]
+        (= next
+           (append-world-line!
+            output next
+            (+ center-x (* (std-math/cos angle-a) radius))
+            (+ center-y (* (std-math/sin angle-a) radius))
+            (+ center-x (* (std-math/cos angle-b) radius))
+            (+ center-y (* (std-math/sin angle-b) radius))
+            0.0035 z r g b))))
     next))
 
 (a/defn append-screen-circle! :usize
@@ -183,22 +184,22 @@
    [radius :f32]
    [z :f32]
    [r :f32] [g :f32] [b :f32]]
-  (let [^:var next (ak/usize count)]
+  (let [^:var next (usize count)]
     (dotimes [segment circle-segments]
-      (let [angle-a (* (/ (ak/as (ak/floatFromInt segment) :f32)
-                           (ak/as (ak/floatFromInt circle-segments) :f32))
-                        6.2831855)
-            angle-b (* (/ (ak/as (ak/floatFromInt (+ segment 1)) :f32)
-                           (ak/as (ak/floatFromInt circle-segments) :f32))
-                        6.2831855)]
-        (ak/= next
-              (append-line!
-               output next
-               (+ center-x (* (std-math/cos angle-a) radius world-x-scale))
-               (+ center-y (* (std-math/sin angle-a) radius world-y-scale))
-               (+ center-x (* (std-math/cos angle-b) radius world-x-scale))
-               (+ center-y (* (std-math/sin angle-b) radius world-y-scale))
-               0.0035 z r g b))))
+      (let [angle-a (* (/ (as (floatFromInt segment) :f32)
+                          (as (floatFromInt circle-segments) :f32))
+                       6.2831855)
+            angle-b (* (/ (as (floatFromInt (+ segment 1)) :f32)
+                          (as (floatFromInt circle-segments) :f32))
+                       6.2831855)]
+        (= next
+           (append-line!
+            output next
+            (+ center-x (* (std-math/cos angle-a) radius world-x-scale))
+            (+ center-y (* (std-math/sin angle-a) radius world-y-scale))
+            (+ center-x (* (std-math/cos angle-b) radius world-x-scale))
+            (+ center-y (* (std-math/sin angle-b) radius world-y-scale))
+            0.0035 z r g b))))
     next))
 
 (a/defn append-race-state! :usize
@@ -207,90 +208,90 @@
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]]
   (let [race (simulation/snapshot)
-        ^:var next (ak/usize count)]
-    (when (ak/== (a/field race state) simulation/race-state-countdown)
+        ^:var next (usize count)]
+    (when (== (a/field race state) simulation/race-state-countdown)
       (let [remaining
-            (ak/divTrunc (+ (a/field race countdown_ticks) 119) 120)]
+            (divTrunc (+ (a/field race countdown_ticks) 119) 120)]
         (dotimes [slot 3]
           (let [active (< slot remaining)
-                brightness (ak/f32 (if active 1.0 0.28))]
-            (ak/= next
-                  (append-screen-circle!
-                   output next
-                   (+ -0.08 (* (ak/as (ak/floatFromInt slot) :f32) 0.08))
-                   0.86 0.026 0.20 brightness (* brightness 0.78) 0.0))))))
+                brightness (f32 (if active 1.0 0.28))]
+            (= next
+               (append-screen-circle!
+                output next
+                (+ -0.08 (* (as (floatFromInt slot) :f32) 0.08))
+                0.86 0.026 0.20 brightness (* brightness 0.78) 0.0))))))
     next))
 
 (a/defn append-track! :usize
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]]
-  (let [^:var next (ak/usize count)]
+  (let [^:var next (usize count)]
     (dotimes [segment track-segments]
-      (let [progress-a (/ (ak/as (ak/floatFromInt segment) :f32)
-                          (ak/as (ak/floatFromInt track-segments) :f32))
-            progress-b (/ (ak/as (ak/floatFromInt (+ segment 1)) :f32)
-                          (ak/as (ak/floatFromInt track-segments) :f32))
+      (let [progress-a (/ (as (floatFromInt segment) :f32)
+                          (as (floatFromInt track-segments) :f32))
+            progress-b (/ (as (floatFromInt (+ segment 1)) :f32)
+                          (as (floatFromInt track-segments) :f32))
             outer-a (track/pose progress-a 0.13)
             outer-b (track/pose progress-b 0.13)
             inner-a (track/pose progress-a -0.13)
             inner-b (track/pose progress-b -0.13)
             center-a (track/pose progress-a 0.0)
             center-b (track/pose progress-b 0.0)]
-        (ak/= next
-              (append-world-line! output next
-                            (a/field outer-a x) (a/field outer-a y)
-                            (a/field outer-b x) (a/field outer-b y)
-                            0.0045 0.69 1.0 0.78 0.0))
-        (ak/= next
-              (append-world-line! output next
-                            (a/field inner-a x) (a/field inner-a y)
-                            (a/field inner-b x) (a/field inner-b y)
-                            0.0045 0.69 1.0 0.78 0.0))
-        (when (ak/== (mod segment 4) 0)
-          (ak/= next
-                (append-world-line! output next
-                              (a/field center-a x) (a/field center-a y)
-                              (a/field center-b x) (a/field center-b y)
-                              0.0020 0.70 0.55 0.43 0.0)))))
+        (= next
+           (append-world-line! output next
+                               (a/field outer-a x) (a/field outer-a y)
+                               (a/field outer-b x) (a/field outer-b y)
+                               0.0045 0.69 1.0 0.78 0.0))
+        (= next
+           (append-world-line! output next
+                               (a/field inner-a x) (a/field inner-a y)
+                               (a/field inner-b x) (a/field inner-b y)
+                               0.0045 0.69 1.0 0.78 0.0))
+        (when (== (mod segment 4) 0)
+          (= next
+             (append-world-line! output next
+                                 (a/field center-a x) (a/field center-a y)
+                                 (a/field center-b x) (a/field center-b y)
+                                 0.0020 0.70 0.55 0.43 0.0)))))
     next))
 
 (a/defn append-pits! :usize
   "Draw the shared pit lane and four real team boxes beside the final sector."
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]]
-  (let [^:var next (ak/usize count)]
+  (let [^:var next (usize count)]
     (dotimes [segment 18]
       (let [progress-a (+ 0.80
-                          (* (/ (ak/as (ak/floatFromInt segment) :f32) 18.0)
+                          (* (/ (as (floatFromInt segment) :f32) 18.0)
                              0.18))
             progress-b (+ 0.80
-                          (* (/ (ak/as (ak/floatFromInt (+ segment 1))
-                                      :f32) 18.0)
+                          (* (/ (as (floatFromInt (+ segment 1))
+                                    :f32) 18.0)
                              0.18))
             a (track/pose progress-a 0.19)
             b (track/pose progress-b 0.19)]
-        (ak/= next
-              (append-world-line! output next
-                                  (a/field a x) (a/field a y)
-                                  (a/field b x) (a/field b y)
-                                  0.0025 0.61 0.72 0.56 0.0))))
+        (= next
+           (append-world-line! output next
+                               (a/field a x) (a/field a y)
+                               (a/field b x) (a/field b y)
+                               0.0025 0.61 0.72 0.56 0.0))))
     (let [entry-track (track/pose 0.80 0.13)
           entry-pit (track/pose 0.80 0.19)
           exit-track (track/pose 0.98 0.13)
           exit-pit (track/pose 0.98 0.19)]
-      (ak/= next
-            (append-world-line! output next
-                                (a/field entry-track x) (a/field entry-track y)
-                                (a/field entry-pit x) (a/field entry-pit y)
-                                0.0025 0.61 0.72 0.56 0.0))
-      (ak/= next
-            (append-world-line! output next
-                                (a/field exit-pit x) (a/field exit-pit y)
-                                (a/field exit-track x) (a/field exit-track y)
-                                0.0025 0.61 0.72 0.56 0.0)))
+      (= next
+         (append-world-line! output next
+                             (a/field entry-track x) (a/field entry-track y)
+                             (a/field entry-pit x) (a/field entry-pit y)
+                             0.0025 0.61 0.72 0.56 0.0))
+      (= next
+         (append-world-line! output next
+                             (a/field exit-pit x) (a/field exit-pit y)
+                             (a/field exit-track x) (a/field exit-track y)
+                             0.0025 0.61 0.72 0.56 0.0)))
     (dotimes [team-index simulation/team-count]
-      (let [progress (simulation/pit-box-progress (ak/intCast team-index))
-            team (simulation/team-view (ak/intCast team-index))
+      (let [progress (simulation/pit-box-progress (intCast team-index))
+            team (simulation/team-view (intCast team-index))
             box (track/pose progress 0.215)
             heading (a/field box heading)
             tx (std-math/cos heading)
@@ -307,183 +308,183 @@
             cy (+ (a/field box y) (* ty (- half-length)) (* ny (- half-width)))
             dx (+ (a/field box x) (* tx (- half-length)) (* nx half-width))
             dy (+ (a/field box y) (* ty (- half-length)) (* ny half-width))
-            occupied (ak/!= (a/field team pit_occupant)
-                             simulation/no-pit-occupant)
+            occupied (!= (a/field team pit_occupant)
+                         simulation/no-pit-occupant)
             brightness (if occupied
-                         (ak/as 1.0 :f32)
-                         (ak/as 0.55 :f32))]
-        (ak/= next (append-world-line! output next ax ay bx by 0.003 0.64
-                                       brightness (* brightness 0.78) 0.0))
-        (ak/= next (append-world-line! output next bx by cx cy 0.003 0.64
-                                       brightness (* brightness 0.78) 0.0))
-        (ak/= next (append-world-line! output next cx cy dx dy 0.003 0.64
-                                       brightness (* brightness 0.78) 0.0))
-        (ak/= next (append-world-line! output next dx dy ax ay 0.003 0.64
-                                       brightness (* brightness 0.78) 0.0))))
+                         (as 1.0 :f32)
+                         (as 0.55 :f32))]
+        (= next (append-world-line! output next ax ay bx by 0.003 0.64
+                                    brightness (* brightness 0.78) 0.0))
+        (= next (append-world-line! output next bx by cx cy 0.003 0.64
+                                    brightness (* brightness 0.78) 0.0))
+        (= next (append-world-line! output next cx cy dx dy 0.003 0.64
+                                    brightness (* brightness 0.78) 0.0))
+        (= next (append-world-line! output next dx dy ax ay 0.003 0.64
+                                    brightness (* brightness 0.78) 0.0))))
     next))
 
 (a/defn append-pickups! :usize
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]]
-  (let [^:var next (ak/usize count)]
+  (let [^:var next (usize count)]
     (dotimes [slot simulation/team-count]
-      (let [sample (track/pose (* (ak/as (ak/floatFromInt slot) :f32) 0.25) 0.0)
+      (let [sample (track/pose (* (as (floatFromInt slot) :f32) 0.25) 0.0)
             x (a/field sample x)
             y (a/field sample y)
             radius 0.025]
-        (ak/= next (append-world-line! output next x (+ y radius) (+ x radius) y
-                                 0.003 0.50 1.0 0.78 0.0))
-        (ak/= next (append-world-line! output next (+ x radius) y x (- y radius)
-                                 0.003 0.50 1.0 0.78 0.0))
-        (ak/= next (append-world-line! output next x (- y radius) (- x radius) y
-                                 0.003 0.50 1.0 0.78 0.0))
-        (ak/= next (append-world-line! output next (- x radius) y x (+ y radius)
-                                 0.003 0.50 1.0 0.78 0.0))))
+        (= next (append-world-line! output next x (+ y radius) (+ x radius) y
+                                    0.003 0.50 1.0 0.78 0.0))
+        (= next (append-world-line! output next (+ x radius) y x (- y radius)
+                                    0.003 0.50 1.0 0.78 0.0))
+        (= next (append-world-line! output next x (- y radius) (- x radius) y
+                                    0.003 0.50 1.0 0.78 0.0))
+        (= next (append-world-line! output next (- x radius) y x (+ y radius)
+                                    0.003 0.50 1.0 0.78 0.0))))
     next))
 
 (a/defn append-hazards! :usize
   "Render pooled bolts as arrow diamonds and traps as crossed contours."
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]]
-  (let [^:var next (ak/usize count)]
+  (let [^:var next (usize count)]
     (dotimes [slot simulation/hazard-capacity]
       (let [hazard (simulation/hazard-view slot)]
         (when (a/field hazard active)
           (let [x (a/field hazard x)
                 y (a/field hazard y)
-                radius (ak/f32 (if (ak/== (a/field hazard kind)
-                                  simulation/item-bolt)
-                         0.018
-                         0.022))]
-            (if (ak/== (a/field hazard kind) simulation/item-bolt)
+                radius (f32 (if (== (a/field hazard kind)
+                                    simulation/item-bolt)
+                              0.018
+                              0.022))]
+            (if (== (a/field hazard kind) simulation/item-bolt)
               (do
-                (ak/= next (append-world-line! output next x (+ y radius)
-                                         (+ x radius) y
-                                         0.003 0.38 1.0 0.78 0.0))
-                (ak/= next (append-world-line! output next (+ x radius) y
-                                         x (- y radius)
-                                         0.003 0.38 1.0 0.78 0.0))
-                (ak/= next (append-world-line! output next x (- y radius)
-                                         (- x radius) y
-                                         0.003 0.38 1.0 0.78 0.0))
-                (ak/= next (append-world-line! output next (- x radius) y
-                                         x (+ y radius)
-                                         0.003 0.38 1.0 0.78 0.0)))
+                (= next (append-world-line! output next x (+ y radius)
+                                            (+ x radius) y
+                                            0.003 0.38 1.0 0.78 0.0))
+                (= next (append-world-line! output next (+ x radius) y
+                                            x (- y radius)
+                                            0.003 0.38 1.0 0.78 0.0))
+                (= next (append-world-line! output next x (- y radius)
+                                            (- x radius) y
+                                            0.003 0.38 1.0 0.78 0.0))
+                (= next (append-world-line! output next (- x radius) y
+                                            x (+ y radius)
+                                            0.003 0.38 1.0 0.78 0.0)))
               (do
-                (ak/= next (append-world-line! output next
-                                         (- x radius) (- y radius)
-                                         (+ x radius) (+ y radius)
-                                         0.004 0.38 1.0 0.78 0.0))
-                (ak/= next (append-world-line! output next
-                                         (- x radius) (+ y radius)
-                                         (+ x radius) (- y radius)
-                                         0.004 0.38 1.0 0.78 0.0))))))))
+                (= next (append-world-line! output next
+                                            (- x radius) (- y radius)
+                                            (+ x radius) (+ y radius)
+                                            0.004 0.38 1.0 0.78 0.0))
+                (= next (append-world-line! output next
+                                            (- x radius) (+ y radius)
+                                            (+ x radius) (- y radius)
+                                            0.004 0.38 1.0 0.78 0.0))))))))
     next))
 
 (a/defn append-racers! :usize
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]]
   (let [human (simulation/human-control-snapshot)
-        ^:var next (ak/usize count)]
+        ^:var next (usize count)]
     (dotimes [index simulation/racer-count]
-      (let [view (simulation/racer-view (ak/intCast index))
+      (let [view (simulation/racer-view (intCast index))
             identifier (a/field view id)
             color (racer-color identifier)
             finished (a/field view finished)
             parking-index (- (a/field view rank) 1)
             parking-column (mod parking-index 4)
-            parking-row (ak/divTrunc parking-index 4)
-            x (ak/f32 (if finished
-                (+ -0.24
-                   (* (ak/as (ak/floatFromInt parking-column) :f32) 0.16))
-                (a/field view x)))
-            y (ak/f32 (if finished
-                (- -0.06
-                   (* (ak/as (ak/floatFromInt parking-row) :f32) 0.11))
-                (a/field view y)))
-            heading (ak/f32 (if finished 0.0 (a/field view heading)))
-            radius (ak/f32 (if (a/field view shielded) 0.035 0.028))]
+            parking-row (divTrunc parking-index 4)
+            x (f32 (if finished
+                     (+ -0.24
+                        (* (as (floatFromInt parking-column) :f32) 0.16))
+                     (a/field view x)))
+            y (f32 (if finished
+                     (- -0.06
+                        (* (as (floatFromInt parking-row) :f32) 0.11))
+                     (a/field view y)))
+            heading (f32 (if finished 0.0 (a/field view heading)))
+            radius (f32 (if (a/field view shielded) 0.035 0.028))]
         (when (a/field view shielded)
-          (ak/= next
-                (append-circle! output next x y 0.043 0.40
-                                (* (a/field color r) 0.55)
-                                (* (a/field color g) 0.55)
-                                (* (a/field color b) 0.55))))
-        (when (and (a/field human enabled) (ak/== identifier 0))
-          (ak/= next (append-circle! output next x y 0.050 0.39 1.0 1.0 1.0)))
-        (ak/= next
-              (append-circle! output next x y radius 0.35
-                              (a/field color r)
-                              (a/field color g)
-                              (a/field color b)))
-        (when (ak/== (mod identifier 2) 0)
-          (ak/= next
-                (append-circle! output next x y 0.015 0.34
-                                (* (a/field color r) 0.80)
-                                (* (a/field color g) 0.80)
-                                (* (a/field color b) 0.80))))
-        (ak/= next
-              (append-world-line! output next x y
-                            (+ x (* (std-math/cos heading)
-                                    (+ 0.046 (* (ak/as (ak/floatFromInt identifier) :f32) 0.002))))
-                            (+ y (* (std-math/sin heading)
-                                    (+ 0.046 (* (ak/as (ak/floatFromInt identifier) :f32) 0.002))))
-                            0.004 0.31
-                            (a/field color r)
-                            (a/field color g)
-                            (a/field color b)))))
+          (= next
+             (append-circle! output next x y 0.043 0.40
+                             (* (a/field color r) 0.55)
+                             (* (a/field color g) 0.55)
+                             (* (a/field color b) 0.55))))
+        (when (and (a/field human enabled) (== identifier 0))
+          (= next (append-circle! output next x y 0.050 0.39 1.0 1.0 1.0)))
+        (= next
+           (append-circle! output next x y radius 0.35
+                           (a/field color r)
+                           (a/field color g)
+                           (a/field color b)))
+        (when (== (mod identifier 2) 0)
+          (= next
+             (append-circle! output next x y 0.015 0.34
+                             (* (a/field color r) 0.80)
+                             (* (a/field color g) 0.80)
+                             (* (a/field color b) 0.80))))
+        (= next
+           (append-world-line! output next x y
+                               (+ x (* (std-math/cos heading)
+                                       (+ 0.046 (* (as (floatFromInt identifier) :f32) 0.002))))
+                               (+ y (* (std-math/sin heading)
+                                       (+ 0.046 (* (as (floatFromInt identifier) :f32) 0.002))))
+                               0.004 0.31
+                               (a/field color r)
+                               (a/field color g)
+                               (a/field color b)))))
     next))
 
 (a/defn append-ranking! :usize
   "Show authoritative first-through-eighth classification on the right."
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]]
-  (let [^:var next (ak/usize count)]
+  (let [^:var next (usize count)]
     (dotimes [rank-index simulation/racer-count]
       (dotimes [racer-index simulation/racer-count]
-        (let [view (simulation/racer-view (ak/intCast racer-index))]
-          (when (ak/== (a/field view rank) (+ rank-index 1))
-            (let [y (- 0.82 (* (ak/as (ak/floatFromInt rank-index) :f32) 0.105))
+        (let [view (simulation/racer-view (intCast racer-index))]
+          (when (== (a/field view rank) (+ rank-index 1))
+            (let [y (- 0.82 (* (as (floatFromInt rank-index) :f32) 0.105))
                   length (+ 0.055 (* (a/field view progress) 0.11))]
-              (ak/= next (append-line! output next 0.80 (+ y 0.030)
-                                       (+ 0.80 length) (+ y 0.030)
-                                       0.0025 0.25 1.0 0.78 0.0))
-              (ak/= next (append-line! output next (+ 0.80 length) (+ y 0.030)
-                                       (+ 0.80 length) (- y 0.030)
-                                       0.0025 0.25 1.0 0.78 0.0))
-              (ak/= next (append-line! output next (+ 0.80 length) (- y 0.030)
-                                       0.80 (- y 0.030)
-                                       0.0025 0.25 1.0 0.78 0.0))
-              (ak/= next (append-line! output next 0.80 (- y 0.030)
-                                       0.80 (+ y 0.030)
-                                       0.0025 0.25 1.0 0.78 0.0)))))))
+              (= next (append-line! output next 0.80 (+ y 0.030)
+                                    (+ 0.80 length) (+ y 0.030)
+                                    0.0025 0.25 1.0 0.78 0.0))
+              (= next (append-line! output next (+ 0.80 length) (+ y 0.030)
+                                    (+ 0.80 length) (- y 0.030)
+                                    0.0025 0.25 1.0 0.78 0.0))
+              (= next (append-line! output next (+ 0.80 length) (- y 0.030)
+                                    0.80 (- y 0.030)
+                                    0.0025 0.25 1.0 0.78 0.0))
+              (= next (append-line! output next 0.80 (- y 0.030)
+                                    0.80 (+ y 0.030)
+                                    0.0025 0.25 1.0 0.78 0.0)))))))
     next))
 
 (a/defn append-intent-lines! :usize
   "Draw each racer's chosen target and short-horizon lane goal."
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]]
-  (let [^:var next (ak/usize count)]
+  (let [^:var next (usize count)]
     (dotimes [index simulation/racer-count]
-      (let [view (simulation/racer-view (ak/intCast index))
+      (let [view (simulation/racer-view (intCast index))
             target-id (a/field view target)
             lane-goal
             (track/pose
              (mod (+ (a/field view progress) 0.045) 1.0)
              (a/field view lane_target))]
-        (ak/= next
-              (append-world-line! output next
-                            (a/field view x) (a/field view y)
-                            (a/field lane-goal x) (a/field lane-goal y)
-                            0.0018 0.30 0.78 0.60 0.0))
+        (= next
+           (append-world-line! output next
+                               (a/field view x) (a/field view y)
+                               (a/field lane-goal x) (a/field lane-goal y)
+                               0.0018 0.30 0.78 0.60 0.0))
         (when (and (< target-id simulation/racer-count)
-                   (ak/!= target-id (a/field view id)))
+                   (!= target-id (a/field view id)))
           (let [target (simulation/racer-view target-id)]
-            (ak/= next
-                  (append-world-line! output next
-                                (a/field view x) (a/field view y)
-                                (a/field target x) (a/field target y)
-                                0.00065 0.29 0.34 0.26 0.0))))))
+            (= next
+               (append-world-line! output next
+                                   (a/field view x) (a/field view y)
+                                   (a/field target x) (a/field target y)
+                                   0.00065 0.29 0.34 0.26 0.0))))))
     next))
 
 (a/defn append-cognition-overlay! :usize
@@ -492,53 +493,53 @@
   actor, and a second ring means a request is currently in flight."
   [[output [:c-pointer mesh/GpuVertex]]
    [count :usize]]
-  (let [^:var next (ak/usize count)]
+  (let [^:var next (usize count)]
     (dotimes [index simulation/racer-count]
-      (let [view (simulation/racer-view (ak/intCast index))
-            y (- 0.84 (* (ak/as (ak/floatFromInt index) :f32) 0.105))
+      (let [view (simulation/racer-view (intCast index))
+            y (- 0.84 (* (as (floatFromInt index) :f32) 0.105))
             speed-width
-            (* (ak/min 1.0
-                       (/ (ak/max 0.0 (- (a/field view target_speed) 0.04))
-                          0.08))
+            (* (min 1.0
+                    (/ (max 0.0 (- (a/field view target_speed) 0.04))
+                       0.08))
                0.17)
             latency-width
-            (* (ak/min 1.0
-                       (/ (ak/as (ak/floatFromInt
-                                  (a/field view average_latency_us))
-                                 :f32)
-                          600000.0))
+            (* (min 1.0
+                    (/ (as (floatFromInt
+                            (a/field view average_latency_us))
+                           :f32)
+                       600000.0))
                0.17)
             source-brightness
-            (ak/f32 (cond
-              (ak/== (a/field view source) telemetry/source-llm)
-              (ak/as 1.0 :f32)
+            (f32 (cond
+                   (== (a/field view source) telemetry/source-llm)
+                   (as 1.0 :f32)
 
-              (ak/== (a/field view source) telemetry/source-human)
-              (ak/as 0.82 :f32)
+                   (== (a/field view source) telemetry/source-human)
+                   (as 0.82 :f32)
 
-              :else
-              (ak/as 0.48 :f32)))]
-        (ak/= next
-              (append-screen-circle! output next -0.935 y 0.018 0.24
-                              source-brightness
-                              (* source-brightness 0.78) 0.0))
+                   :else
+                   (as 0.48 :f32)))]
+        (= next
+           (append-screen-circle! output next -0.935 y 0.018 0.24
+                                  source-brightness
+                                  (* source-brightness 0.78) 0.0))
         (when (a/field view pending)
-          (ak/= next
-                (append-screen-circle! output next -0.935 y 0.025 0.23
-                                1.0 0.78 0.0)))
-        (ak/= next
-              (append-line! output next -0.895 (+ y 0.010)
-                            (+ -0.895 speed-width) (+ y 0.010)
-                            0.003 0.23 1.0 0.78 0.0))
-        (ak/= next
-              (append-line! output next -0.895 (- y 0.010)
-                            (+ -0.895 latency-width) (- y 0.010)
-                            0.002 0.23 0.56 0.44 0.0))
-        (when (ak/== (a/field view item_action) simulation/action-use)
-          (ak/= next
-                (append-line! output next -0.705 (- y 0.017)
-                              -0.685 (+ y 0.017)
-                              0.003 0.23 1.0 0.78 0.0)))))
+          (= next
+             (append-screen-circle! output next -0.935 y 0.025 0.23
+                                    1.0 0.78 0.0)))
+        (= next
+           (append-line! output next -0.895 (+ y 0.010)
+                         (+ -0.895 speed-width) (+ y 0.010)
+                         0.003 0.23 1.0 0.78 0.0))
+        (= next
+           (append-line! output next -0.895 (- y 0.010)
+                         (+ -0.895 latency-width) (- y 0.010)
+                         0.002 0.23 0.56 0.44 0.0))
+        (when (== (a/field view item_action) simulation/action-use)
+          (= next
+             (append-line! output next -0.705 (- y 0.017)
+                           -0.685 (+ y 0.017)
+                           0.003 0.23 1.0 0.78 0.0)))))
     next))
 
 (a/defn append-minimap! :usize
@@ -546,40 +547,40 @@
   Colored markers are physical racer positions; white ring identifies the leader."
   [[output [:c-pointer mesh/GpuVertex]] [count :usize]
    [frame-width :i32] [frame-height :i32]]
-  (let [w (ak/as (ak/floatFromInt (ak/max frame-width 1)) :f32)
-        h (ak/as (ak/floatFromInt (ak/max frame-height 1)) :f32)
+  (let [w (as (floatFromInt (max frame-width 1)) :f32)
+        h (as (floatFromInt (max frame-height 1)) :f32)
         ;; Fixed physical aspect, occupying the upper-right 27% of the window.
-        size (ak/min (* w 0.27) (* h 0.29))
+        size (min (* w 0.27) (* h 0.29))
         sx (/ size w) sy (/ size h)
         cx (- 1.0 sx 0.03) cy (+ -1.0 sy 0.03)
-        ^:var next (ak/usize count)]
-    (ak/= next (append-quad! output next
-                            (- cx sx) (- cy sy) (+ cx sx) (- cy sy)
-                            (+ cx sx) (+ cy sy) (- cx sx) (+ cy sy)
-                            0.06 0.035 0.045 0.055))
+        ^:var next (usize count)]
+    (= next (append-quad! output next
+                          (- cx sx) (- cy sy) (+ cx sx) (- cy sy)
+                          (+ cx sx) (+ cy sy) (- cx sx) (+ cy sy)
+                          0.06 0.035 0.045 0.055))
     (dotimes [i 192]
-      (let [a (track/pose (/ (ak/as (ak/floatFromInt i) :f32) 192.0) 0.0)
-            b (track/pose (/ (ak/as (ak/floatFromInt (+ i 1)) :f32) 192.0) 0.0)]
-        (ak/= next (append-line! output next
-                                (+ cx (* (a/field a x) sx 1.5))
-                                (- cy (* (a/field a y) sy 1.5))
-                                (+ cx (* (a/field b x) sx 1.5))
-                                (- cy (* (a/field b y) sy 1.5))
-                                0.002 0.04 0.70 0.74 0.76))))
+      (let [a (track/pose (/ (as (floatFromInt i) :f32) 192.0) 0.0)
+            b (track/pose (/ (as (floatFromInt (+ i 1)) :f32) 192.0) 0.0)]
+        (= next (append-line! output next
+                              (+ cx (* (a/field a x) sx 1.5))
+                              (- cy (* (a/field a y) sy 1.5))
+                              (+ cx (* (a/field b x) sx 1.5))
+                              (- cy (* (a/field b y) sy 1.5))
+                              0.002 0.04 0.70 0.74 0.76))))
     (let [pit (track/pit-pose 0.98 0.215)]
-      (ak/= next (append-screen-circle! output next
-                                        (+ cx (* (a/field pit x) sx 1.5))
-                                        (- cy (* (a/field pit y) sy 1.5))
-                                        0.014 0.025 1.0 1.0 1.0)))
+      (= next (append-screen-circle! output next
+                                     (+ cx (* (a/field pit x) sx 1.5))
+                                     (- cy (* (a/field pit y) sy 1.5))
+                                     0.014 0.025 1.0 1.0 1.0)))
     (dotimes [i simulation/racer-count]
-      (let [racer (simulation/racer-view (ak/intCast i))
-            color (racer-color (ak/intCast i))
+      (let [racer (simulation/racer-view (intCast i))
+            color (racer-color (intCast i))
             x (+ cx (* (a/field racer x) sx 1.5))
             y (- cy (* (a/field racer y) sy 1.5))]
-        (ak/= next (append-screen-circle! output next x y 0.007 0.02
-                                          (a/field color r) (a/field color g) (a/field color b)))
-        (when (ak/== (a/field racer rank) 1)
-          (ak/= next (append-screen-circle! output next x y 0.014 0.015 1.0 1.0 1.0)))))
+        (= next (append-screen-circle! output next x y 0.007 0.02
+                                       (a/field color r) (a/field color g) (a/field color b)))
+        (when (== (a/field racer rank) 1)
+          (= next (append-screen-circle! output next x y 0.014 0.015 1.0 1.0 1.0)))))
     next))
 
 (a/defn build-frame! :u32
@@ -588,10 +589,10 @@
   [[output [:c-pointer mesh/GpuVertex]]
    [frame-width :i32]
    [frame-height :i32]]
-  (ak/= :_ (configure-world-scale! frame-width frame-height))
+  (= :_ (configure-world-scale! frame-width frame-height))
   (let [world-count (render3d/build-world! output frame-width frame-height)
         intent-count (if debug-overlay-visible
                        (render3d/intents! output world-count)
                        world-count)
         state-count (append-race-state! output intent-count)]
-    (ak/as (ak/intCast (append-minimap! output state-count frame-width frame-height)) :u32)))
+    (as (intCast (append-minimap! output state-count frame-width frame-height)) :u32)))

@@ -1,12 +1,13 @@
 (ns learn.example.zero-bit-types
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
-(a/defn entry :void {:attrs #{k/export}} []
+(a/defn entry :void {:attrs #{export}} []
   (let [x (k/var (a/block) :void)
         y (k/var (a/block) :void)]
-    (k/= x y)
-    (k/= y x)))
+    (= x y)
+    (= y x)))
 
 (comment
   (entry))

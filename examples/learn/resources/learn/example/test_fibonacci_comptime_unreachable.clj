@@ -1,16 +1,17 @@
 (ns learn.example.test-fibonacci-comptime-unreachable
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as a]))
 
 (a/defn- fibonacci :i32 [[index :i32]]
-  (if (k/< index 2)
+  (if (< index 2)
     index
-    (k/+ (fibonacci (k/- index 1))
-         (fibonacci (k/- index 2)))))
+    (+ (fibonacci (- index 1))
+       (fibonacci (- index 2)))))
 
 (a/deftest fibonacci-test
-  (k/try (k/comptime (debug/assert (k/== (fibonacci 7) 99999)))))
+  (k/try (comptime (debug/assert (== (fibonacci 7) 99999)))))
 
 (comment
   (fibonacci-test))

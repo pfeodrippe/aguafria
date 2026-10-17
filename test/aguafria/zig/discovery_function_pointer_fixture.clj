@@ -1,5 +1,6 @@
 (ns aguafria.zig.discovery-function-pointer-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defconst Callback
@@ -11,10 +12,10 @@
 (a/defextern abs :i32 {:callconv :c} [[value :i32]])
 
 (a/defn- increment :i32 [[value :i32]]
-  (k/+ value 1))
+  (+ value 1))
 
 (a/defn- decrement :i32 [[value :i32]]
-  (k/- value 1))
+  (- value 1))
 
 (a/defn apply-callback :i32 [[callback Callback] [value :i32]]
   (callback value))
@@ -23,9 +24,9 @@
   (callback value))
 
 (a/deftest observe-callbacks
-  (k/= :_ (k/& increment))
-  (k/= :_ (k/& decrement))
-  (k/= :_ (apply-callback increment 4))
-  (k/= :_ (apply-callback decrement 4))
-  (k/= :_ (apply-c-callback abs -4))
-  (k/unreachable))
+  (= :_ (k/& increment))
+  (= :_ (k/& decrement))
+  (= :_ (apply-callback increment 4))
+  (= :_ (apply-callback decrement 4))
+  (= :_ (apply-c-callback abs -4))
+  (unreachable))

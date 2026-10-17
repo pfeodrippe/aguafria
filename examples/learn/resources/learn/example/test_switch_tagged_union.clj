@@ -1,5 +1,6 @@
 (ns learn.example.test-switch-tagged-union
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
@@ -7,23 +8,23 @@
   (let [Point (a/struct
                [[:x :u8]
                 [:y :u8]])
-        Item (a/union {:attrs #{k/enum}}
+        Item (a/union {:attrs #{enum}}
                       [[:a :u32]
                        [:c Point]
                        [:d :void]
                        [:e :u32]])
         a (k/var (Item {:c (Point {:x 1 :y 2})}))
         ;; Switching on more complex enums is allowed.
-        b (k/switch a
+        b (switch a
             ;; A capture group is allowed on a match, and will return the enum
             ;; value matched. If the payload types of both cases are the same
             ;; they can be put into the same switch prong.
             ((:a Item) (:e Item)) (a/with-block :_ [item] item)
             ;; A reference to the matched value can be obtained using `*` syntax.
             (:c Item)
-            (a/with-block :blk [(k/* item)]
-              (k/+= (:x @item) 1)
-              (k/break :blk 6))
+            (a/with-block :blk [(* item)]
+              (+= (:x @item) 1)
+              (break :blk 6))
             ;; No else is required if the types cases was exhaustively handled
             (:d Item) 8)]
     (k/try (testing/expectEqual 6 b))

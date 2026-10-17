@@ -1,27 +1,28 @@
 (ns learn.example.test-integer-widening
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
 (a/deftest integer-widening
-  (let [a (k/u8 250)
-        b (k/u16 a)
-        c (k/u32 b)
-        d (k/u64 c)
-        e (k/u64 d)
-        f (k/u128 e)]
+  (let [a (u8 250)
+        b (u16 a)
+        c (u32 b)
+        d (u64 c)
+        e (u64 d)
+        f (u128 e)]
     (k/try (testing/expectEqual f a))))
 
 (a/deftest implicit-unsigned-integer-to-signed-integer
-  (let [a (k/u8 250)
-        b (k/i16 a)]
+  (let [a (u8 250)
+        b (i16 a)]
     (k/try (testing/expectEqual 250 b))))
 
 (a/deftest float-widening
-  (let [a (k/f16 12.34)
-        b (k/f32 a)
-        c (k/f64 b)
-        d (k/f128 c)]
+  (let [a (f16 12.34)
+        b (f32 a)
+        c (f64 b)
+        d (f128 c)]
     (k/try (testing/expectEqual d a))))
 
 (comment

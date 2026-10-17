@@ -100,7 +100,7 @@
                '(return (field (field self any) count))
                (fn [form]
                  (list 'return
-                       (nth (iterate (fn [value] (list '+ value 0))
+                       (nth (iterate (fn [value] (list 'aguafria.keyword/+ value 0))
                                      (second form))
                             identity-depth))))
        :verify-change
@@ -184,8 +184,8 @@
           '(return (field (field self any) count))
           (fn [form]
             (list 'return
-                  (list '+ (second form)
-                        (list '- (:fresh-value context)
+                  (list 'aguafria.keyword/+ (second form)
+                        (list 'aguafria.keyword/- (:fresh-value context)
                               (:fresh-value context)))))))
        :verify-change
        (fn [_]

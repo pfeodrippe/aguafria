@@ -1,5 +1,6 @@
 (ns learn.example.test-if
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
@@ -9,38 +10,38 @@
 ;; * anyerror!T
 (a/deftest if-expression
   ;; If expressions are used instead of a ternary expression.
-  (let [a (k/u32 5)
-        b (k/u32 4)
-        result (if (k/!= a b)
+  (let [a (u32 5)
+        b (u32 4)
+        result (if (!= a b)
                  47
                  3089)]
     (k/try (testing/expectEqual result 47))))
 
 (a/deftest if-boolean
   ;; If expressions test boolean conditions.
-  (let [a (k/u32 5)
-        b (k/u32 4)]
-    (if (k/!= a b)
+  (let [a (u32 5)
+        b (u32 4)]
+    (if (!= a b)
       (k/try (testing/expect true))
-      (if (k/== a 9)
-        (k/unreachable)
-        (k/unreachable)))))
+      (if (== a 9)
+        (unreachable)
+        (unreachable)))))
 
 (a/deftest if-error-union
   ;; If expressions test for errors.
   ;; Note the |err| capture on the else.
-  (let [a (k/as 0 [:error-union :anyerror :u32])
-        b (k/as (a/error-value :BadValue) [:error-union :anyerror :u32])]
+  (let [a (as 0 [:error-union :anyerror :u32])
+        b (as (a/error-value :BadValue) [:error-union :anyerror :u32])]
     (a/if-capture-stmt {:payload [value] :error [err]} a
                        (k/try (testing/expectEqual value 0))
                        (a/block
-                        (k/= :_ err)
-                        (k/unreachable)))
+                        (= :_ err)
+                        (unreachable)))
 
     (a/if-capture-stmt {:payload [value] :error [err]} b
                        (a/block
-                        (k/= :_ value)
-                        (k/unreachable))
+                        (= :_ value)
+                        (unreachable))
                        (k/try (testing/expectEqual err (a/error-value :BadValue))))
 
     ;; The else and |err| capture is strictly required.
@@ -56,12 +57,12 @@
   ;; Access the value by reference using a pointer capture.
   (let [c (k/var 3 [:error-union :anyerror :u32])]
     (a/if-capture-stmt {:payload [(a/pointer-capture value)] :error [_]} c
-                       (k/= @value 9)
-                       (k/unreachable))
+                       (= @value 9)
+                       (unreachable))
 
     (a/if-capture-stmt {:payload [value] :error [_]} c
                        (k/try (testing/expectEqual value 9))
-                       (k/unreachable))))
+                       (unreachable))))
 
 (comment
   (if-expression)

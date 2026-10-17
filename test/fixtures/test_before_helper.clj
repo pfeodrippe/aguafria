@@ -1,5 +1,7 @@
 (ns fixture.test-before-helper
-  (:require [aguafria.zig :as a]))
+  (:refer-clojure :only [])
+  (:require [aguafria.zig :as a]
+            [aguafria.keyword :as k :refer :all]))
 
 (a/deftest cannot-see-later-helper
   (later-helper))

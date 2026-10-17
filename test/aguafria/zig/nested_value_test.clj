@@ -25,5 +25,5 @@
              (a/value ((ns-resolve consumer 'inspect-output)))))
       (is (= {:state {:phase 3 :distance 7.5} :gear 1}
              (a/value ((ns-resolve owner 'Outer)
-                        {:state {:phase 3 :distance 7.5} :gear 1}))))
+                       {:state {:phase 3 :distance 7.5} :gear 1}))))
       (finally (remove-ns consumer) (remove-ns owner)))))

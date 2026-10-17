@@ -71,15 +71,15 @@
             (binding [*ns* n] (refer 'clojure.core) (alias 'a 'aguafria.zig)))
           (binding [*ns* provider]
             (eval '(a/defconst base :i32 2))
-            (eval '(a/defconst derived :i32 (+ base 1)))
-            (eval '(a/defconst deeper :i32 (+ derived 1)))
-            (eval '(a/defconst deepest :i32 (+ deeper 1)))
+            (eval '(a/defconst derived :i32 (aguafria.keyword/+ base 1)))
+            (eval '(a/defconst deeper :i32 (aguafria.keyword/+ derived 1)))
+            (eval '(a/defconst deepest :i32 (aguafria.keyword/+ deeper 1)))
             (eval '(a/defn direct :i32 [] base))
             (eval '(a/defn computed :i32 [] deepest)))
           (binding [*ns* consumer]
             (alias 'p (ns-name provider))
             (eval '(a/defn indirect :i32 [] (p/computed)))
-            (eval '(a/defn embedded :i32 [] (+ p/base 10))))
+            (eval '(a/defn embedded :i32 [] (aguafria.keyword/+ p/base 10))))
           (a/await! (ns-name provider))
           (a/await! (ns-name consumer))
           (let [direct (ns-resolve provider 'direct)
@@ -115,7 +115,7 @@
                (debug/assert
                 (mem/eql :i32 (k/& all-of-it)
                          (k/& (a/array [1 2 3 4 5 6 7 8 10]
-                                            :i32)))))
+                                       :i32)))))
             constant-edit
             '(a/defconst part-two
                (a/array [5 6 7 8 10] :i32))
@@ -142,7 +142,7 @@
                       (debug/assert
                        (mem/eql :i32 (k/& all-of-it)
                                 (k/& (a/array [1 2 3 4 5 6 7 8]
-                                                   :i32)))))
+                                              :i32)))))
                     (a/defn array-length :usize [] (a/field all-of-it :len))
                     (a/defn last-item :i32 []
                       (a/index all-of-it (k/- (a/field all-of-it :len) 1)))]]

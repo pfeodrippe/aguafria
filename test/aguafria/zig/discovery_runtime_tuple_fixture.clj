@@ -1,27 +1,28 @@
 (ns aguafria.zig.discovery-runtime-tuple-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as a]))
 
 (a/deftest never-run
-  (let [result (k/var (k/mulWithOverflow (k/u64 12) (k/u64 10)))]
-    (k/= result (k/addWithOverflow (a/get result 0) (k/u64 3)))
-    (k/= result [(k/u64 99) (k/u1 0)])
+  (let [result (k/var (mulWithOverflow (u64 12) (u64 10)))]
+    (= result (addWithOverflow (a/get result 0) (u64 3)))
+    (= result [(u64 99) (u1 0)])
     (debug/print "{} {}" result)
-    (k/= :_ (k/& result))
-    (k/= :_ (a/get result 0))
-    (k/= :_ (a/get result 1)))
-  (k/unreachable))
+    (= :_ (k/& result))
+    (= :_ (a/get result 0))
+    (= :_ (a/get result 1)))
+  (unreachable))
 
 (a/defn show-name :void
   [[input [:slice-const :u8]]]
-  (let [text (k/as input [:slice-const :u8])
-        tuple (k/++ [text] [])]
+  (let [text (as input [:slice-const :u8])
+        tuple (++ [text] [])]
     (debug/print "{s}" tuple)))
 
 (a/defn nested-flags :void
   [[input :bool]]
-  (let [flag (k/bool input)
-        inner (k/++ [flag] [])
-        outer (k/++ [inner] [false])]
-    (k/= :_ outer)))
+  (let [flag (bool input)
+        inner (++ [flag] [])
+        outer (++ [inner] [false])]
+    (= :_ outer)))

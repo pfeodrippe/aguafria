@@ -27,7 +27,7 @@
   (when (a/value simulation/initialized)
     (throw (ex-info "Run this check in its own nREPL, not a running race" {})))
   (let [original (step-form)
-        increment '(ak/= simulation-tick (+ simulation-tick 1))
+        increment '(ak/= simulation-tick (ak/+ simulation-tick 1))
         pid (.pid (ProcessHandle/current))]
     (try
       (let [initial (a/value (simulation/snapshot))
@@ -41,7 +41,7 @@
         (doseq [[amount expected] [[2 (+ tick 3)] [3 (+ tick 6)]]]
           (publish! (walk/postwalk-replace
                      {increment (list 'ak/= 'simulation-tick
-                                      (list '+ 'simulation-tick amount))}
+                                      (list 'ak/+ 'simulation-tick amount))}
                      original))
           (simulation/step-many! 1)
           (let [state (a/value (simulation/snapshot))]

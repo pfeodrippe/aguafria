@@ -1,6 +1,7 @@
 (ns racing-game.inference
   "Narrow native Granite runtime: model ownership, strict GGUF parsing, and kernels."
-  (:require [aguafria.keyword :as ak]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as ak :refer :all]
             [aguafria.std]
             [aguafria.std.crypto.hash.sha2 :as std-sha2]
             [aguafria.std.mem :as std-mem]
@@ -9,10 +10,11 @@
             [aguafria.zig :as a]
             [aguafria-examples-native.bindings]
             [aguafria-examples-native.bindings.runtime :as runtime]
-            [racing-game.protocol :as protocol]))
+            [racing-game.protocol :as protocol]
+            [clojure.core :as c]))
 
-(declare free-sequences! find-tensor tensor-rms-norm! tensor-matvec!
-         tensor-element silu embedding-value-kernel empty-forward-report)
+(c/declare free-sequences! find-tensor tensor-rms-norm! tensor-matvec!
+           tensor-element silu embedding-value-kernel empty-forward-report)
 
 (a/defconst gguf-magic :u32 0x46554747)
 
@@ -317,7 +319,7 @@
    [:weight_count :u32]
    [:file_size :usize]])
 
-(a/defvar model-bytes [:optional [:c-pointer :u8]] ak/null)
+(a/defvar model-bytes [:optional [:c-pointer :u8]] null)
 
 (a/defvar model-byte-count :usize 0)
 
@@ -363,7 +365,7 @@
                 :f32_tensors 0 :q4_0_tensors 0 :q6_k_tensors 0
                 :descriptor_end 0 :data_offset 0 :file_size 0}))
 
-(a/defvar sequence-memory [:optional [:c-pointer :f32]] ak/null)
+(a/defvar sequence-memory [:optional [:c-pointer :f32]] null)
 
 (a/defvar sequence-memory-floats :usize 0)
 
@@ -403,7 +405,7 @@
 (a/defn can-read :bool
   [[reader [:* Reader]]
    [count :usize]]
-  (and (ak/== (a/field (a/deref reader) error_code) parser-ok)
+  (and (== (a/field (a/deref reader) error_code) parser-ok)
        (<= count (- (a/field (a/deref reader) length)
                     (a/field (a/deref reader) cursor)))))
 
@@ -412,55 +414,55 @@
   (if (can-read reader 1)
     (let [value (a/index (a/field (a/deref reader) bytes)
                          (a/field (a/deref reader) cursor))]
-      (ak/= (a/field (a/deref reader) cursor)
-            (+ (a/field (a/deref reader) cursor) 1))
+      (= (a/field (a/deref reader) cursor)
+         (+ (a/field (a/deref reader) cursor) 1))
       value)
     (do
-      (when (ak/== (a/field (a/deref reader) error_code) parser-ok)
-        (ak/= (a/field (a/deref reader) error_code) parser-truncated))
+      (when (== (a/field (a/deref reader) error_code) parser-ok)
+        (= (a/field (a/deref reader) error_code) parser-truncated))
       0)))
 
 (a/defn read-u32! :u32
   [[reader [:* Reader]]]
-  (let [b0 (ak/as (read-u8! reader) :u32)
-        b1 (ak/as (read-u8! reader) :u32)
-        b2 (ak/as (read-u8! reader) :u32)
-        b3 (ak/as (read-u8! reader) :u32)]
+  (let [b0 (as (read-u8! reader) :u32)
+        b1 (as (read-u8! reader) :u32)
+        b2 (as (read-u8! reader) :u32)
+        b3 (as (read-u8! reader) :u32)]
     (+ b0 (* b1 256) (* b2 65536) (* b3 16777216))))
 
 (a/defn read-u64! :u64
   [[reader [:* Reader]]]
-  (let [low (ak/as (read-u32! reader) :u64)
-        high (ak/as (read-u32! reader) :u64)]
+  (let [low (as (read-u32! reader) :u64)
+        high (as (read-u32! reader) :u64)]
     (+ low (* high 4294967296))))
 
 (a/defn skip-bytes! :void
   [[reader [:* Reader]]
    [count :u64]]
-  (if (and (<= count (ak/as (a/field (a/deref reader) length) :u64))
-           (can-read reader (ak/intCast count)))
-    (ak/= (a/field (a/deref reader) cursor)
-          (+ (a/field (a/deref reader) cursor) (ak/as (ak/intCast count) :usize)))
-    (ak/= (a/field (a/deref reader) error_code) parser-truncated)))
+  (if (and (<= count (as (a/field (a/deref reader) length) :u64))
+           (can-read reader (intCast count)))
+    (= (a/field (a/deref reader) cursor)
+       (+ (a/field (a/deref reader) cursor) (as (intCast count) :usize)))
+    (= (a/field (a/deref reader) error_code) parser-truncated)))
 
 (a/defn read-string-view! StringView
   [[reader [:* Reader]]]
   (let [length (read-u64! reader)
         start (a/field (a/deref reader) cursor)]
     (skip-bytes! reader length)
-    (StringView {:start start :length (ak/intCast length)})))
+    (StringView {:start start :length (intCast length)})))
 
 (a/defn skip-string! :void
   [[reader [:* Reader]]]
-  (ak/= :_ (read-string-view! reader)))
+  (= :_ (read-string-view! reader)))
 
 (a/defn scalar-byte-size :u8
   [[value-type :u32]]
   (cond
-    (or (ak/== value-type 0) (ak/== value-type 1) (ak/== value-type 7)) 1
-    (or (ak/== value-type 2) (ak/== value-type 3)) 2
-    (or (ak/== value-type 4) (ak/== value-type 5) (ak/== value-type 6)) 4
-    (or (ak/== value-type 10) (ak/== value-type 11) (ak/== value-type 12)) 8
+    (or (== value-type 0) (== value-type 1) (== value-type 7)) 1
+    (or (== value-type 2) (== value-type 3)) 2
+    (or (== value-type 4) (== value-type 5) (== value-type 6)) 4
+    (or (== value-type 10) (== value-type 11) (== value-type 12)) 8
     :else 0))
 
 (a/defn skip-value! :void
@@ -468,121 +470,121 @@
    [value-type :u32]
    [depth :u8]]
   (cond
-    (ak/== value-type 8)
+    (== value-type 8)
     (skip-string! reader)
 
-    (ak/== value-type 9)
+    (== value-type 9)
     (if (>= depth 4)
-      (ak/= (a/field (a/deref reader) error_code) parser-limit)
+      (= (a/field (a/deref reader) error_code) parser-limit)
       (let [element-type (read-u32! reader)
             count (read-u64! reader)]
         (if (> count gguf-max-array-elements)
-          (ak/= (a/field (a/deref reader) error_code) parser-limit)
+          (= (a/field (a/deref reader) error_code) parser-limit)
           (dotimes [_ count]
             (skip-value! reader element-type (+ depth 1))))))
 
     :else
     (let [width (scalar-byte-size value-type)]
-      (if (ak/== width 0)
-        (ak/= (a/field (a/deref reader) error_code) parser-unsupported-type)
+      (if (== width 0)
+        (= (a/field (a/deref reader) error_code) parser-unsupported-type)
         (skip-bytes! reader width)))))
 
 (a/defn parse-gguf GgufSummary
   [[bytes [:c-pointer :u8]]
    [length :usize]]
-  (let [^:var reader (ak/as (Reader {:bytes bytes :length length :cursor 0 :error_code parser-ok}) Reader)
+  (let [^:var reader (as (Reader {:bytes bytes :length length :cursor 0 :error_code parser-ok}) Reader)
         magic (read-u32! (ak/& reader))
         version (read-u32! (ak/& reader))
         tensor-count (read-u64! (ak/& reader))
         metadata-count (read-u64! (ak/& reader))
-        ^:var f32-count (ak/u32 0)
-        ^:var q4-count (ak/u32 0)
-        ^:var q6-count (ak/u32 0)]
-    (ak/= tensor-catalog-count 0)
-    (ak/= metadata-catalog-count 0)
-    (when (ak/!= magic gguf-magic)
-      (ak/= (a/field reader error_code) parser-bad-magic))
-    (when (and (ak/== (a/field reader error_code) parser-ok)
-               (or (ak/== version 0) (> version gguf-max-version)))
-      (ak/= (a/field reader error_code) parser-bad-version))
-    (when (and (ak/== (a/field reader error_code) parser-ok)
+        ^:var f32-count (u32 0)
+        ^:var q4-count (u32 0)
+        ^:var q6-count (u32 0)]
+    (= tensor-catalog-count 0)
+    (= metadata-catalog-count 0)
+    (when (!= magic gguf-magic)
+      (= (a/field reader error_code) parser-bad-magic))
+    (when (and (== (a/field reader error_code) parser-ok)
+               (or (== version 0) (> version gguf-max-version)))
+      (= (a/field reader error_code) parser-bad-version))
+    (when (and (== (a/field reader error_code) parser-ok)
                (or (> tensor-count gguf-max-tensors)
                    (> metadata-count gguf-max-metadata)))
-      (ak/= (a/field reader error_code) parser-limit))
-    (when (ak/== (a/field reader error_code) parser-ok)
+      (= (a/field reader error_code) parser-limit))
+    (when (== (a/field reader error_code) parser-ok)
       (dotimes [metadata-index metadata-count]
         (let [key (read-string-view! (ak/& reader))
               value-type (read-u32! (ak/& reader))]
-          (if (ak/== value-type 9)
+          (if (== value-type 9)
             (let [element-type (read-u32! (ak/& reader))
                   element-count (read-u64! (ak/& reader))
                   value-start (a/field reader cursor)]
               (when (< metadata-index metadata-not-found)
-                (ak/= (a/index metadata-catalog (ak/intCast metadata-index))
-                      (MetadataInfo
-                       {:key_start (a/field key start)
-                        :key_length (a/field key length)
-                        :value_type value-type
-                        :element_type element-type
-                        :value_start value-start
-                        :element_count element-count})))
+                (= (a/index metadata-catalog (intCast metadata-index))
+                   (MetadataInfo
+                    {:key_start (a/field key start)
+                     :key_length (a/field key length)
+                     :value_type value-type
+                     :element_type element-type
+                     :value_start value-start
+                     :element_count element-count})))
               (if (> element-count gguf-max-array-elements)
-                (ak/= (a/field reader error_code) parser-limit)
+                (= (a/field reader error_code) parser-limit)
                 (dotimes [_ element-count]
                   (skip-value! (ak/& reader) element-type 1))))
             (let [value-start (a/field reader cursor)]
               (when (< metadata-index metadata-not-found)
-                (ak/= (a/index metadata-catalog (ak/intCast metadata-index))
-                      (MetadataInfo
-                       {:key_start (a/field key start)
-                        :key_length (a/field key length)
-                        :value_type value-type
-                        :element_type 0
-                        :value_start value-start
-                        :element_count 1})))
+                (= (a/index metadata-catalog (intCast metadata-index))
+                   (MetadataInfo
+                    {:key_start (a/field key start)
+                     :key_length (a/field key length)
+                     :value_type value-type
+                     :element_type 0
+                     :value_start value-start
+                     :element_count 1})))
               (skip-value! (ak/& reader) value-type 0))))))
-    (when (ak/== (a/field reader error_code) parser-ok)
+    (when (== (a/field reader error_code) parser-ok)
       (dotimes [tensor-index tensor-count]
         (let [name (read-string-view! (ak/& reader))
               dimensions (read-u32! (ak/& reader))
-              ^:var shape (ak/as (a/init [0 0 0 0] [:array 4 :u64]) [:array 4 :u64])]
+              ^:var shape (as (a/init [0 0 0 0] [:array 4 :u64]) [:array 4 :u64])]
           (if (> dimensions 4)
-            (ak/= (a/field reader error_code) parser-limit)
+            (= (a/field reader error_code) parser-limit)
             (dotimes [dimension dimensions]
-              (ak/= (a/index shape dimension) (read-u64! (ak/& reader)))))
+              (= (a/index shape dimension) (read-u64! (ak/& reader)))))
           (let [ggml-type (read-u32! (ak/& reader))
                 relative-offset (read-u64! (ak/& reader))]
-            (when (ak/== ggml-type 0) (ak/= f32-count (+ f32-count 1)))
-            (when (ak/== ggml-type 2) (ak/= q4-count (+ q4-count 1)))
-            (when (ak/== ggml-type 14) (ak/= q6-count (+ q6-count 1)))
-            (when (and (ak/!= ggml-type 0)
-                       (ak/!= ggml-type 2)
-                       (ak/!= ggml-type 14))
-              (ak/= (a/field reader error_code) parser-unsupported-type))
+            (when (== ggml-type 0) (= f32-count (+ f32-count 1)))
+            (when (== ggml-type 2) (= q4-count (+ q4-count 1)))
+            (when (== ggml-type 14) (= q6-count (+ q6-count 1)))
+            (when (and (!= ggml-type 0)
+                       (!= ggml-type 2)
+                       (!= ggml-type 14))
+              (= (a/field reader error_code) parser-unsupported-type))
             (when (< tensor-index gguf-max-tensors)
-              (ak/= (a/index tensor-catalog (ak/intCast tensor-index))
-                    (TensorInfo {:name_start (a/field name start)
-                                 :name_length (a/field name length)
-                                 :dimension_count (ak/intCast dimensions)
-                                 :dimensions shape
-                                 :ggml_type ggml-type
-                                 :relative_offset relative-offset
-                                 :data_address 0})))))))
+              (= (a/index tensor-catalog (intCast tensor-index))
+                 (TensorInfo {:name_start (a/field name start)
+                              :name_length (a/field name length)
+                              :dimension_count (intCast dimensions)
+                              :dimensions shape
+                              :ggml_type ggml-type
+                              :relative_offset relative-offset
+                              :data_address 0})))))))
     (let [descriptor-end (a/field reader cursor)
           data-offset (* (/ (+ descriptor-end 31) 32) 32)
-          valid (and (ak/== (a/field reader error_code) parser-ok)
+          valid (and (== (a/field reader error_code) parser-ok)
                      (<= data-offset length))]
       (when valid
-        (ak/= metadata-catalog-count (ak/intCast metadata-count))
-        (ak/= tensor-catalog-count (ak/intCast tensor-count))
+        (= metadata-catalog-count (intCast metadata-count))
+        (= tensor-catalog-count (intCast tensor-count))
         (dotimes [tensor-index tensor-catalog-count]
-          (ak/= (a/field (a/index tensor-catalog tensor-index) data_address)
-                (+ (ak/intFromPtr bytes)
-                   data-offset
-                   (ak/as (ak/intCast
-                           (a/field (a/index tensor-catalog tensor-index)
-                                    relative_offset))
-                          :usize)))))
+          (= (a/field (a/index tensor-catalog tensor-index) data_address)
+             (+ (intFromPtr bytes)
+                data-offset
+                (as (intCast
+                     (a/field (a/index tensor-catalog tensor-index)
+                              relative_offset))
+                    :usize)))))
       (GgufSummary {:loaded true :valid valid
                     :error_code (a/field reader error_code)
                     :version version :tensor_count tensor-count
@@ -595,30 +597,30 @@
 (a/defn action-head-header-u32 :u32
   [[header [:* {:size :c :const? true} :u8]]
    [offset :usize]]
-  (+ (ak/as (a/index header offset) :u32)
-     (* (ak/as (a/index header (+ offset 1)) :u32) 256)
-     (* (ak/as (a/index header (+ offset 2)) :u32) 65536)
-     (* (ak/as (a/index header (+ offset 3)) :u32) 16777216)))
+  (+ (as (a/index header offset) :u32)
+     (* (as (a/index header (+ offset 1)) :u32) 256)
+     (* (as (a/index header (+ offset 2)) :u32) 65536)
+     (* (as (a/index header (+ offset 3)) :u32) 16777216)))
 
 (a/defn unload-action-head! :void
   "Disable the racing-specific head without touching the shared base model."
   []
-  (ak/= action-head-summary
-        (ActionHeadSummary
-         {:loaded false :valid false :error_code 1 :version 0
-          :input_count 0 :output_count 0
-          :observation_schema 0 :action_schema 0
-          :weight_count 0 :file_size 0})))
+  (= action-head-summary
+     (ActionHeadSummary
+      {:loaded false :valid false :error_code 1 :version 0
+       :input_count 0 :output_count 0
+       :observation_schema 0 :action_schema 0
+       :weight_count 0 :file_size 0})))
 
 (a/defn unload-team-head! :void
   "Disable the independent three-choice team strategy head."
   []
-  (ak/= team-head-summary
-        (ActionHeadSummary
-         {:loaded false :valid false :error_code 1 :version 0
-          :input_count 0 :output_count 0
-          :observation_schema 0 :action_schema 0
-          :weight_count 0 :file_size 0})))
+  (= team-head-summary
+     (ActionHeadSummary
+      {:loaded false :valid false :error_code 1 :version 0
+       :input_count 0 :output_count 0
+       :observation_schema 0 :action_schema 0
+       :weight_count 0 :file_size 0})))
 
 (a/defn load-action-head! ActionHeadSummary
   "Load the verified fixed-layout A-H action head. The file contains a
@@ -629,20 +631,20 @@
   (do
     (unload-action-head!)
     (let [file (runtime/fopen path "rb")]
-      (if (ak/== file ak/null)
+      (if (== file null)
         action-head-summary
         (do
-          (ak/= :_ (runtime/fseek file 0 2))
+          (= :_ (runtime/fseek file 0 2))
           (let [signed-size (runtime/ftell file)]
-            (ak/= :_ (runtime/fseek file 0 0))
+            (= :_ (runtime/fseek file 0 0))
             (if (<= signed-size 0)
-              (ak/= action-head-summary
-                    (ActionHeadSummary
-                     {:loaded true :valid false :error_code 2 :version 0
-                      :input_count 0 :output_count 0
-                      :observation_schema 0 :action_schema 0
-                      :weight_count 0 :file_size 0}))
-              (let [size (ak/as (ak/intCast signed-size) :usize)
+              (= action-head-summary
+                 (ActionHeadSummary
+                  {:loaded true :valid false :error_code 2 :version 0
+                   :input_count 0 :output_count 0
+                   :observation_schema 0 :action_schema 0
+                   :weight_count 0 :file_size 0}))
+              (let [size (as (intCast signed-size) :usize)
                     ^:var header
                     (std-mem/zeroes (a/type [:array 32 :u8]))
                     header-read
@@ -665,48 +667,48 @@
                     expected-size
                     (+ action-head-header-bytes
                        (* (+ action-head-weight-count action-head-output-count)
-                          (ak/sizeOf :f32)))
+                          (sizeOf :f32)))
                     compatible
-                    (and (ak/== header-read action-head-header-bytes)
-                         (ak/== size expected-size)
-                         (ak/== magic action-head-magic)
-                         (ak/== version action-head-version)
-                         (ak/== input-count action-head-input-count)
-                         (ak/== output-count action-head-output-count)
-                         (ak/== observation-schema
-                                protocol/observation-schema-version)
-                         (ak/== action-schema protocol/action-schema-version)
-                         (ak/== weight-count action-head-weight-count))]
-                (if (ak/! compatible)
-                  (ak/= action-head-summary
-                        (ActionHeadSummary
-                         {:loaded true :valid false :error_code 3
-                          :version version :input_count input-count
-                          :output_count output-count
-                          :observation_schema observation-schema
-                          :action_schema action-schema
-                          :weight_count weight-count :file_size size}))
+                    (and (== header-read action-head-header-bytes)
+                         (== size expected-size)
+                         (== magic action-head-magic)
+                         (== version action-head-version)
+                         (== input-count action-head-input-count)
+                         (== output-count action-head-output-count)
+                         (== observation-schema
+                             protocol/observation-schema-version)
+                         (== action-schema protocol/action-schema-version)
+                         (== weight-count action-head-weight-count))]
+                (if (! compatible)
+                  (= action-head-summary
+                     (ActionHeadSummary
+                      {:loaded true :valid false :error_code 3
+                       :version version :input_count input-count
+                       :output_count output-count
+                       :observation_schema observation-schema
+                       :action_schema action-schema
+                       :weight_count weight-count :file_size size}))
                   (let [weights-read
                         (runtime/fread
                          (ak/& (a/index action-head-weights 0))
-                         (ak/sizeOf :f32) action-head-weight-count file)
+                         (sizeOf :f32) action-head-weight-count file)
                         biases-read
                         (runtime/fread
                          (ak/& (a/index action-head-biases 0))
-                         (ak/sizeOf :f32) action-head-output-count file)
+                         (sizeOf :f32) action-head-output-count file)
                         valid
-                        (and (ak/== weights-read action-head-weight-count)
-                             (ak/== biases-read action-head-output-count))]
-                    (ak/= action-head-summary
-                          (ActionHeadSummary
-                           {:loaded true :valid valid
-                            :error_code (if valid 0 4)
-                            :version version :input_count input-count
-                            :output_count output-count
-                            :observation_schema observation-schema
-                            :action_schema action-schema
-                            :weight_count weight-count :file_size size})))))))
-          (ak/= :_ (runtime/fclose file))
+                        (and (== weights-read action-head-weight-count)
+                             (== biases-read action-head-output-count))]
+                    (= action-head-summary
+                       (ActionHeadSummary
+                        {:loaded true :valid valid
+                         :error_code (if valid 0 4)
+                         :version version :input_count input-count
+                         :output_count output-count
+                         :observation_schema observation-schema
+                         :action_schema action-schema
+                         :weight_count weight-count :file_size size})))))))
+          (= :_ (runtime/fclose file))
           action-head-summary)))))
 
 (a/defn action-head-status ActionHeadSummary
@@ -719,20 +721,20 @@
   (do
     (unload-team-head!)
     (let [file (runtime/fopen path "rb")]
-      (if (ak/== file ak/null)
+      (if (== file null)
         team-head-summary
         (do
-          (ak/= :_ (runtime/fseek file 0 2))
+          (= :_ (runtime/fseek file 0 2))
           (let [signed-size (runtime/ftell file)]
-            (ak/= :_ (runtime/fseek file 0 0))
+            (= :_ (runtime/fseek file 0 0))
             (if (<= signed-size 0)
-              (ak/= team-head-summary
-                    (ActionHeadSummary
-                     {:loaded true :valid false :error_code 2 :version 0
-                      :input_count 0 :output_count 0
-                      :observation_schema 0 :action_schema 0
-                      :weight_count 0 :file_size 0}))
-              (let [size (ak/as (ak/intCast signed-size) :usize)
+              (= team-head-summary
+                 (ActionHeadSummary
+                  {:loaded true :valid false :error_code 2 :version 0
+                   :input_count 0 :output_count 0
+                   :observation_schema 0 :action_schema 0
+                   :weight_count 0 :file_size 0}))
+              (let [size (as (intCast signed-size) :usize)
                     ^:var header
                     (std-mem/zeroes (a/type [:array 32 :u8]))
                     header-read
@@ -755,48 +757,48 @@
                     expected-size
                     (+ action-head-header-bytes
                        (* (+ team-head-weight-count team-head-output-count)
-                          (ak/sizeOf :f32)))
+                          (sizeOf :f32)))
                     compatible
-                    (and (ak/== header-read action-head-header-bytes)
-                         (ak/== size expected-size)
-                         (ak/== magic team-head-magic)
-                         (ak/== version action-head-version)
-                         (ak/== input-count action-head-input-count)
-                         (ak/== output-count team-head-output-count)
-                         (ak/== observation-schema
-                                protocol/observation-schema-version)
-                         (ak/== action-schema protocol/action-schema-version)
-                         (ak/== weight-count team-head-weight-count))]
-                (if (ak/! compatible)
-                  (ak/= team-head-summary
-                        (ActionHeadSummary
-                         {:loaded true :valid false :error_code 3
-                          :version version :input_count input-count
-                          :output_count output-count
-                          :observation_schema observation-schema
-                          :action_schema action-schema
-                          :weight_count weight-count :file_size size}))
+                    (and (== header-read action-head-header-bytes)
+                         (== size expected-size)
+                         (== magic team-head-magic)
+                         (== version action-head-version)
+                         (== input-count action-head-input-count)
+                         (== output-count team-head-output-count)
+                         (== observation-schema
+                             protocol/observation-schema-version)
+                         (== action-schema protocol/action-schema-version)
+                         (== weight-count team-head-weight-count))]
+                (if (! compatible)
+                  (= team-head-summary
+                     (ActionHeadSummary
+                      {:loaded true :valid false :error_code 3
+                       :version version :input_count input-count
+                       :output_count output-count
+                       :observation_schema observation-schema
+                       :action_schema action-schema
+                       :weight_count weight-count :file_size size}))
                   (let [weights-read
                         (runtime/fread
                          (ak/& (a/index team-head-weights 0))
-                         (ak/sizeOf :f32) team-head-weight-count file)
+                         (sizeOf :f32) team-head-weight-count file)
                         biases-read
                         (runtime/fread
                          (ak/& (a/index team-head-biases 0))
-                         (ak/sizeOf :f32) team-head-output-count file)
+                         (sizeOf :f32) team-head-output-count file)
                         valid
-                        (and (ak/== weights-read team-head-weight-count)
-                             (ak/== biases-read team-head-output-count))]
-                    (ak/= team-head-summary
-                          (ActionHeadSummary
-                           {:loaded true :valid valid
-                            :error_code (if valid 0 4)
-                            :version version :input_count input-count
-                            :output_count output-count
-                            :observation_schema observation-schema
-                            :action_schema action-schema
-                            :weight_count weight-count :file_size size})))))))
-          (ak/= :_ (runtime/fclose file))
+                        (and (== weights-read team-head-weight-count)
+                             (== biases-read team-head-output-count))]
+                    (= team-head-summary
+                       (ActionHeadSummary
+                        {:loaded true :valid valid
+                         :error_code (if valid 0 4)
+                         :version version :input_count input-count
+                         :output_count output-count
+                         :observation_schema observation-schema
+                         :action_schema action-schema
+                         :weight_count weight-count :file_size size})))))))
+          (= :_ (runtime/fclose file))
           team-head-summary)))))
 
 (a/defn team-head-status ActionHeadSummary
@@ -808,27 +810,27 @@
   (free-sequences!)
   (unload-action-head!)
   (unload-team-head!)
-  (when (ak/!= model-bytes ak/null)
-    (if (ak/== model-storage model-storage-mapped)
-      (ak/= :_
-            (runtime/munmap
-             (a/cast (a/unwrap model-bytes) [:* :anyopaque])
-             model-byte-count))
+  (when (!= model-bytes null)
+    (if (== model-storage model-storage-mapped)
+      (= :_
+         (runtime/munmap
+          (a/cast (a/unwrap model-bytes) [:* :anyopaque])
+          model-byte-count))
       (runtime/free (a/cast (a/unwrap model-bytes) [:* :anyopaque]))))
-  (ak/= model-bytes ak/null)
-  (ak/= model-byte-count 0)
-  (ak/= model-storage model-storage-none)
-  (ak/= model-profile-id model-profile-none)
-  (ak/= tokenizer-valid false)
-  (ak/= tokenizer-token-count 0)
-  (ak/= tokenizer-merge-count 0)
-  (ak/= tensor-catalog-count 0)
-  (ak/= metadata-catalog-count 0)
-  (ak/= model-summary
-        (GgufSummary {:loaded false :valid false :error_code parser-truncated
-                      :version 0 :tensor_count 0 :metadata_count 0
-                      :f32_tensors 0 :q4_0_tensors 0 :q6_k_tensors 0
-                      :descriptor_end 0 :data_offset 0 :file_size 0})))
+  (= model-bytes null)
+  (= model-byte-count 0)
+  (= model-storage model-storage-none)
+  (= model-profile-id model-profile-none)
+  (= tokenizer-valid false)
+  (= tokenizer-token-count 0)
+  (= tokenizer-merge-count 0)
+  (= tensor-catalog-count 0)
+  (= metadata-catalog-count 0)
+  (= model-summary
+     (GgufSummary {:loaded false :valid false :error_code parser-truncated
+                   :version 0 :tensor_count 0 :metadata_count 0
+                   :f32_tensors 0 :q4_0_tensors 0 :q6_k_tensors 0
+                   :descriptor_end 0 :data_offset 0 :file_size 0})))
 
 (a/defn model-storage-kind :u8
   "Inspect whether weights are absent, heap-owned, or read-only mapped."
@@ -838,8 +840,8 @@
 (a/defn loaded-model-sha256 [:array 32 :u8]
   "Compute the exact SHA-256 digest of the currently owned model bytes."
   []
-  (let [^:var digest (ak/as (std-mem/zeroes (a/type [:array 32 :u8])) [:array 32 :u8])]
-    (when (ak/!= model-bytes ak/null)
+  (let [^:var digest (as (std-mem/zeroes (a/type [:array 32 :u8])) [:array 32 :u8])]
+    (when (!= model-bytes null)
       ((a/field std-sha2/Sha256 hash)
        (a/slice (a/unwrap model-bytes) 0 model-byte-count)
        (ak/& digest)
@@ -850,11 +852,11 @@
   "Compare one digest value with an expected 32-byte digest."
   [[actual [:array 32 :u8]]
    [expected [:* {:const? true} [:array 32 :u8]]]]
-  (let [^:var equal (ak/bool true)]
+  (let [^:var equal (bool true)]
     (dotimes [index 32]
-      (when (ak/!= (a/index actual index)
-                   (a/index (a/deref expected) index))
-        (ak/= equal false)))
+      (when (!= (a/index actual index)
+                (a/index (a/deref expected) index))
+        (= equal false)))
     equal))
 
 (a/defn file-sha256-matches? :bool
@@ -862,27 +864,27 @@
   [[path [:* {:size :c :const? true} :u8]]
    [expected [:* {:const? true} [:array 32 :u8]]]]
   (let [file (runtime/fopen path "rb")]
-    (if (ak/== file ak/null)
+    (if (== file null)
       false
-      (let [^:var valid (ak/bool false)]
-        (ak/= :_ (runtime/fseek file 0 2))
+      (let [^:var valid (bool false)]
+        (= :_ (runtime/fseek file 0 2))
         (let [signed-size (runtime/ftell file)]
-          (ak/= :_ (runtime/fseek file 0 0))
+          (= :_ (runtime/fseek file 0 0))
           (when (> signed-size 0)
-            (let [size (ak/as (ak/intCast signed-size) :usize)
+            (let [size (as (intCast signed-size) :usize)
                   allocation (runtime/malloc size)]
-              (when (ak/!= allocation ak/null)
+              (when (!= allocation null)
                 (let [bytes (a/cast allocation [:c-pointer :u8])
                       count (runtime/fread bytes 1 size file)
-                      ^:var actual (ak/as (std-mem/zeroes (a/type [:array 32 :u8])) [:array 32 :u8])]
-                  (when (ak/== count size)
+                      ^:var actual (as (std-mem/zeroes (a/type [:array 32 :u8])) [:array 32 :u8])]
+                  (when (== count size)
                     ((a/field std-sha2/Sha256 hash)
                      (a/slice bytes 0 size)
                      (ak/& actual)
                      {})
-                    (ak/= valid (sha256-matches? actual expected)))
+                    (= valid (sha256-matches? actual expected)))
                   (runtime/free allocation))))))
-        (ak/= :_ (runtime/fclose file))
+        (= :_ (runtime/fclose file))
         valid))))
 
 (a/defn tensor-info TensorInfo
@@ -906,7 +908,7 @@
   "Return one UTF-8 byte from a metadata key."
   [[metadata-index :usize]
    [byte-index :usize]]
-  (if (or (ak/== model-bytes ak/null)
+  (if (or (== model-bytes null)
           (>= metadata-index metadata-catalog-count)
           (>= byte-index
               (a/field (a/index metadata-catalog metadata-index) key_length)))
@@ -918,49 +920,49 @@
 (a/defn metadata-name-equals :bool
   [[metadata-index :usize]
    [expected [:* {:size :c :const? true} :u8]]]
-  (if (or (ak/== model-bytes ak/null)
+  (if (or (== model-bytes null)
           (>= metadata-index metadata-catalog-count))
     false
     (let [length (a/field (a/index metadata-catalog metadata-index) key_length)
-          ^:var equal (ak/bool true)]
+          ^:var equal (bool true)]
       (dotimes [byte-index length]
-        (when (ak/!= (metadata-name-byte metadata-index byte-index)
-                     (a/index expected byte-index))
-          (ak/= equal false)))
-      (and equal (ak/== (a/index expected length) 0)))))
+        (when (!= (metadata-name-byte metadata-index byte-index)
+                  (a/index expected byte-index))
+          (= equal false)))
+      (and equal (== (a/index expected length) 0)))))
 
 (a/defn find-metadata :usize
   "Resolve a GGUF metadata entry by its exact zero-terminated key."
   [[expected [:* {:size :c :const? true} :u8]]]
-  (let [^:var found (ak/usize metadata-not-found)]
+  (let [^:var found (usize metadata-not-found)]
     (dotimes [metadata-index metadata-catalog-count]
-      (when (and (ak/== found metadata-not-found)
+      (when (and (== found metadata-not-found)
                  (metadata-name-equals metadata-index expected))
-        (ak/= found metadata-index)))
+        (= found metadata-index)))
     found))
 
 (a/defn model-u32-at :u32
   [[offset :usize]]
-  (if (or (ak/== model-bytes ak/null) (> (+ offset 4) model-byte-count))
+  (if (or (== model-bytes null) (> (+ offset 4) model-byte-count))
     0
-    (+ (ak/as (a/index (a/unwrap model-bytes) offset) :u32)
-       (* (ak/as (a/index (a/unwrap model-bytes) (+ offset 1)) :u32) 256)
-       (* (ak/as (a/index (a/unwrap model-bytes) (+ offset 2)) :u32) 65536)
-       (* (ak/as (a/index (a/unwrap model-bytes) (+ offset 3)) :u32) 16777216))))
+    (+ (as (a/index (a/unwrap model-bytes) offset) :u32)
+       (* (as (a/index (a/unwrap model-bytes) (+ offset 1)) :u32) 256)
+       (* (as (a/index (a/unwrap model-bytes) (+ offset 2)) :u32) 65536)
+       (* (as (a/index (a/unwrap model-bytes) (+ offset 3)) :u32) 16777216))))
 
 (a/defn model-u64-at :u64
   [[offset :usize]]
-  (if (or (ak/== model-bytes ak/null) (> (+ offset 8) model-byte-count))
+  (if (or (== model-bytes null) (> (+ offset 8) model-byte-count))
     0
-    (+ (ak/as (model-u32-at offset) :u64)
-       (ak/<< (ak/as (model-u32-at (+ offset 4)) :u64) 32))))
+    (+ (as (model-u32-at offset) :u64)
+       (<< (as (model-u32-at (+ offset 4)) :u64) 32))))
 
 (a/defn metadata-u32 :u32
   "Read a scalar u32 metadata value, returning `fallback` on type mismatch."
   [[metadata-index :usize]
    [fallback :u32]]
   (if (and (< metadata-index metadata-catalog-count)
-           (ak/== (a/field (a/index metadata-catalog metadata-index) value_type) 4))
+           (== (a/field (a/index metadata-catalog metadata-index) value_type) 4))
     (model-u32-at
      (a/field (a/index metadata-catalog metadata-index) value_start))
     fallback))
@@ -970,26 +972,26 @@
   [[metadata-index :usize]
    [fallback :f32]]
   (if (and (< metadata-index metadata-catalog-count)
-           (ak/== (a/field (a/index metadata-catalog metadata-index) value_type) 6))
-    (ak/as (ak/bitCast
-            (model-u32-at
-             (a/field (a/index metadata-catalog metadata-index) value_start)))
-           :f32)
+           (== (a/field (a/index metadata-catalog metadata-index) value_type) 6))
+    (as (bitCast
+         (model-u32-at
+          (a/field (a/index metadata-catalog metadata-index) value_start)))
+        :f32)
     fallback))
 
 (a/defn tokenizer-hash-range :u64
   [[start :usize]
    [length :usize]]
-  (let [^:var hash (ak/u64 1469598103934665603)]
-    (when (ak/!= model-bytes ak/null)
+  (let [^:var hash (u64 1469598103934665603)]
+    (when (!= model-bytes null)
       (dotimes [index length]
-        (ak/= hash
-              (ak/*% (ak/bit-xor
-                      hash
-                      (ak/as (a/index (a/unwrap model-bytes)
-                                      (+ start index))
-                             :u64))
-                     1099511628211))))
+        (= hash
+           (*% (bit-xor
+                hash
+                (as (a/index (a/unwrap model-bytes)
+                             (+ start index))
+                    :u64))
+               1099511628211))))
     hash))
 
 (a/defn tokenizer-hash-concat :u64
@@ -997,24 +999,24 @@
    [left-length :usize]
    [right-start :usize]
    [right-length :usize]]
-  (let [^:var hash (ak/u64 1469598103934665603)]
-    (when (ak/!= model-bytes ak/null)
+  (let [^:var hash (u64 1469598103934665603)]
+    (when (!= model-bytes null)
       (dotimes [index left-length]
-        (ak/= hash
-              (ak/*% (ak/bit-xor
-                      hash
-                      (ak/as (a/index (a/unwrap model-bytes)
-                                      (+ left-start index))
-                             :u64))
-                     1099511628211)))
+        (= hash
+           (*% (bit-xor
+                hash
+                (as (a/index (a/unwrap model-bytes)
+                             (+ left-start index))
+                    :u64))
+               1099511628211)))
       (dotimes [index right-length]
-        (ak/= hash
-              (ak/*% (ak/bit-xor
-                      hash
-                      (ak/as (a/index (a/unwrap model-bytes)
-                                      (+ right-start index))
-                             :u64))
-                     1099511628211))))
+        (= hash
+           (*% (bit-xor
+                hash
+                (as (a/index (a/unwrap model-bytes)
+                             (+ right-start index))
+                    :u64))
+               1099511628211))))
     hash))
 
 (a/defn tokenizer-token-equals-range :bool
@@ -1022,15 +1024,15 @@
    [start :usize]
    [length :usize]]
   (if (or (>= token tokenizer-token-count)
-          (ak/!= (ak/as (a/index tokenizer-token-lengths token) :usize)
-                 length))
+          (!= (as (a/index tokenizer-token-lengths token) :usize)
+              length))
     false
-    (let [token-start (ak/as (a/index tokenizer-token-starts token) :usize)
-          ^:var equal (ak/bool true)]
+    (let [token-start (as (a/index tokenizer-token-starts token) :usize)
+          ^:var equal (bool true)]
       (dotimes [index length]
-        (when (ak/!= (a/index (a/unwrap model-bytes) (+ token-start index))
-                     (a/index (a/unwrap model-bytes) (+ start index)))
-          (ak/= equal false)))
+        (when (!= (a/index (a/unwrap model-bytes) (+ token-start index))
+                  (a/index (a/unwrap model-bytes) (+ start index)))
+          (= equal false)))
       equal)))
 
 (a/defn tokenizer-token-equals-concat :bool
@@ -1040,60 +1042,60 @@
    [right-start :usize]
    [right-length :usize]]
   (if (or (>= token tokenizer-token-count)
-          (ak/!= (ak/as (a/index tokenizer-token-lengths token) :usize)
-                 (+ left-length right-length)))
+          (!= (as (a/index tokenizer-token-lengths token) :usize)
+              (+ left-length right-length)))
     false
-    (let [token-start (ak/as (a/index tokenizer-token-starts token) :usize)
-          ^:var equal (ak/bool true)]
+    (let [token-start (as (a/index tokenizer-token-starts token) :usize)
+          ^:var equal (bool true)]
       (dotimes [index left-length]
-        (when (ak/!= (a/index (a/unwrap model-bytes) (+ token-start index))
-                     (a/index (a/unwrap model-bytes) (+ left-start index)))
-          (ak/= equal false)))
+        (when (!= (a/index (a/unwrap model-bytes) (+ token-start index))
+                  (a/index (a/unwrap model-bytes) (+ left-start index)))
+          (= equal false)))
       (dotimes [index right-length]
-        (when (ak/!=
+        (when (!=
                (a/index (a/unwrap model-bytes)
                         (+ token-start left-length index))
                (a/index (a/unwrap model-bytes) (+ right-start index)))
-          (ak/= equal false)))
+          (= equal false)))
       equal)))
 
 (a/defn tokenizer-insert-vocabulary! :bool
   [[token :u32]]
-  (let [start (ak/as (a/index tokenizer-token-starts token) :usize)
-        length (ak/as (a/index tokenizer-token-lengths token) :usize)
-        base (ak/as (ak/intCast
-                     (mod (tokenizer-hash-range start length)
-                          tokenizer-hash-capacity))
-                    :usize)
-        ^:var inserted (ak/bool false)]
+  (let [start (as (a/index tokenizer-token-starts token) :usize)
+        length (as (a/index tokenizer-token-lengths token) :usize)
+        base (as (intCast
+                  (mod (tokenizer-hash-range start length)
+                       tokenizer-hash-capacity))
+                 :usize)
+        ^:var inserted (bool false)]
     (dotimes [probe tokenizer-hash-capacity]
-      (when (ak/! inserted)
+      (when (! inserted)
         (let [slot (mod (+ base probe) tokenizer-hash-capacity)]
-          (when (ak/== (a/index tokenizer-vocabulary-slots slot)
-                       tokenizer-empty-id)
-            (ak/= (a/index tokenizer-vocabulary-slots slot) token)
-            (ak/= inserted true)
-            (ak/break)))))
+          (when (== (a/index tokenizer-vocabulary-slots slot)
+                    tokenizer-empty-id)
+            (= (a/index tokenizer-vocabulary-slots slot) token)
+            (= inserted true)
+            (break)))))
     inserted))
 
 (a/defn tokenizer-find-range :u32
   [[start :usize]
    [length :usize]]
-  (let [base (ak/as (ak/intCast
-                     (mod (tokenizer-hash-range start length)
-                          tokenizer-hash-capacity))
-                    :usize)
-        ^:var result (ak/u32 tokenizer-empty-id)
-        ^:var searching (ak/bool true)]
+  (let [base (as (intCast
+                  (mod (tokenizer-hash-range start length)
+                       tokenizer-hash-capacity))
+                 :usize)
+        ^:var result (u32 tokenizer-empty-id)
+        ^:var searching (bool true)]
     (dotimes [probe tokenizer-hash-capacity]
       (when searching
         (let [slot (mod (+ base probe) tokenizer-hash-capacity)
               token (a/index tokenizer-vocabulary-slots slot)]
           (cond
-            (ak/== token tokenizer-empty-id) (ak/= searching false)
+            (== token tokenizer-empty-id) (= searching false)
             (tokenizer-token-equals-range token start length)
-            (do (ak/= result token) (ak/= searching false)))
-          (when (ak/! searching) (ak/break)))))
+            (do (= result token) (= searching false)))
+          (when (! searching) (break)))))
     result))
 
 (a/defn tokenizer-find-concat :u32
@@ -1102,38 +1104,38 @@
    [right-start :usize]
    [right-length :usize]]
   (let [base
-        (ak/as (ak/intCast
-                (mod (tokenizer-hash-concat
-                      left-start left-length right-start right-length)
-                     tokenizer-hash-capacity))
-               :usize)
-        ^:var result (ak/u32 tokenizer-empty-id)
-        ^:var searching (ak/bool true)]
+        (as (intCast
+             (mod (tokenizer-hash-concat
+                   left-start left-length right-start right-length)
+                  tokenizer-hash-capacity))
+            :usize)
+        ^:var result (u32 tokenizer-empty-id)
+        ^:var searching (bool true)]
     (dotimes [probe tokenizer-hash-capacity]
       (when searching
         (let [slot (mod (+ base probe) tokenizer-hash-capacity)
               token (a/index tokenizer-vocabulary-slots slot)]
           (cond
-            (ak/== token tokenizer-empty-id) (ak/= searching false)
+            (== token tokenizer-empty-id) (= searching false)
             (tokenizer-token-equals-concat
              token left-start left-length right-start right-length)
-            (do (ak/= result token) (ak/= searching false)))
-          (when (ak/! searching) (ak/break)))))
+            (do (= result token) (= searching false)))
+          (when (! searching) (break)))))
     result))
 
 (a/defn tokenizer-pair-key :u64
   [[left :u32]
    [right :u32]]
-  (+ (ak/<< (ak/as left :u64) 32) (ak/as right :u64)))
+  (+ (<< (as left :u64) 32) (as right :u64)))
 
 (a/defn tokenizer-pair-slot :usize
   [[pair :u64]
    [probe :usize]]
-  (ak/as (ak/intCast
-          (mod (+ (ak/*% pair 11400714819323198485)
-                  (ak/as probe :u64))
-               tokenizer-hash-capacity))
-         :usize))
+  (as (intCast
+       (mod (+ (*% pair 11400714819323198485)
+               (as probe :u64))
+            tokenizer-hash-capacity))
+      :usize))
 
 (a/defn tokenizer-insert-merge! :bool
   [[left :u32]
@@ -1141,40 +1143,40 @@
    [rank :u32]
    [token :u32]]
   (let [pair (tokenizer-pair-key left right)
-        ^:var inserted (ak/bool false)]
+        ^:var inserted (bool false)]
     (dotimes [probe tokenizer-hash-capacity]
-      (when (ak/! inserted)
+      (when (! inserted)
         (let [slot (tokenizer-pair-slot pair probe)]
-          (when (ak/== (a/index tokenizer-merge-pairs slot)
-                       tokenizer-empty-pair)
-            (ak/= (a/index tokenizer-merge-pairs slot) pair)
-            (ak/= (a/index tokenizer-merge-ranks slot) rank)
-            (ak/= (a/index tokenizer-merge-tokens slot) token)
-            (ak/= inserted true)
-            (ak/break)))))
+          (when (== (a/index tokenizer-merge-pairs slot)
+                    tokenizer-empty-pair)
+            (= (a/index tokenizer-merge-pairs slot) pair)
+            (= (a/index tokenizer-merge-ranks slot) rank)
+            (= (a/index tokenizer-merge-tokens slot) token)
+            (= inserted true)
+            (break)))))
     inserted))
 
 (a/defn tokenizer-find-merge TokenizerMerge
   [[left :u32]
    [right :u32]]
   (let [pair (tokenizer-pair-key left right)
-        ^:var found (ak/bool false)
-        ^:var searching (ak/bool true)
-        ^:var rank (ak/u32 0xffffffff)
-        ^:var token (ak/u32 0)]
+        ^:var found (bool false)
+        ^:var searching (bool true)
+        ^:var rank (u32 0xffffffff)
+        ^:var token (u32 0)]
     (dotimes [probe tokenizer-hash-capacity]
       (when searching
         (let [slot (tokenizer-pair-slot pair probe)
               candidate (a/index tokenizer-merge-pairs slot)]
           (cond
-            (ak/== candidate tokenizer-empty-pair) (ak/= searching false)
-            (ak/== candidate pair)
+            (== candidate tokenizer-empty-pair) (= searching false)
+            (== candidate pair)
             (do
-              (ak/= found true)
-              (ak/= searching false)
-              (ak/= rank (a/index tokenizer-merge-ranks slot))
-              (ak/= token (a/index tokenizer-merge-tokens slot))))
-          (when (ak/! searching) (ak/break)))))
+              (= found true)
+              (= searching false)
+              (= rank (a/index tokenizer-merge-ranks slot))
+              (= token (a/index tokenizer-merge-tokens slot))))
+          (when (! searching) (break)))))
     (TokenizerMerge {:found found :rank rank :token token})))
 
 (a/defn initialize-tokenizer! :bool
@@ -1189,76 +1191,76 @@
         merges-info
         (a/index metadata-catalog
                  (if (< merges-index metadata-catalog-count) merges-index 0))
-        ^:var valid (ak/bool (and (< tokens-index metadata-catalog-count)
-                                  (< merges-index metadata-catalog-count)
-                                  (ak/== (a/field tokens-info value_type) 9)
-                                  (ak/== (a/field tokens-info element_type) 8)
-                                  (ak/== (a/field tokens-info element_count)
-                                         tokenizer-vocabulary-capacity)
-                                  (ak/== (a/field merges-info value_type) 9)
-                                  (ak/== (a/field merges-info element_type) 8)
-                                  (<= (a/field merges-info element_count)
-                                      tokenizer-vocabulary-capacity)))
-        ^:var cursor (ak/usize (if valid (a/field tokens-info value_start) 0))]
-    (ak/= tokenizer-valid false)
-    (ak/= tokenizer-token-count 0)
-    (ak/= tokenizer-merge-count 0)
+        ^:var valid (bool (and (< tokens-index metadata-catalog-count)
+                               (< merges-index metadata-catalog-count)
+                               (== (a/field tokens-info value_type) 9)
+                               (== (a/field tokens-info element_type) 8)
+                               (== (a/field tokens-info element_count)
+                                   tokenizer-vocabulary-capacity)
+                               (== (a/field merges-info value_type) 9)
+                               (== (a/field merges-info element_type) 8)
+                               (<= (a/field merges-info element_count)
+                                   tokenizer-vocabulary-capacity)))
+        ^:var cursor (usize (if valid (a/field tokens-info value_start) 0))]
+    (= tokenizer-valid false)
+    (= tokenizer-token-count 0)
+    (= tokenizer-merge-count 0)
     (dotimes [slot tokenizer-hash-capacity]
-      (ak/= (a/index tokenizer-vocabulary-slots slot) tokenizer-empty-id)
-      (ak/= (a/index tokenizer-merge-pairs slot) tokenizer-empty-pair))
+      (= (a/index tokenizer-vocabulary-slots slot) tokenizer-empty-id)
+      (= (a/index tokenizer-merge-pairs slot) tokenizer-empty-pair))
     (when valid
       (dotimes [token tokenizer-vocabulary-capacity]
         (when valid
           (let [length64 (model-u64-at cursor)
                 start (+ cursor 8)]
             (if (or (> length64 65535)
-                    (> (+ start (ak/as (ak/intCast length64) :usize))
+                    (> (+ start (as (intCast length64) :usize))
                        model-byte-count))
-              (ak/= valid false)
+              (= valid false)
               (do
-                (ak/= (a/index tokenizer-token-starts token)
-                      (ak/intCast start))
-                (ak/= (a/index tokenizer-token-lengths token)
-                      (ak/intCast length64))
-                (ak/= tokenizer-token-count (ak/intCast (+ token 1)))
-                (ak/= cursor (+ start (ak/as (ak/intCast length64) :usize))))))))
+                (= (a/index tokenizer-token-starts token)
+                   (intCast start))
+                (= (a/index tokenizer-token-lengths token)
+                   (intCast length64))
+                (= tokenizer-token-count (intCast (+ token 1)))
+                (= cursor (+ start (as (intCast length64) :usize))))))))
       (dotimes [token tokenizer-vocabulary-capacity]
         (when valid
-          (ak/= valid (tokenizer-insert-vocabulary! (ak/intCast token)))))
-      (ak/= cursor (a/field merges-info value_start))
+          (= valid (tokenizer-insert-vocabulary! (intCast token)))))
+      (= cursor (a/field merges-info value_start))
       (dotimes [merge-index (a/field merges-info element_count)]
         (when valid
           (let [length64 (model-u64-at cursor)
-                length (ak/as (ak/intCast length64) :usize)
+                length (as (intCast length64) :usize)
                 start (+ cursor 8)
-                ^:var separator (ak/usize length)]
+                ^:var separator (usize length)]
             (when (> (+ start length) model-byte-count)
-              (ak/= valid false))
+              (= valid false))
             (when valid
               (dotimes [index length]
-                (when (and (ak/== separator length)
-                           (ak/== (a/index (a/unwrap model-bytes)
-                                           (+ start index))
-                                  32))
-                  (ak/= separator index)))
-              (if (or (ak/== separator 0) (>= separator (- length 1)))
-                (ak/= valid false)
+                (when (and (== separator length)
+                           (== (a/index (a/unwrap model-bytes)
+                                        (+ start index))
+                               32))
+                  (= separator index)))
+              (if (or (== separator 0) (>= separator (- length 1)))
+                (= valid false)
                 (let [right-start (+ start separator 1)
                       right-length (- length separator 1)
                       left (tokenizer-find-range start separator)
                       right (tokenizer-find-range right-start right-length)
                       merged (tokenizer-find-concat
                               start separator right-start right-length)]
-                  (if (or (ak/== left tokenizer-empty-id)
-                          (ak/== right tokenizer-empty-id)
-                          (ak/== merged tokenizer-empty-id)
-                          (ak/! (tokenizer-insert-merge!
-                                 left right (ak/intCast merge-index) merged)))
-                    (ak/= valid false)
-                    (ak/= tokenizer-merge-count
-                          (ak/intCast (+ merge-index 1)))))))
-            (ak/= cursor (+ start length))))))
-    (ak/= tokenizer-valid valid)
+                  (if (or (== left tokenizer-empty-id)
+                          (== right tokenizer-empty-id)
+                          (== merged tokenizer-empty-id)
+                          (! (tokenizer-insert-merge!
+                              left right (intCast merge-index) merged)))
+                    (= valid false)
+                    (= tokenizer-merge-count
+                       (intCast (+ merge-index 1)))))))
+            (= cursor (+ start length))))))
+    (= tokenizer-valid valid)
     valid))
 
 (a/defn tokenizer-summary TokenizerSummary
@@ -1267,8 +1269,8 @@
    {:valid tokenizer-valid
     :token_count tokenizer-token-count
     :merge_count tokenizer-merge-count
-    :vocabulary_slots (ak/intCast tokenizer-hash-capacity)
-    :merge_slots (ak/intCast tokenizer-hash-capacity)}))
+    :vocabulary_slots (intCast tokenizer-hash-capacity)
+    :merge_slots (intCast tokenizer-hash-capacity)}))
 
 (a/defn configure-model-profile! :bool
   "Select one validated Granite hybrid profile from GGUF metadata and derive
@@ -1294,136 +1296,136 @@
         ;; Hybrid metadata can use a per-layer KV-head array. Derive the
         ;; actual KV projection width from the first attention tensor instead
         ;; of silently assuming every model uses four KV heads.
-        kv-index (find-tensor (if (ak/== hidden 768)
+        kv-index (find-tensor (if (== hidden 768)
                                 "blk.10.attn_k.weight" "blk.5.attn_k.weight"))
         kv-heads
         (if (and (> attention-heads 0) (> hidden 0)
-                 (ak/== (mod hidden (ak/max attention-heads 1)) 0)
+                 (== (mod hidden (max attention-heads 1)) 0)
                  (< kv-index tensor-catalog-count)
-                 (ak/== (a/field (a/index tensor-catalog kv-index) dimension_count) 2)
-                 (ak/== (a/index (a/field (a/index tensor-catalog kv-index) dimensions) 0) hidden)
-                 (ak/== (mod (a/index (a/field (a/index tensor-catalog kv-index) dimensions) 1)
-                             (/ hidden attention-heads)) 0))
-          (ak/as (ak/intCast
-                  (/ (a/index (a/field (a/index tensor-catalog kv-index) dimensions) 1)
-                     (/ hidden attention-heads))) :u32)
-          (ak/as 0 :u32))
+                 (== (a/field (a/index tensor-catalog kv-index) dimension_count) 2)
+                 (== (a/index (a/field (a/index tensor-catalog kv-index) dimensions) 0) hidden)
+                 (== (mod (a/index (a/field (a/index tensor-catalog kv-index) dimensions) 1)
+                          (/ hidden attention-heads)) 0))
+          (as (intCast
+               (/ (a/index (a/field (a/index tensor-catalog kv-index) dimensions) 1)
+                  (/ hidden attention-heads))) :u32)
+          (as 0 :u32))
         profile
         (cond
-          (and (ak/== hidden 768) (ak/== ffn 2048) (ak/== layers 32)
-               (ak/== inner 1536) (ak/== state 128) (ak/== groups 1)
-               (ak/== heads 48) (ak/== attention-heads 12)
-               (ak/== kv-heads 4))
+          (and (== hidden 768) (== ffn 2048) (== layers 32)
+               (== inner 1536) (== state 128) (== groups 1)
+               (== heads 48) (== attention-heads 12)
+               (== kv-heads 4))
           model-profile-granite-h-350m
 
-          (and (ak/== hidden 1536) (ak/== ffn 4096) (ak/== layers 40)
-               (ak/== inner 3072) (ak/== state 128) (ak/== groups 1)
-               (ak/== heads 48) (ak/== attention-heads 12)
-               (ak/== kv-heads 4))
+          (and (== hidden 1536) (== ffn 4096) (== layers 40)
+               (== inner 3072) (== state 128) (== groups 1)
+               (== heads 48) (== attention-heads 12)
+               (== kv-heads 4))
           model-profile-granite-h-1b
 
-          (and (ak/== hidden 2048) (ak/== ffn 8192) (ak/== layers 40)
-               (ak/== inner 4096) (ak/== state 128) (ak/== groups 1)
-               (ak/== heads 64) (ak/== attention-heads 32)
-               (ak/== kv-heads 8))
+          (and (== hidden 2048) (== ffn 8192) (== layers 40)
+               (== inner 4096) (== state 128) (== groups 1)
+               (== heads 64) (== attention-heads 32)
+               (== kv-heads 8))
           model-profile-granite-h-micro
 
           :else model-profile-none)
-        ^:var valid (ak/bool (ak/!= profile model-profile-none))]
-    (ak/= model-profile-id profile)
+        ^:var valid (bool (!= profile model-profile-none))]
+    (= model-profile-id profile)
     (when valid
-      (ak/= model-hidden-size (ak/intCast hidden))
-      (ak/= model-ffn-size (ak/intCast ffn))
-      (ak/= model-layer-count (ak/intCast layers))
-      (ak/= model-mamba-layer-count (- model-layer-count 4))
-      (ak/= model-mamba-inner-size (ak/intCast inner))
-      (ak/= model-mamba-conv-size
-            (+ model-mamba-inner-size (* 2 (ak/as state :usize))))
-      (ak/= model-mamba-projection-size
-            (+ (* 2 model-mamba-inner-size)
-               (* 2 (ak/as state :usize))
-               (ak/as heads :usize)))
-      (ak/= model-mamba-head-count (ak/intCast heads))
-      (ak/= model-mamba-head-size
-            (/ model-mamba-inner-size model-mamba-head-count))
-      (ak/= model-mamba-state-size (ak/intCast state))
-      (ak/= model-mamba-recurrent-size
-            (* model-mamba-head-count model-mamba-head-size
-               model-mamba-state-size))
-      (ak/= model-mamba-conv-state-size (* model-mamba-conv-size 3))
-      (ak/= model-attention-layer-count 4)
-      (ak/= model-attention-head-count (ak/intCast attention-heads))
-      (ak/= model-attention-kv-head-count (ak/intCast kv-heads))
-      (ak/= model-attention-head-size
-            (/ model-hidden-size model-attention-head-count))
-      (ak/= model-attention-kv-size
-            (* model-attention-kv-head-count model-attention-head-size))
-      (ak/= model-attention-scale
-            (metadata-f32
-             (find-metadata "granitehybrid.attention.scale")
-             (if (ak/== profile model-profile-granite-h-1b)
-               0.0078125
-               0.015625)))
-      (ak/= model-residual-multiplier
-            (metadata-f32
-             (find-metadata "granitehybrid.residual_scale")
-             (if (ak/== profile model-profile-granite-h-350m) 0.246 0.22)))
-      (ak/= action-head-input-count
-            (* action-head-token-count model-hidden-size))
-      (ak/= action-head-weight-count
-            (* action-head-output-count action-head-input-count))
-      (ak/= team-head-weight-count
-            (* team-head-output-count action-head-input-count))
-      (ak/= sequence-mamba-floats
-            (* sequence-racer-count model-mamba-layer-count
-               model-mamba-recurrent-size))
-      (ak/= sequence-conv-floats
-            (* sequence-racer-count model-mamba-layer-count
-               model-mamba-conv-state-size))
-      (ak/= sequence-kv-floats
-            (* sequence-racer-count model-attention-layer-count
-               sequence-capacity model-attention-kv-size))
-      (ak/= sequence-total-floats
-            (+ sequence-mamba-floats sequence-conv-floats
-               (* 2 sequence-kv-floats)))
-      (ak/= sequence-total-bytes
-            (* sequence-total-floats (ak/sizeOf :f32))))
+      (= model-hidden-size (intCast hidden))
+      (= model-ffn-size (intCast ffn))
+      (= model-layer-count (intCast layers))
+      (= model-mamba-layer-count (- model-layer-count 4))
+      (= model-mamba-inner-size (intCast inner))
+      (= model-mamba-conv-size
+         (+ model-mamba-inner-size (* 2 (as state :usize))))
+      (= model-mamba-projection-size
+         (+ (* 2 model-mamba-inner-size)
+            (* 2 (as state :usize))
+            (as heads :usize)))
+      (= model-mamba-head-count (intCast heads))
+      (= model-mamba-head-size
+         (/ model-mamba-inner-size model-mamba-head-count))
+      (= model-mamba-state-size (intCast state))
+      (= model-mamba-recurrent-size
+         (* model-mamba-head-count model-mamba-head-size
+            model-mamba-state-size))
+      (= model-mamba-conv-state-size (* model-mamba-conv-size 3))
+      (= model-attention-layer-count 4)
+      (= model-attention-head-count (intCast attention-heads))
+      (= model-attention-kv-head-count (intCast kv-heads))
+      (= model-attention-head-size
+         (/ model-hidden-size model-attention-head-count))
+      (= model-attention-kv-size
+         (* model-attention-kv-head-count model-attention-head-size))
+      (= model-attention-scale
+         (metadata-f32
+          (find-metadata "granitehybrid.attention.scale")
+          (if (== profile model-profile-granite-h-1b)
+            0.0078125
+            0.015625)))
+      (= model-residual-multiplier
+         (metadata-f32
+          (find-metadata "granitehybrid.residual_scale")
+          (if (== profile model-profile-granite-h-350m) 0.246 0.22)))
+      (= action-head-input-count
+         (* action-head-token-count model-hidden-size))
+      (= action-head-weight-count
+         (* action-head-output-count action-head-input-count))
+      (= team-head-weight-count
+         (* team-head-output-count action-head-input-count))
+      (= sequence-mamba-floats
+         (* sequence-racer-count model-mamba-layer-count
+            model-mamba-recurrent-size))
+      (= sequence-conv-floats
+         (* sequence-racer-count model-mamba-layer-count
+            model-mamba-conv-state-size))
+      (= sequence-kv-floats
+         (* sequence-racer-count model-attention-layer-count
+            sequence-capacity model-attention-kv-size))
+      (= sequence-total-floats
+         (+ sequence-mamba-floats sequence-conv-floats
+            (* 2 sequence-kv-floats)))
+      (= sequence-total-bytes
+         (* sequence-total-floats (sizeOf :f32))))
     (when valid
-      (ak/= valid (initialize-tokenizer!)))
-    (when (ak/! valid)
-      (ak/= model-profile-id model-profile-none))
+      (= valid (initialize-tokenizer!)))
+    (when (! valid)
+      (= model-profile-id model-profile-none))
     valid))
 
 (a/defn model-profile-summary ModelProfileSummary
   "Expose the active dimensions used by the native game and bake-off."
   []
   (ModelProfileSummary
-   {:valid (ak/!= model-profile-id model-profile-none)
+   {:valid (!= model-profile-id model-profile-none)
     :profile model-profile-id
-    :hidden_size (ak/intCast model-hidden-size)
-    :ffn_size (ak/intCast model-ffn-size)
-    :layer_count (ak/intCast model-layer-count)
-    :mamba_layer_count (ak/intCast model-mamba-layer-count)
-    :mamba_inner_size (ak/intCast model-mamba-inner-size)
-    :mamba_projection_size (ak/intCast model-mamba-projection-size)
-    :mamba_conv_size (ak/intCast model-mamba-conv-size)
-    :mamba_head_count (ak/intCast model-mamba-head-count)
-    :mamba_head_size (ak/intCast model-mamba-head-size)
-    :attention_layer_count (ak/intCast model-attention-layer-count)
-    :attention_head_count (ak/intCast model-attention-head-count)
-    :attention_kv_head_count (ak/intCast model-attention-kv-head-count)
-    :attention_head_size (ak/intCast model-attention-head-size)
+    :hidden_size (intCast model-hidden-size)
+    :ffn_size (intCast model-ffn-size)
+    :layer_count (intCast model-layer-count)
+    :mamba_layer_count (intCast model-mamba-layer-count)
+    :mamba_inner_size (intCast model-mamba-inner-size)
+    :mamba_projection_size (intCast model-mamba-projection-size)
+    :mamba_conv_size (intCast model-mamba-conv-size)
+    :mamba_head_count (intCast model-mamba-head-count)
+    :mamba_head_size (intCast model-mamba-head-size)
+    :attention_layer_count (intCast model-attention-layer-count)
+    :attention_head_count (intCast model-attention-head-count)
+    :attention_kv_head_count (intCast model-attention-kv-head-count)
+    :attention_head_size (intCast model-attention-head-size)
     :sequence_state_bytes sequence-total-bytes}))
 
 (a/defn ascii-byte-token :u32
   "Map one ASCII byte to the model's exact GPT-2 base-byte token id."
   [[byte :u8]]
   (cond
-    (and (>= byte 33) (<= byte 126)) (- (ak/as byte :u32) 33)
-    (ak/== byte 32) 220
-    (ak/== byte 10) 198
-    (ak/== byte 9) 197
-    (ak/== byte 13) 201
+    (and (>= byte 33) (<= byte 126)) (- (as byte :u32) 33)
+    (== byte 32) 220
+    (== byte 10) 198
+    (== byte 9) 197
+    (== byte 13) 201
     :else 100269))
 
 (a/defn tokenize-compact-ascii TokenizationReport
@@ -1432,57 +1434,57 @@
   probes; live game and bake-off paths require the initialized native index."
   [[bytes [:* {:size :c :const? true} :u8]]
    [length :usize]]
-  (let [count (ak/min length tokenizer-capacity)
-        ^:var token-count (ak/usize count)
-        ^:var valid (ak/bool true)
-        ^:var unsupported (ak/u16 (ak/intCast length))
-        ^:var tokens (ak/as (std-mem/zeroes (a/type [:array 160 :u32])) [:array 160 :u32])]
+  (let [count (min length tokenizer-capacity)
+        ^:var token-count (usize count)
+        ^:var valid (bool true)
+        ^:var unsupported (u16 (intCast length))
+        ^:var tokens (as (std-mem/zeroes (a/type [:array 160 :u32])) [:array 160 :u32])]
     (dotimes [index count]
       (let [byte (a/index bytes index)
             token (ascii-byte-token byte)]
-        (ak/= (a/index tokens index) token)
-        (when (and valid (ak/== token 100269))
-          (ak/= valid false)
-          (ak/= unsupported (ak/intCast index)))))
+        (= (a/index tokens index) token)
+        (when (and valid (== token 100269))
+          (= valid false)
+          (= unsupported (intCast index)))))
     (dotimes [_ count]
       (when (and valid tokenizer-valid (> token-count 1))
-        (let [^:var found (ak/bool false)
-              ^:var best-rank (ak/u32 0xffffffff)
-              ^:var best-left (ak/u32 0)
-              ^:var best-right (ak/u32 0)
-              ^:var best-token (ak/u32 0)]
+        (let [^:var found (bool false)
+              ^:var best-rank (u32 0xffffffff)
+              ^:var best-left (u32 0)
+              ^:var best-right (u32 0)
+              ^:var best-token (u32 0)]
           (dotimes [index (- token-count 1)]
             (let [left (a/index tokens index)
                   right (a/index tokens (+ index 1))
                   merge (tokenizer-find-merge left right)]
               (when (and (a/field merge found)
                          (< (a/field merge rank) best-rank))
-                (ak/= found true)
-                (ak/= best-rank (a/field merge rank))
-                (ak/= best-left left)
-                (ak/= best-right right)
-                (ak/= best-token (a/field merge token)))))
+                (= found true)
+                (= best-rank (a/field merge rank))
+                (= best-left left)
+                (= best-right right)
+                (= best-token (a/field merge token)))))
           (when found
-            (let [^:var input-index (ak/usize 0)
-                  ^:var output-index (ak/usize 0)]
-              (ak/while (< input-index token-count)
+            (let [^:var input-index (usize 0)
+                  ^:var output-index (usize 0)]
+              (while (< input-index token-count)
                 (if (and (< (+ input-index 1) token-count)
-                         (ak/== (a/index tokens input-index) best-left)
-                         (ak/== (a/index tokens (+ input-index 1)) best-right))
+                         (== (a/index tokens input-index) best-left)
+                         (== (a/index tokens (+ input-index 1)) best-right))
                   (do
-                    (ak/= (a/index tokens output-index) best-token)
-                    (ak/= input-index (+ input-index 2)))
+                    (= (a/index tokens output-index) best-token)
+                    (= input-index (+ input-index 2)))
                   (do
-                    (ak/= (a/index tokens output-index)
-                          (a/index tokens input-index))
-                    (ak/= input-index (+ input-index 1))))
-                (ak/= output-index (+ output-index 1)))
-              (ak/= token-count output-index))))))
+                    (= (a/index tokens output-index)
+                       (a/index tokens input-index))
+                    (= input-index (+ input-index 1))))
+                (= output-index (+ output-index 1)))
+              (= token-count output-index))))))
     (TokenizationReport
      {:valid valid
       :truncated (> length tokenizer-capacity)
-      :byte_count (ak/intCast length)
-      :token_count (ak/intCast token-count)
+      :byte_count (intCast length)
+      :token_count (intCast token-count)
       :unsupported_index unsupported
       :reserved 0
       :tokens tokens})))
@@ -1491,7 +1493,7 @@
   "Return one UTF-8 byte from a tensor name for JVM/native inspection."
   [[tensor-index :usize]
    [byte-index :usize]]
-  (if (or (ak/== model-bytes ak/null)
+  (if (or (== model-bytes null)
           (>= tensor-index tensor-catalog-count)
           (>= byte-index
               (a/field (a/index tensor-catalog tensor-index) name_length)))
@@ -1503,25 +1505,25 @@
 (a/defn tensor-name-equals :bool
   [[tensor-index :usize]
    [expected [:* {:size :c :const? true} :u8]]]
-  (if (or (ak/== model-bytes ak/null)
+  (if (or (== model-bytes null)
           (>= tensor-index tensor-catalog-count))
     false
     (let [length (a/field (a/index tensor-catalog tensor-index) name_length)
-          ^:var equal (ak/bool true)]
+          ^:var equal (bool true)]
       (dotimes [byte-index length]
-        (when (ak/!= (tensor-name-byte tensor-index byte-index)
-                     (a/index expected byte-index))
-          (ak/= equal false)))
-      (and equal (ak/== (a/index expected length) 0)))))
+        (when (!= (tensor-name-byte tensor-index byte-index)
+                  (a/index expected byte-index))
+          (= equal false)))
+      (and equal (== (a/index expected length) 0)))))
 
 (a/defn find-tensor :usize
   "Resolve a GGUF tensor by its exact zero-terminated name."
   [[expected [:* {:size :c :const? true} :u8]]]
-  (let [^:var found (ak/usize tensor-not-found)]
+  (let [^:var found (usize tensor-not-found)]
     (dotimes [tensor-index tensor-catalog-count]
-      (when (and (ak/== found tensor-not-found)
+      (when (and (== found tensor-not-found)
                  (tensor-name-equals tensor-index expected))
-        (ak/= found tensor-index)))
+        (= found tensor-index)))
     found))
 
 (a/defn load-model! GgufSummary
@@ -1529,77 +1531,77 @@
   [[path [:* {:size :c :const? true} :u8]]]
   (unload-model!)
   (let [file (runtime/fopen path "rb")]
-    (if (ak/== file ak/null)
+    (if (== file null)
       (do
-        (ak/= model-summary
-              (GgufSummary
-               {:loaded false :valid false :error_code model-file-not-found
-                :version 0 :tensor_count 0 :metadata_count 0
-                :f32_tensors 0 :q4_0_tensors 0 :q6_k_tensors 0
-                :descriptor_end 0 :data_offset 0 :file_size 0}))
+        (= model-summary
+           (GgufSummary
+            {:loaded false :valid false :error_code model-file-not-found
+             :version 0 :tensor_count 0 :metadata_count 0
+             :f32_tensors 0 :q4_0_tensors 0 :q6_k_tensors 0
+             :descriptor_end 0 :data_offset 0 :file_size 0}))
         model-summary)
       (do
-        (ak/= :_ (runtime/fseek file 0 2))
+        (= :_ (runtime/fseek file 0 2))
         (let [signed-size (runtime/ftell file)]
-          (ak/= :_ (runtime/fseek file 0 0))
+          (= :_ (runtime/fseek file 0 0))
           (if (<= signed-size 0)
-            (ak/= model-summary
-                  (GgufSummary
-                   {:loaded true :valid false :error_code model-file-empty
-                    :version 0 :tensor_count 0 :metadata_count 0
-                    :f32_tensors 0 :q4_0_tensors 0 :q6_k_tensors 0
-                    :descriptor_end 0 :data_offset 0 :file_size 0}))
-            (let [size (ak/as (ak/intCast signed-size) :usize)
+            (= model-summary
+               (GgufSummary
+                {:loaded true :valid false :error_code model-file-empty
+                 :version 0 :tensor_count 0 :metadata_count 0
+                 :f32_tensors 0 :q4_0_tensors 0 :q6_k_tensors 0
+                 :descriptor_end 0 :data_offset 0 :file_size 0}))
+            (let [size (as (intCast signed-size) :usize)
                   mapping
-                  (catch
+                  (ak/catch
                    (std-posix/mmap
-                    ak/null size
+                    null size
                     {:READ true}
                     {:TYPE :PRIVATE}
                     (runtime/fileno file)
                     0)
-                   ak/null)]
-              (if (ak/!= mapping ak/null)
+                   null)]
+              (if (!= mapping null)
                 (let [bytes
-                      (ak/as (ak/ptrCast
-                              (a/field (a/unwrap mapping) ptr))
-                             (a/type [:c-pointer :u8]))]
-                  (ak/= model-bytes bytes)
-                  (ak/= model-byte-count size)
-                  (ak/= model-storage model-storage-mapped)
-                  (ak/= model-summary (parse-gguf bytes size)))
+                      (as (ptrCast
+                           (a/field (a/unwrap mapping) ptr))
+                          (a/type [:c-pointer :u8]))]
+                  (= model-bytes bytes)
+                  (= model-byte-count size)
+                  (= model-storage model-storage-mapped)
+                  (= model-summary (parse-gguf bytes size)))
                 (let [allocation (runtime/malloc size)]
-                  (if (ak/== allocation ak/null)
-                    (ak/= model-summary
-                          (GgufSummary
-                           {:loaded true :valid false
-                            :error_code model-allocation-failed
-                            :version 0 :tensor_count 0 :metadata_count 0
-                            :f32_tensors 0 :q4_0_tensors 0 :q6_k_tensors 0
-                            :descriptor_end 0 :data_offset 0 :file_size size}))
+                  (if (== allocation null)
+                    (= model-summary
+                       (GgufSummary
+                        {:loaded true :valid false
+                         :error_code model-allocation-failed
+                         :version 0 :tensor_count 0 :metadata_count 0
+                         :f32_tensors 0 :q4_0_tensors 0 :q6_k_tensors 0
+                         :descriptor_end 0 :data_offset 0 :file_size size}))
                     (let [bytes (a/cast allocation [:c-pointer :u8])
                           count (runtime/fread bytes 1 size file)]
-                      (if (ak/== count size)
+                      (if (== count size)
                         (do
-                          (ak/= model-bytes bytes)
-                          (ak/= model-byte-count size)
-                          (ak/= model-storage model-storage-owned)
-                          (ak/= model-summary (parse-gguf bytes size)))
+                          (= model-bytes bytes)
+                          (= model-byte-count size)
+                          (= model-storage model-storage-owned)
+                          (= model-summary (parse-gguf bytes size)))
                         (do
                           (runtime/free allocation)
-                          (ak/= model-summary
-                                (GgufSummary
-                                 {:loaded true :valid false
-                                  :error_code model-file-read-failed
-                                  :version 0 :tensor_count 0 :metadata_count 0
-                                  :f32_tensors 0 :q4_0_tensors 0
-                                  :q6_k_tensors 0 :descriptor_end 0
-                                  :data_offset 0 :file_size size})))))))))))
+                          (= model-summary
+                             (GgufSummary
+                              {:loaded true :valid false
+                               :error_code model-file-read-failed
+                               :version 0 :tensor_count 0 :metadata_count 0
+                               :f32_tensors 0 :q4_0_tensors 0
+                               :q6_k_tensors 0 :descriptor_end 0
+                               :data_offset 0 :file_size size})))))))))))
         (when (and (a/field model-summary valid)
-                   (ak/! (configure-model-profile!)))
-          (ak/= (a/field model-summary valid) false)
-          (ak/= (a/field model-summary error_code) model-profile-unsupported))
-        (ak/= :_ (runtime/fclose file))
+                   (! (configure-model-profile!)))
+          (= (a/field model-summary valid) false)
+          (= (a/field model-summary error_code) model-profile-unsupported))
+        (= :_ (runtime/fclose file))
         model-summary))))
 
 (a/defn inference-summary GgufSummary
@@ -1612,48 +1614,48 @@
   allowing Zig to use the host's native vector instructions."
   [[block [:* {:size :c :const? true} :u8]]
    [input [:* {:size :c :const? true} :f32]]]
-  (let [scale-bits (+ (ak/as (a/index block 0) :u16)
-                      (* (ak/as (a/index block 1) :u16) 256))
-        scale (ak/as (ak/floatCast (ak/as (ak/bitCast scale-bits) :f16)) :f32)
-        packed-bytes (ak/as (ak/bitCast
-                             (a/deref
-                              (a/cast (+ block 2)
-                                      [:* {:const? true}
-                                       [:array 16 :u8]]))) [:vector 16 :u8])
-        low-unsigned
-        (ak/as (ak/& packed-bytes
-                     (ak/as (ak/splat 15) (a/type [:vector 16 :u8]))) [:vector 16 :u8])
-        high-unsigned
-        (ak/as (ak/>> packed-bytes
-                      (ak/as (ak/splat 4) [:vector 16 :u3])) [:vector 16 :u8])
-        low-signed
-        (ak/as (- (ak/as (ak/intCast low-unsigned)
-                         (a/type [:vector 16 :i16]))
-                  (ak/as (ak/splat 8) (a/type [:vector 16 :i16]))) [:vector 16 :i16])
-        high-signed
-        (ak/as (- (ak/as (ak/intCast high-unsigned)
-                         (a/type [:vector 16 :i16]))
-                  (ak/as (ak/splat 8) (a/type [:vector 16 :i16]))) [:vector 16 :i16])
-        low-values
-        (ak/as (ak/as (ak/floatFromInt low-signed)
-                      (a/type [:vector 16 :f32])) [:vector 16 :f32])
-        high-values
-        (ak/as (ak/as (ak/floatFromInt high-signed)
-                      (a/type [:vector 16 :f32])) [:vector 16 :f32])
-        low-input (ak/as (ak/bitCast
+  (let [scale-bits (+ (as (a/index block 0) :u16)
+                      (* (as (a/index block 1) :u16) 256))
+        scale (as (floatCast (as (bitCast scale-bits) :f16)) :f32)
+        packed-bytes (as (bitCast
                           (a/deref
-                           (a/cast input
+                           (a/cast (+ block 2)
                                    [:* {:const? true}
-                                    [:array 16 :f32]]))) [:vector 16 :f32])
-        high-input (ak/as (ak/bitCast
-                           (a/deref
-                            (a/cast (+ input 16)
-                                    [:* {:const? true}
-                                     [:array 16 :f32]]))) [:vector 16 :f32])]
+                                    [:array 16 :u8]]))) [:vector 16 :u8])
+        low-unsigned
+        (as (ak/& packed-bytes
+                  (as (splat 15) (a/type [:vector 16 :u8]))) [:vector 16 :u8])
+        high-unsigned
+        (as (>> packed-bytes
+                (as (splat 4) [:vector 16 :u3])) [:vector 16 :u8])
+        low-signed
+        (as (- (as (intCast low-unsigned)
+                   (a/type [:vector 16 :i16]))
+               (as (splat 8) (a/type [:vector 16 :i16]))) [:vector 16 :i16])
+        high-signed
+        (as (- (as (intCast high-unsigned)
+                   (a/type [:vector 16 :i16]))
+               (as (splat 8) (a/type [:vector 16 :i16]))) [:vector 16 :i16])
+        low-values
+        (as (as (floatFromInt low-signed)
+                (a/type [:vector 16 :f32])) [:vector 16 :f32])
+        high-values
+        (as (as (floatFromInt high-signed)
+                (a/type [:vector 16 :f32])) [:vector 16 :f32])
+        low-input (as (bitCast
+                       (a/deref
+                        (a/cast input
+                                [:* {:const? true}
+                                 [:array 16 :f32]]))) [:vector 16 :f32])
+        high-input (as (bitCast
+                        (a/deref
+                         (a/cast (+ input 16)
+                                 [:* {:const? true}
+                                  [:array 16 :f32]]))) [:vector 16 :f32])]
     (* scale
-       (ak/reduce :Add
-                  (+ (* low-values low-input)
-                     (* high-values high-input))))))
+       (reduce :Add
+               (+ (* low-values low-input)
+                  (* high-values high-input))))))
 
 (a/defn- q4-0-value :f32
   "Decode one value from a GGML Q4_0 block without allocating."
@@ -1661,17 +1663,17 @@
    [index :usize]]
   (if (>= index 32)
     0.0
-    (let [scale-bits (+ (ak/as (a/index block 0) :u16)
-                        (* (ak/as (a/index block 1) :u16) 256))
-          scale (ak/as (ak/floatCast (ak/as (ak/bitCast scale-bits) :f16))
-                       :f32)
+    (let [scale-bits (+ (as (a/index block 0) :u16)
+                        (* (as (a/index block 1) :u16) 256))
+          scale (as (floatCast (as (bitCast scale-bits) :f16))
+                    :f32)
           packed-byte (a/index block (+ 2 (mod index 16)))
           quantized (if (< index 16)
                       (mod packed-byte 16)
                       (/ packed-byte 16))]
       (* scale
-         (ak/as (ak/floatFromInt (- (ak/as quantized :i16) 8))
-                :f32)))))
+         (as (floatFromInt (- (as quantized :i16) 8))
+             :f32)))))
 
 (a/defn rms-norm! :void
   "Allocation-free RMSNorm over one dense activation vector."
@@ -1680,32 +1682,32 @@
    [weights [:* {:size :c :const? true} :f32]]
    [length :usize]
    [epsilon :f32]]
-  (let [^:var square-sum (ak/f32 0.0)]
+  (let [^:var square-sum (f32 0.0)]
     (dotimes [index length]
-      (ak/= square-sum (+ square-sum (* (a/index input index)
-                                        (a/index input index)))))
+      (= square-sum (+ square-sum (* (a/index input index)
+                                     (a/index input index)))))
     (let [inverse-rms (/ 1.0 (std-math/sqrt (+ (/ square-sum
-                                                  (ak/as (ak/floatFromInt length) :f32))
+                                                  (as (floatFromInt length) :f32))
                                                epsilon)))]
       (dotimes [index length]
-        (ak/= (a/index output index)
-              (* (a/index input index) inverse-rms (a/index weights index)))))))
+        (= (a/index output index)
+           (* (a/index input index) inverse-rms (a/index weights index)))))))
 
 (a/defn softmax! :void
   "Stable in-place softmax used by the attention reference path."
   [[values [:c-pointer :f32]]
    [length :usize]]
   (when (> length 0)
-    (let [^:var maximum (ak/f32 (a/index values 0))
-          ^:var total (ak/f32 0.0)]
+    (let [^:var maximum (f32 (a/index values 0))
+          ^:var total (f32 0.0)]
       (dotimes [index length]
-        (ak/= maximum (ak/max maximum (a/index values index))))
+        (= maximum (max maximum (a/index values index))))
       (dotimes [index length]
         (let [value (std-math/exp (- (a/index values index) maximum))]
-          (ak/= (a/index values index) value)
-          (ak/= total (+ total value))))
+          (= (a/index values index) value)
+          (= total (+ total value))))
       (dotimes [index length]
-        (ak/= (a/index values index) (/ (a/index values index) total))))))
+        (= (a/index values index) (/ (a/index values index) total))))))
 
 (a/defn- softplus :f32
   [[value :f32]]
@@ -1734,17 +1736,17 @@
       (dotimes [component head-dimension]
         (let [hidden-index (+ (* head head-dimension) component)
               hidden-value (a/index hidden hidden-index)
-              ^:var total (ak/f32 0.0)]
+              ^:var total (f32 0.0)]
           (dotimes [state-component state-size]
             (let [state-index (+ (* hidden-index state-size) state-component)
                   next-state (+ (* (a/index state state-index) decay)
                                 (* delta (a/index b state-component)
                                    hidden-value))]
-              (ak/= (a/index state state-index) next-state)
-              (ak/= total (+ total
-                             (* next-state (a/index c state-component))))))
-          (ak/= (a/index output hidden-index)
-                (+ total (* hidden-value (a/index d head)))))))))
+              (= (a/index state state-index) next-state)
+              (= total (+ total
+                          (* next-state (a/index c state-component))))))
+          (= (a/index output hidden-index)
+             (+ total (* hidden-value (a/index d head)))))))))
 
 (a/defn tensor-rms-norm-gated! :bool
   "Apply Granite's SiLU gate before weighted RMS normalization."
@@ -1755,56 +1757,56 @@
    [length :usize]
    [epsilon :f32]]
   (if (or (>= weights-index tensor-catalog-count)
-          (ak/!= (a/field (a/index tensor-catalog weights-index) ggml_type) 0))
+          (!= (a/field (a/index tensor-catalog weights-index) ggml_type) 0))
     false
-    (let [^:var square-sum (ak/f32 0.0)]
+    (let [^:var square-sum (f32 0.0)]
       (dotimes [index length]
         (let [value (* (a/index hidden index)
                        (silu (a/index gate index)))]
-          (ak/= (a/index output index) value)
-          (ak/= square-sum (+ square-sum (* value value)))))
+          (= (a/index output index) value)
+          (= square-sum (+ square-sum (* value value)))))
       (let [inverse-rms (/ 1.0
                            (std-math/sqrt
                             (+ (/ square-sum
-                                  (ak/as (ak/floatFromInt length) :f32))
+                                  (as (floatFromInt length) :f32))
                                epsilon)))]
         (dotimes [index length]
-          (ak/= (a/index output index)
-                (* (a/index output index) inverse-rms
-                   (tensor-element weights-index index)))))
+          (= (a/index output index)
+             (* (a/index output index) inverse-rms
+                (tensor-element weights-index index)))))
       true)))
 
 (a/defn attention-layer? :bool
   "Whether one Granite hybrid layer uses causal GQA instead of Mamba-2."
   [[layer :usize]]
-  (if (or (ak/== model-profile-id model-profile-granite-h-1b)
-          (ak/== model-profile-id model-profile-granite-h-micro))
-    (or (ak/== layer 5)
-        (ak/== layer 15)
-        (ak/== layer 25)
-        (ak/== layer 35))
-    (or (ak/== layer 10)
-        (ak/== layer 13)
-        (ak/== layer 17)
-        (ak/== layer 27))))
+  (if (or (== model-profile-id model-profile-granite-h-1b)
+          (== model-profile-id model-profile-granite-h-micro))
+    (or (== layer 5)
+        (== layer 15)
+        (== layer 25)
+        (== layer 35))
+    (or (== layer 10)
+        (== layer 13)
+        (== layer 17)
+        (== layer 27))))
 
 (a/defn attention-layer-slot :usize
   "Map one supported profile's attention layer to compact KV slot 0..3."
   [[layer :usize]]
-  (if (ak/! (attention-layer? layer))
+  (if (! (attention-layer? layer))
     model-attention-layer-count
-    (let [^:var slot (ak/usize 0)]
+    (let [^:var slot (usize 0)]
       (dotimes [candidate layer]
         (when (attention-layer? candidate)
-          (ak/= slot (+ slot 1))))
+          (= slot (+ slot 1))))
       slot)))
 
 (a/defn attention-layers-before :usize
   [[layer :usize]]
-  (let [^:var count (ak/usize 0)]
+  (let [^:var count (usize 0)]
     (dotimes [candidate layer]
       (when (attention-layer? candidate)
-        (ak/= count (+ count 1))))
+        (= count (+ count 1))))
     count))
 
 (a/defn layer-base-index :usize
@@ -1817,69 +1819,69 @@
 (a/defn layer-attention-norm-index :usize
   [[layer :usize]]
   (let [base (layer-base-index layer)]
-    (if (ak/== base tensor-not-found)
+    (if (== base tensor-not-found)
       tensor-not-found
       (+ base (if (attention-layer? layer)
-                (ak/as 1 :usize)
-                (ak/as 0 :usize))))))
+                (as 1 :usize)
+                (as 0 :usize))))))
 
 (a/defn layer-ffn-down-index :usize
   [[layer :usize]]
   (let [base (layer-base-index layer)]
-    (if (ak/== base tensor-not-found)
+    (if (== base tensor-not-found)
       tensor-not-found
       (+ base (if (attention-layer? layer)
-                (ak/as 5 :usize)
-                (ak/as 1 :usize))))))
+                (as 5 :usize)
+                (as 1 :usize))))))
 
 (a/defn layer-ffn-gate-index :usize
   [[layer :usize]]
   (let [base (layer-base-index layer)]
-    (if (ak/== base tensor-not-found)
+    (if (== base tensor-not-found)
       tensor-not-found
       (+ base (if (attention-layer? layer)
-                (ak/as 6 :usize)
-                (ak/as 2 :usize))))))
+                (as 6 :usize)
+                (as 2 :usize))))))
 
 (a/defn layer-ffn-norm-index :usize
   [[layer :usize]]
   (let [base (layer-base-index layer)]
-    (if (ak/== base tensor-not-found)
+    (if (== base tensor-not-found)
       tensor-not-found
       (+ base (if (attention-layer? layer)
-                (ak/as 7 :usize)
-                (ak/as 3 :usize))))))
+                (as 7 :usize)
+                (as 3 :usize))))))
 
 (a/defn layer-ffn-up-index :usize
   [[layer :usize]]
   (let [base (layer-base-index layer)]
-    (if (ak/== base tensor-not-found)
+    (if (== base tensor-not-found)
       tensor-not-found
       (+ base (if (attention-layer? layer)
-                (ak/as 8 :usize)
-                (ak/as 4 :usize))))))
+                (as 8 :usize)
+                (as 4 :usize))))))
 
 (a/defn free-sequences! :void
   "Release all native racer cognition state while leaving shared weights loaded."
   []
-  (when (ak/!= sequence-memory ak/null)
+  (when (!= sequence-memory null)
     (runtime/free
      (a/cast (a/unwrap sequence-memory) [:* :anyopaque])))
-  (ak/= sequence-memory ak/null)
-  (ak/= sequence-memory-floats 0)
+  (= sequence-memory null)
+  (= sequence-memory-floats 0)
   (dotimes [racer sequence-racer-count]
-    (ak/= (a/index sequence-positions racer) 0)))
+    (= (a/index sequence-positions racer) 0)))
 
 (a/defn reset-all-sequences! :bool
   "Clear every recurrent, convolution, and KV state in-place."
   []
-  (let [initialized (ak/!= sequence-memory ak/null)]
+  (let [initialized (!= sequence-memory null)]
     (when initialized
       (let [memory (a/unwrap sequence-memory)]
-        (ak/memset (a/slice memory 0 sequence-memory-floats) 0.0))
+        (memset (a/slice memory 0 sequence-memory-floats) 0.0))
       (dotimes [racer sequence-racer-count]
-        (ak/= (a/index sequence-positions racer) 0))
-      (ak/memset (a/slice action-head-inputs 0 (* sequence-racer-count action-head-input-count)) 0.0))
+        (= (a/index sequence-positions racer) 0))
+      (memset (a/slice action-head-inputs 0 (* sequence-racer-count action-head-input-count)) 0.0))
     initialized))
 
 (a/defn initialize-sequences! :bool
@@ -1888,18 +1890,18 @@
   []
   (free-sequences!)
   (let [allocation (runtime/malloc sequence-total-bytes)
-        ^:var initialized (ak/bool false)]
-    (when (ak/!= allocation ak/null)
-      (ak/= sequence-memory (a/cast allocation [:c-pointer :f32]))
-      (ak/= sequence-memory-floats sequence-total-floats)
-      (ak/= initialized (reset-all-sequences!)))
+        ^:var initialized (bool false)]
+    (when (!= allocation null)
+      (= sequence-memory (a/cast allocation [:c-pointer :f32]))
+      (= sequence-memory-floats sequence-total-floats)
+      (= initialized (reset-all-sequences!)))
     initialized))
 
 (a/defn reset-sequence! :bool
   "Clear one racer's independent recurrent and KV history."
   [[racer :usize]]
   (let [valid (and (< racer sequence-racer-count)
-                   (ak/!= sequence-memory ak/null))]
+                   (!= sequence-memory null))]
     (when valid
       (let [memory (a/unwrap sequence-memory)
             mamba-count (* model-mamba-layer-count
@@ -1914,13 +1916,13 @@
                          (* racer kv-count))
             value-start (+ sequence-mamba-floats sequence-conv-floats
                            sequence-kv-floats (* racer kv-count))]
-        (ak/memset (a/slice memory mamba-start (+ mamba-start mamba-count)) 0.0)
-        (ak/memset (a/slice memory conv-start (+ conv-start conv-count)) 0.0)
-        (ak/memset (a/slice memory key-start (+ key-start kv-count)) 0.0)
-        (ak/memset (a/slice memory value-start (+ value-start kv-count)) 0.0)
-        (ak/memset (a/slice action-head-inputs (* racer action-head-input-count)
-                            (* (+ racer 1) action-head-input-count)) 0.0)
-        (ak/= (a/index sequence-positions racer) 0)))
+        (memset (a/slice memory mamba-start (+ mamba-start mamba-count)) 0.0)
+        (memset (a/slice memory conv-start (+ conv-start conv-count)) 0.0)
+        (memset (a/slice memory key-start (+ key-start kv-count)) 0.0)
+        (memset (a/slice memory value-start (+ value-start kv-count)) 0.0)
+        (memset (a/slice action-head-inputs (* racer action-head-input-count)
+                         (* (+ racer 1) action-head-input-count)) 0.0)
+        (= (a/index sequence-positions racer) 0)))
     valid))
 
 (a/defn copy-last-hidden! :bool
@@ -1933,15 +1935,15 @@
                    (> (a/index sequence-positions racer) 0))]
     (when valid
       (dotimes [index model-hidden-size]
-        (ak/= (a/index output index)
-              (a/index action-head-inputs
-                       (+ (* racer action-head-input-count)
-                          (* (ak/as (ak/min
-                                     (- (a/index sequence-positions racer) 1)
-                                     (ak/as 7 :u16))
-                                    :usize)
-                             model-hidden-size)
-                          index)))))
+        (= (a/index output index)
+           (a/index action-head-inputs
+                    (+ (* racer action-head-input-count)
+                       (* (as (min
+                               (- (a/index sequence-positions racer) 1)
+                               (as 7 :u16))
+                              :usize)
+                          model-hidden-size)
+                       index)))))
     valid))
 
 (a/defn copy-action-features! :bool
@@ -1953,29 +1955,29 @@
                    (> (a/index sequence-positions racer) 0))]
     (when valid
       (dotimes [index action-head-input-count]
-        (ak/= (a/index output index)
-              (a/index action-head-inputs
-                       (+ (* racer action-head-input-count) index)))))
+        (= (a/index output index)
+           (a/index action-head-inputs
+                    (+ (* racer action-head-input-count) index)))))
     valid))
 
 (a/defn sequence-summary SequenceSummary
   "Return allocation size and each racer's independent token position."
   []
   (SequenceSummary
-   {:initialized (ak/!= sequence-memory ak/null)
-    :racer_count (ak/intCast sequence-racer-count)
-    :capacity (ak/intCast sequence-capacity)
-    :state_bytes (if (ak/== sequence-memory ak/null) 0 sequence-total-bytes)
+   {:initialized (!= sequence-memory null)
+    :racer_count (intCast sequence-racer-count)
+    :capacity (intCast sequence-capacity)
+    :state_bytes (if (== sequence-memory null) 0 sequence-total-bytes)
     :positions sequence-positions}))
 
 (a/defn sequence-mamba-state [:optional [:c-pointer :f32]]
   [[racer :usize]
    [layer :usize]]
-  (if (or (ak/== sequence-memory ak/null)
+  (if (or (== sequence-memory null)
           (>= racer sequence-racer-count)
           (>= layer model-layer-count)
           (attention-layer? layer))
-    ak/null
+    null
     (+ (a/unwrap sequence-memory)
        (* racer model-mamba-layer-count model-mamba-recurrent-size)
        (* (- layer (attention-layers-before layer))
@@ -1984,11 +1986,11 @@
 (a/defn sequence-conv-state [:optional [:c-pointer :f32]]
   [[racer :usize]
    [layer :usize]]
-  (if (or (ak/== sequence-memory ak/null)
+  (if (or (== sequence-memory null)
           (>= racer sequence-racer-count)
           (>= layer model-layer-count)
           (attention-layer? layer))
-    ak/null
+    null
     (+ (a/unwrap sequence-memory)
        sequence-mamba-floats
        (* racer model-mamba-layer-count model-mamba-conv-state-size)
@@ -1999,10 +2001,10 @@
   [[racer :usize]
    [layer :usize]]
   (let [slot (attention-layer-slot layer)]
-    (if (or (ak/== sequence-memory ak/null)
+    (if (or (== sequence-memory null)
             (>= racer sequence-racer-count)
             (>= slot model-attention-layer-count))
-      ak/null
+      null
       (+ (a/unwrap sequence-memory)
          sequence-mamba-floats sequence-conv-floats
          (* racer model-attention-layer-count sequence-capacity
@@ -2013,10 +2015,10 @@
   [[racer :usize]
    [layer :usize]]
   (let [slot (attention-layer-slot layer)]
-    (if (or (ak/== sequence-memory ak/null)
+    (if (or (== sequence-memory null)
             (>= racer sequence-racer-count)
             (>= slot model-attention-layer-count))
-      ak/null
+      null
       (+ (a/unwrap sequence-memory)
          sequence-mamba-floats sequence-conv-floats sequence-kv-floats
          (* racer model-attention-layer-count sequence-capacity
@@ -2036,29 +2038,29 @@
         gate-index (layer-ffn-gate-index layer)
         up-index (layer-ffn-up-index layer)
         down-index (layer-ffn-down-index layer)
-        ^:var valid (ak/bool (ak/! (or (ak/== norm-index tensor-not-found)
-                                       (ak/== gate-index tensor-not-found)
-                                       (ak/== up-index tensor-not-found)
-                                       (ak/== down-index tensor-not-found))))]
+        ^:var valid (bool (! (or (== norm-index tensor-not-found)
+                                 (== gate-index tensor-not-found)
+                                 (== up-index tensor-not-found)
+                                 (== down-index tensor-not-found))))]
     (when valid
-      (ak/= valid
-            (tensor-rms-norm! normalized hidden norm-index
-                              model-hidden-size model-rms-epsilon)))
+      (= valid
+         (tensor-rms-norm! normalized hidden norm-index
+                           model-hidden-size model-rms-epsilon)))
     (when valid
-      (ak/= valid (tensor-matvec! gate model-ffn-size gate-index normalized)))
+      (= valid (tensor-matvec! gate model-ffn-size gate-index normalized)))
     (when valid
-      (ak/= valid (tensor-matvec! up model-ffn-size up-index normalized)))
+      (= valid (tensor-matvec! up model-ffn-size up-index normalized)))
     (when valid
       (dotimes [index model-ffn-size]
-        (ak/= (a/index activated index)
-              (* (silu (a/index gate index)) (a/index up index))))
-      (ak/= valid
-            (tensor-matvec! output model-hidden-size down-index activated)))
+        (= (a/index activated index)
+           (* (silu (a/index gate index)) (a/index up index))))
+      (= valid
+         (tensor-matvec! output model-hidden-size down-index activated)))
     (when valid
       (dotimes [index model-hidden-size]
-        (ak/= (a/index hidden index)
-              (+ (a/index hidden index)
-                 (* model-residual-multiplier (a/index output index))))))
+        (= (a/index hidden index)
+           (+ (a/index hidden index)
+              (* model-residual-multiplier (a/index output index))))))
     valid))
 
 (a/defn mamba-layer-step! :bool
@@ -2084,49 +2086,49 @@
         in-index (+ base 10)
         mamba-norm-index (+ base 11)
         out-index (+ base 12)
-        ^:var a (ak/as (std-mem/zeroes (a/type [:array model-max-mamba-head-count :f32])) [:array model-max-mamba-head-count :f32])
-        ^:var d (ak/as (std-mem/zeroes (a/type [:array model-max-mamba-head-count :f32])) [:array model-max-mamba-head-count :f32])
-        ^:var dt-bias (ak/as (std-mem/zeroes (a/type [:array model-max-mamba-head-count :f32])) [:array model-max-mamba-head-count :f32])
-        ^:var valid (ak/bool (and (< layer model-layer-count)
-                                  (ak/! (attention-layer? layer))
-                                  (ak/!= base tensor-not-found)))]
+        ^:var a (as (std-mem/zeroes (a/type [:array model-max-mamba-head-count :f32])) [:array model-max-mamba-head-count :f32])
+        ^:var d (as (std-mem/zeroes (a/type [:array model-max-mamba-head-count :f32])) [:array model-max-mamba-head-count :f32])
+        ^:var dt-bias (as (std-mem/zeroes (a/type [:array model-max-mamba-head-count :f32])) [:array model-max-mamba-head-count :f32])
+        ^:var valid (bool (and (< layer model-layer-count)
+                               (! (attention-layer? layer))
+                               (!= base tensor-not-found)))]
     (when valid
-      (ak/= valid
-            (tensor-rms-norm! normalized hidden norm-index
-                              model-hidden-size model-rms-epsilon)))
+      (= valid
+         (tensor-rms-norm! normalized hidden norm-index
+                           model-hidden-size model-rms-epsilon)))
     (when valid
-      (ak/= valid
-            (tensor-matvec! projected model-mamba-projection-size
-                            in-index normalized)))
+      (= valid
+         (tensor-matvec! projected model-mamba-projection-size
+                         in-index normalized)))
     (when valid
       (dotimes [channel model-mamba-conv-size]
         (let [state-start (* channel 3)
               weight-start (* channel 4)
               current (a/index projected (+ model-mamba-inner-size channel))
-              ^:var total (ak/f32 (tensor-element conv-bias-index channel))]
+              ^:var total (f32 (tensor-element conv-bias-index channel))]
           (dotimes [tap 3]
-            (ak/= total
-                  (+ total
-                     (* (a/index conv-state (+ state-start tap))
-                        (tensor-element conv-weight-index
-                                        (+ weight-start tap))))))
-          (ak/= total
-                (+ total
-                   (* current
-                      (tensor-element conv-weight-index (+ weight-start 3)))))
-          (ak/= (a/index conv-state state-start)
-                (a/index conv-state (+ state-start 1)))
-          (ak/= (a/index conv-state (+ state-start 1))
-                (a/index conv-state (+ state-start 2)))
-          (ak/= (a/index conv-state (+ state-start 2)) current)
-          (ak/= (a/index convolved channel) (silu total))))
+            (= total
+               (+ total
+                  (* (a/index conv-state (+ state-start tap))
+                     (tensor-element conv-weight-index
+                                     (+ weight-start tap))))))
+          (= total
+             (+ total
+                (* current
+                   (tensor-element conv-weight-index (+ weight-start 3)))))
+          (= (a/index conv-state state-start)
+             (a/index conv-state (+ state-start 1)))
+          (= (a/index conv-state (+ state-start 1))
+             (a/index conv-state (+ state-start 2)))
+          (= (a/index conv-state (+ state-start 2)) current)
+          (= (a/index convolved channel) (silu total))))
       (dotimes [head model-mamba-head-count]
         ;; GGUF conversion already transforms HF A_log into -exp(A_log).
         ;; Applying that transform twice changes the recurrent dynamics.
-        (ak/= (a/index a head)
-              (tensor-element a-index head))
-        (ak/= (a/index d head) (tensor-element d-index head))
-        (ak/= (a/index dt-bias head) (tensor-element dt-bias-index head)))
+        (= (a/index a head)
+           (tensor-element a-index head))
+        (= (a/index d head) (tensor-element d-index head))
+        (= (a/index dt-bias head) (tensor-element dt-bias-index head)))
       (mamba-selective-step!
        scan-output recurrent-state convolved
        (+ projected
@@ -2139,20 +2141,20 @@
        (ak/& (a/index dt-bias 0))
        model-mamba-head-count model-mamba-head-size
        model-mamba-state-size)
-      (ak/= valid
-            (tensor-rms-norm-gated!
-             gated-output scan-output projected mamba-norm-index
-             model-mamba-inner-size model-rms-epsilon)))
+      (= valid
+         (tensor-rms-norm-gated!
+          gated-output scan-output projected mamba-norm-index
+          model-mamba-inner-size model-rms-epsilon)))
     (when valid
-      (ak/= valid
-            (tensor-matvec! branch-output model-hidden-size out-index
-                            gated-output)))
+      (= valid
+         (tensor-matvec! branch-output model-hidden-size out-index
+                         gated-output)))
     (when valid
       (dotimes [index model-hidden-size]
-        (ak/= (a/index hidden index)
-              (+ (a/index hidden index)
-                 (* model-residual-multiplier
-                    (a/index branch-output index))))))
+        (= (a/index hidden index)
+           (+ (a/index hidden index)
+              (* model-residual-multiplier
+                 (a/index branch-output index))))))
     valid))
 
 (a/defn mamba-ffn-layer! :bool
@@ -2197,30 +2199,30 @@
         out-index (+ base 2)
         query-index (+ base 3)
         value-index (+ base 4)
-        ^:var valid (ak/bool (and (< position sequence-capacity)
-                                  (attention-layer? layer)
-                                  (ak/!= base tensor-not-found)))]
+        ^:var valid (bool (and (< position sequence-capacity)
+                               (attention-layer? layer)
+                               (!= base tensor-not-found)))]
     (when valid
-      (ak/= valid
-            (tensor-rms-norm! normalized hidden norm-index
-                              model-hidden-size model-rms-epsilon)))
+      (= valid
+         (tensor-rms-norm! normalized hidden norm-index
+                           model-hidden-size model-rms-epsilon)))
     (when valid
-      (ak/= valid
-            (tensor-matvec! query model-hidden-size query-index normalized)))
+      (= valid
+         (tensor-matvec! query model-hidden-size query-index normalized)))
     (when valid
-      (ak/= valid
-            (tensor-matvec! key model-attention-kv-size key-index normalized)))
+      (= valid
+         (tensor-matvec! key model-attention-kv-size key-index normalized)))
     (when valid
-      (ak/= valid
-            (tensor-matvec! value model-attention-kv-size value-index normalized)))
+      (= valid
+         (tensor-matvec! value model-attention-kv-size value-index normalized)))
     (when valid
       (dotimes [component model-attention-kv-size]
-        (ak/= (a/index key-cache
-                       (+ (* position model-attention-kv-size) component))
-              (a/index key component))
-        (ak/= (a/index value-cache
-                       (+ (* position model-attention-kv-size) component))
-              (a/index value component)))
+        (= (a/index key-cache
+                    (+ (* position model-attention-kv-size) component))
+           (a/index key component))
+        (= (a/index value-cache
+                    (+ (* position model-attention-kv-size) component))
+           (a/index value component)))
       (dotimes [query-head model-attention-head-count]
         (let [kv-head
               (/ query-head
@@ -2230,35 +2232,35 @@
               kv-start (* kv-head model-attention-head-size)]
           (dotimes [token (+ position 1)]
             (let [cache-start (+ (* token model-attention-kv-size) kv-start)
-                  ^:var score (ak/f32 0.0)]
+                  ^:var score (f32 0.0)]
               (dotimes [component model-attention-head-size]
-                (ak/= score
-                      (+ score
-                         (* (a/index query (+ query-start component))
-                            (a/index key-cache
-                                     (+ cache-start component))))))
-              (ak/= (a/index scores token) (* score model-attention-scale))))
+                (= score
+                   (+ score
+                      (* (a/index query (+ query-start component))
+                         (a/index key-cache
+                                  (+ cache-start component))))))
+              (= (a/index scores token) (* score model-attention-scale))))
           (softmax! scores (+ position 1))
           (dotimes [component model-attention-head-size]
-            (let [^:var total (ak/f32 0.0)]
+            (let [^:var total (f32 0.0)]
               (dotimes [token (+ position 1)]
-                (ak/= total
-                      (+ total
-                         (* (a/index scores token)
-                            (a/index value-cache
-                                     (+ (* token model-attention-kv-size)
-                                        kv-start component))))))
-              (ak/= (a/index attention-output (+ query-start component))
-                    total)))))
-      (ak/= valid
-            (tensor-matvec! branch-output model-hidden-size out-index
-                            attention-output)))
+                (= total
+                   (+ total
+                      (* (a/index scores token)
+                         (a/index value-cache
+                                  (+ (* token model-attention-kv-size)
+                                     kv-start component))))))
+              (= (a/index attention-output (+ query-start component))
+                 total)))))
+      (= valid
+         (tensor-matvec! branch-output model-hidden-size out-index
+                         attention-output)))
     (when valid
       (dotimes [index model-hidden-size]
-        (ak/= (a/index hidden index)
-              (+ (a/index hidden index)
-                 (* model-residual-multiplier
-                    (a/index branch-output index))))))
+        (= (a/index hidden index)
+           (+ (a/index hidden index)
+              (* model-residual-multiplier
+                 (a/index branch-output index))))))
     valid))
 
 (a/defn attention-ffn-layer! :bool
@@ -2291,38 +2293,38 @@
   [[layer :usize]
    [token :usize]
    [component :usize]]
-  (when (or (ak/!= model-profile-id model-profile-granite-h-350m)
+  (when (or (!= model-profile-id model-profile-granite-h-350m)
             (>= token model-vocabulary-size))
-    (ak/return (std-math/nan :f32)))
-  (if (or (ak/! (attention-layer? layer))
+    (return (std-math/nan :f32)))
+  (if (or (! (attention-layer? layer))
           (>= component model-hidden-size))
     0.0
-    (let [^:var hidden (ak/as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
-          ^:var normalized (ak/as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
-          ^:var query (ak/as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
-          ^:var key (ak/as (std-mem/zeroes (a/type [:array 256 :f32])) [:array 256 :f32])
-          ^:var value (ak/as (std-mem/zeroes (a/type [:array 256 :f32])) [:array 256 :f32])
-          ^:var scores (ak/as (std-mem/zeroes (a/type [:array 160 :f32])) [:array 160 :f32])
-          ^:var attention-output (ak/as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
-          ^:var branch-output (ak/as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
-          ^:var ffn-gate (ak/as (std-mem/zeroes (a/type [:array 2048 :f32])) [:array 2048 :f32])
-          ^:var ffn-up (ak/as (std-mem/zeroes (a/type [:array 2048 :f32])) [:array 2048 :f32])
-          ^:var ffn-activated (ak/as (std-mem/zeroes (a/type [:array 2048 :f32])) [:array 2048 :f32])
-          ^:var ffn-output (ak/as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
+    (let [^:var hidden (as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
+          ^:var normalized (as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
+          ^:var query (as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
+          ^:var key (as (std-mem/zeroes (a/type [:array 256 :f32])) [:array 256 :f32])
+          ^:var value (as (std-mem/zeroes (a/type [:array 256 :f32])) [:array 256 :f32])
+          ^:var scores (as (std-mem/zeroes (a/type [:array 160 :f32])) [:array 160 :f32])
+          ^:var attention-output (as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
+          ^:var branch-output (as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
+          ^:var ffn-gate (as (std-mem/zeroes (a/type [:array 2048 :f32])) [:array 2048 :f32])
+          ^:var ffn-up (as (std-mem/zeroes (a/type [:array 2048 :f32])) [:array 2048 :f32])
+          ^:var ffn-activated (as (std-mem/zeroes (a/type [:array 2048 :f32])) [:array 2048 :f32])
+          ^:var ffn-output (as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
           cache-elements (* sequence-capacity model-attention-kv-size)
           cache-allocation
-          (runtime/malloc (* 2 cache-elements (ak/sizeOf :f32)))]
-      (if (ak/== cache-allocation ak/null)
+          (runtime/malloc (* 2 cache-elements (sizeOf :f32)))]
+      (if (== cache-allocation null)
         0.0
         (do
-          (ak/defer (runtime/free cache-allocation))
+          (defer (runtime/free cache-allocation))
           (let [key-cache (a/cast cache-allocation [:c-pointer :f32])
                 value-cache (+ key-cache cache-elements)]
             (dotimes [index (* 2 cache-elements)]
-              (ak/= (a/index key-cache index) 0.0))
+              (= (a/index key-cache index) 0.0))
             (dotimes [index model-hidden-size]
-              (ak/= (a/index hidden index)
-                    (* 12.0 (embedding-value-kernel token index))))
+              (= (a/index hidden index)
+                 (* 12.0 (embedding-value-kernel token index))))
             (if (attention-ffn-layer!
                  layer 0
                  (ak/& (a/index hidden 0)) key-cache value-cache
@@ -2345,19 +2347,19 @@
   Unsupported profiles/tokens return NaN before accessing fixed-size buffers."
   [[token :usize]
    [component :usize]]
-  (when (or (ak/!= model-profile-id model-profile-granite-h-350m)
+  (when (or (!= model-profile-id model-profile-granite-h-350m)
             (>= token model-vocabulary-size))
-    (ak/return (std-math/nan :f32)))
-  (let [^:var residual (ak/as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
-        ^:var normalized (ak/as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
-        ^:var projected (ak/as (std-mem/zeroes (a/type [:array 3376 :f32])) [:array 3376 :f32])
-        ^:var convolved (ak/as (std-mem/zeroes (a/type [:array 1792 :f32])) [:array 1792 :f32])
-        ^:var scan-output (ak/as (std-mem/zeroes (a/type [:array 1536 :f32])) [:array 1536 :f32])
-        ^:var gated-output (ak/as (std-mem/zeroes (a/type [:array 1536 :f32])) [:array 1536 :f32])
-        ^:var branch-output (ak/as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
-        ^:var a (ak/as (std-mem/zeroes (a/type [:array 48 :f32])) [:array 48 :f32])
-        ^:var d (ak/as (std-mem/zeroes (a/type [:array 48 :f32])) [:array 48 :f32])
-        ^:var dt-bias (ak/as (std-mem/zeroes (a/type [:array 48 :f32])) [:array 48 :f32])
+    (return (std-math/nan :f32)))
+  (let [^:var residual (as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
+        ^:var normalized (as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
+        ^:var projected (as (std-mem/zeroes (a/type [:array 3376 :f32])) [:array 3376 :f32])
+        ^:var convolved (as (std-mem/zeroes (a/type [:array 1792 :f32])) [:array 1792 :f32])
+        ^:var scan-output (as (std-mem/zeroes (a/type [:array 1536 :f32])) [:array 1536 :f32])
+        ^:var gated-output (as (std-mem/zeroes (a/type [:array 1536 :f32])) [:array 1536 :f32])
+        ^:var branch-output (as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
+        ^:var a (as (std-mem/zeroes (a/type [:array 48 :f32])) [:array 48 :f32])
+        ^:var d (as (std-mem/zeroes (a/type [:array 48 :f32])) [:array 48 :f32])
+        ^:var dt-bias (as (std-mem/zeroes (a/type [:array 48 :f32])) [:array 48 :f32])
         norm-index (find-tensor "blk.0.attn_norm.weight")
         in-index (find-tensor "blk.0.ssm_in.weight")
         conv-weight-index (find-tensor "blk.0.ssm_conv1d.weight")
@@ -2368,45 +2370,45 @@
         mamba-norm-index (find-tensor "blk.0.ssm_norm.weight")
         out-index (find-tensor "blk.0.ssm_out.weight")]
     (if (or (>= component 768)
-            (ak/== norm-index tensor-not-found)
-            (ak/== in-index tensor-not-found)
-            (ak/== conv-weight-index tensor-not-found)
-            (ak/== conv-bias-index tensor-not-found)
-            (ak/== a-index tensor-not-found)
-            (ak/== d-index tensor-not-found)
-            (ak/== dt-bias-index tensor-not-found)
-            (ak/== mamba-norm-index tensor-not-found)
-            (ak/== out-index tensor-not-found))
+            (== norm-index tensor-not-found)
+            (== in-index tensor-not-found)
+            (== conv-weight-index tensor-not-found)
+            (== conv-bias-index tensor-not-found)
+            (== a-index tensor-not-found)
+            (== d-index tensor-not-found)
+            (== dt-bias-index tensor-not-found)
+            (== mamba-norm-index tensor-not-found)
+            (== out-index tensor-not-found))
       0.0
-      (let [state-allocation (runtime/malloc (* 196608 (ak/sizeOf :f32)))]
-        (if (ak/== state-allocation ak/null)
+      (let [state-allocation (runtime/malloc (* 196608 (sizeOf :f32)))]
+        (if (== state-allocation null)
           0.0
           (do
-            (ak/defer (runtime/free state-allocation))
+            (defer (runtime/free state-allocation))
             (let [recurrent-state (a/cast state-allocation [:c-pointer :f32])]
               (dotimes [index 196608]
-                (ak/= (a/index recurrent-state index) 0.0))
+                (= (a/index recurrent-state index) 0.0))
               (dotimes [index 768]
-                (ak/= (a/index residual index)
-                      (* 12.0 (embedding-value-kernel token index))))
-              (ak/= :_ (tensor-rms-norm!
-                        (ak/& (a/index normalized 0))
-                        (ak/& (a/index residual 0)) norm-index 768 0.00001))
-              (ak/= :_ (tensor-matvec!
-                        (ak/& (a/index projected 0)) 3376 in-index
-                        (ak/& (a/index normalized 0))))
+                (= (a/index residual index)
+                   (* 12.0 (embedding-value-kernel token index))))
+              (= :_ (tensor-rms-norm!
+                     (ak/& (a/index normalized 0))
+                     (ak/& (a/index residual 0)) norm-index 768 0.00001))
+              (= :_ (tensor-matvec!
+                     (ak/& (a/index projected 0)) 3376 in-index
+                     (ak/& (a/index normalized 0))))
               (dotimes [channel 1792]
-                (ak/= (a/index convolved channel)
-                      (silu (+ (* (a/index projected (+ 1536 channel))
-                                  (tensor-element conv-weight-index
-                                                  (+ (* channel 4) 3)))
-                               (tensor-element conv-bias-index channel)))))
+                (= (a/index convolved channel)
+                   (silu (+ (* (a/index projected (+ 1536 channel))
+                               (tensor-element conv-weight-index
+                                               (+ (* channel 4) 3)))
+                            (tensor-element conv-bias-index channel)))))
               (dotimes [head 48]
-                (ak/= (a/index a head)
-                      (tensor-element a-index head))
-                (ak/= (a/index d head) (tensor-element d-index head))
-                (ak/= (a/index dt-bias head)
-                      (tensor-element dt-bias-index head)))
+                (= (a/index a head)
+                   (tensor-element a-index head))
+                (= (a/index d head) (tensor-element d-index head))
+                (= (a/index dt-bias head)
+                   (tensor-element dt-bias-index head)))
               (mamba-selective-step!
                (ak/& (a/index scan-output 0))
                recurrent-state
@@ -2418,14 +2420,14 @@
                (ak/& (a/index d 0))
                (ak/& (a/index dt-bias 0))
                48 32 128)
-              (ak/= :_ (tensor-rms-norm-gated!
-                        (ak/& (a/index gated-output 0))
-                        (ak/& (a/index scan-output 0))
-                        (ak/& (a/index projected 0))
-                        mamba-norm-index 1536 0.00001))
-              (ak/= :_ (tensor-matvec!
-                        (ak/& (a/index branch-output 0)) 768 out-index
-                        (ak/& (a/index gated-output 0))))
+              (= :_ (tensor-rms-norm-gated!
+                     (ak/& (a/index gated-output 0))
+                     (ak/& (a/index scan-output 0))
+                     (ak/& (a/index projected 0))
+                     mamba-norm-index 1536 0.00001))
+              (= :_ (tensor-matvec!
+                     (ak/& (a/index branch-output 0)) 768 out-index
+                     (ak/& (a/index gated-output 0))))
               (+ (a/index residual component)
                  (* 0.246 (a/index branch-output component))))))))))
 
@@ -2434,35 +2436,35 @@
   Unsupported profiles/tokens return NaN before accessing fixed-size buffers."
   [[token :usize]
    [component :usize]]
-  (when (or (ak/!= model-profile-id model-profile-granite-h-350m)
+  (when (or (!= model-profile-id model-profile-granite-h-350m)
             (>= token model-vocabulary-size))
-    (ak/return (std-math/nan :f32)))
+    (return (std-math/nan :f32)))
   (if (>= component model-hidden-size)
     0.0
-    (let [^:var hidden (ak/as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
-          ^:var normalized (ak/as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
-          ^:var projected (ak/as (std-mem/zeroes (a/type [:array 3376 :f32])) [:array 3376 :f32])
-          ^:var convolved (ak/as (std-mem/zeroes (a/type [:array 1792 :f32])) [:array 1792 :f32])
-          ^:var scan-output (ak/as (std-mem/zeroes (a/type [:array 1536 :f32])) [:array 1536 :f32])
-          ^:var gated-output (ak/as (std-mem/zeroes (a/type [:array 1536 :f32])) [:array 1536 :f32])
-          ^:var branch-output (ak/as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
-          ^:var ffn-gate (ak/as (std-mem/zeroes (a/type [:array 2048 :f32])) [:array 2048 :f32])
-          ^:var ffn-up (ak/as (std-mem/zeroes (a/type [:array 2048 :f32])) [:array 2048 :f32])
-          ^:var ffn-activated (ak/as (std-mem/zeroes (a/type [:array 2048 :f32])) [:array 2048 :f32])
-          ^:var ffn-output (ak/as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
-          ^:var conv-state (ak/as (std-mem/zeroes (a/type [:array 5376 :f32])) [:array 5376 :f32])
+    (let [^:var hidden (as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
+          ^:var normalized (as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
+          ^:var projected (as (std-mem/zeroes (a/type [:array 3376 :f32])) [:array 3376 :f32])
+          ^:var convolved (as (std-mem/zeroes (a/type [:array 1792 :f32])) [:array 1792 :f32])
+          ^:var scan-output (as (std-mem/zeroes (a/type [:array 1536 :f32])) [:array 1536 :f32])
+          ^:var gated-output (as (std-mem/zeroes (a/type [:array 1536 :f32])) [:array 1536 :f32])
+          ^:var branch-output (as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
+          ^:var ffn-gate (as (std-mem/zeroes (a/type [:array 2048 :f32])) [:array 2048 :f32])
+          ^:var ffn-up (as (std-mem/zeroes (a/type [:array 2048 :f32])) [:array 2048 :f32])
+          ^:var ffn-activated (as (std-mem/zeroes (a/type [:array 2048 :f32])) [:array 2048 :f32])
+          ^:var ffn-output (as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
+          ^:var conv-state (as (std-mem/zeroes (a/type [:array 5376 :f32])) [:array 5376 :f32])
           state-allocation
-          (runtime/malloc (* model-mamba-recurrent-size (ak/sizeOf :f32)))]
-      (if (ak/== state-allocation ak/null)
+          (runtime/malloc (* model-mamba-recurrent-size (sizeOf :f32)))]
+      (if (== state-allocation null)
         0.0
         (do
-          (ak/defer (runtime/free state-allocation))
+          (defer (runtime/free state-allocation))
           (let [recurrent-state (a/cast state-allocation [:c-pointer :f32])]
             (dotimes [index model-mamba-recurrent-size]
-              (ak/= (a/index recurrent-state index) 0.0))
+              (= (a/index recurrent-state index) 0.0))
             (dotimes [index model-hidden-size]
-              (ak/= (a/index hidden index)
-                    (* 12.0 (embedding-value-kernel token index))))
+              (= (a/index hidden index)
+                 (* 12.0 (embedding-value-kernel token index))))
             (if (mamba-ffn-layer!
                  0
                  (ak/& (a/index hidden 0))
@@ -2492,64 +2494,64 @@
           low-index (+ (* (/ sub-block 4) 64)
                        (* (mod sub-block 2) 32)
                        within)
-          low-shift (ak/u3 (if (>= (mod sub-block 4) 2) 4 0))
+          low-shift (u3 (if (>= (mod sub-block 4) 2) 4 0))
           high-index (+ 128 (* (/ sub-block 4) 32) within)
-          high-shift (ak/u3 (ak/intCast (* (mod sub-block 4) 2)))
-          low (ak/& (ak/>> (a/index block low-index) low-shift) 15)
-          high (ak/& (ak/>> (a/index block high-index) high-shift) 3)
-          quantized (- (ak/as (+ low (* high 16)) :i16) 32)
+          high-shift (u3 (intCast (* (mod sub-block 4) 2)))
+          low (ak/& (>> (a/index block low-index) low-shift) 15)
+          high (ak/& (>> (a/index block high-index) high-shift) 3)
+          quantized (- (as (+ low (* high 16)) :i16) 32)
           scale-byte (a/index block (+ 192 (/ index 16)))
-          scale (ak/as (ak/bitCast scale-byte) :i8)
-          delta-bits (+ (ak/as (a/index block 208) :u16)
-                        (* (ak/as (a/index block 209) :u16) 256))
-          delta (ak/as (ak/floatCast (ak/as (ak/bitCast delta-bits) :f16))
-                       :f32)]
+          scale (as (bitCast scale-byte) :i8)
+          delta-bits (+ (as (a/index block 208) :u16)
+                        (* (as (a/index block 209) :u16) 256))
+          delta (as (floatCast (as (bitCast delta-bits) :f16))
+                    :f32)]
       (* delta
-         (ak/as (ak/floatFromInt scale) :f32)
-         (ak/as (ak/floatFromInt quantized) :f32)))))
+         (as (floatFromInt scale) :f32)
+         (as (floatFromInt quantized) :f32)))))
 
 (a/defn- q6-k-dot :f32
   "SIMD dot product for one GGML Q6_K block, sixteen values per signed
   subscale. Decode each packed plane once; preserve q6-k-value's weight layout."
   [[block [:* {:size :c :const? true} :u8]]
    [input [:* {:size :c :const? true} :f32]]]
-  (let [delta-bits (+ (ak/as (a/index block 208) :u16)
-                      (* (ak/as (a/index block 209) :u16) 256))
-        delta (ak/as (ak/floatCast (ak/as (ak/bitCast delta-bits) :f16)) :f32)
-        ^:var total (ak/as (ak/splat (ak/as 0.0 :f32)) [:vector 16 :f32])]
+  (let [delta-bits (+ (as (a/index block 208) :u16)
+                      (* (as (a/index block 209) :u16) 256))
+        delta (as (floatCast (as (bitCast delta-bits) :f16)) :f32)
+        ^:var total (as (splat (as 0.0 :f32)) [:vector 16 :f32])]
     (dotimes [group 16]
       (let [sub-block (/ group 2)
             within (* (mod group 2) 16)
             low-index (+ (* (/ sub-block 4) 64) (* (mod sub-block 2) 32) within)
             high-index (+ 128 (* (/ sub-block 4) 32) within)
-            low-shift (ak/u3 (if (>= (mod sub-block 4) 2) 4 0))
-            high-shift (ak/u3 (ak/intCast (* (mod sub-block 4) 2)))
-            low-packed (ak/as (ak/bitCast (a/deref (a/cast (+ block low-index)
-                                                           [:* {:const? true} [:array 16 :u8]]))) [:vector 16 :u8])
-            high-packed (ak/as (ak/bitCast (a/deref (a/cast (+ block high-index)
-                                                            [:* {:const? true} [:array 16 :u8]]))) [:vector 16 :u8])
-            low (ak/& (ak/>> low-packed (ak/as (ak/splat low-shift) (a/type [:vector 16 :u3])))
-                      (ak/as (ak/splat 15) (a/type [:vector 16 :u8])))
-            high (ak/& (ak/>> high-packed (ak/as (ak/splat high-shift) (a/type [:vector 16 :u3])))
-                       (ak/as (ak/splat 3) (a/type [:vector 16 :u8])))
-            quantized (- (ak/as (ak/intCast (+ low (* high (ak/as (ak/splat 16) (a/type [:vector 16 :u8])))))
-                                (a/type [:vector 16 :i16]))
-                         (ak/as (ak/splat 32) (a/type [:vector 16 :i16])))
-            scale (ak/as (ak/bitCast (a/index block (+ 192 group))) :i8)
-            scaled-delta (ak/as (ak/splat (* delta (ak/as (ak/floatFromInt scale) :f32)))
-                                (a/type [:vector 16 :f32]))
-            values (* scaled-delta (ak/as (ak/floatFromInt quantized) (a/type [:vector 16 :f32])))
-            inputs (ak/as (ak/bitCast (a/deref (a/cast (+ input (* group 16))
-                                                       [:* {:const? true} [:array 16 :f32]]))) [:vector 16 :f32])]
-        (ak/= total (+ total (* values inputs)))))
-    (ak/reduce :Add total)))
+            low-shift (u3 (if (>= (mod sub-block 4) 2) 4 0))
+            high-shift (u3 (intCast (* (mod sub-block 4) 2)))
+            low-packed (as (bitCast (a/deref (a/cast (+ block low-index)
+                                                     [:* {:const? true} [:array 16 :u8]]))) [:vector 16 :u8])
+            high-packed (as (bitCast (a/deref (a/cast (+ block high-index)
+                                                      [:* {:const? true} [:array 16 :u8]]))) [:vector 16 :u8])
+            low (ak/& (>> low-packed (as (splat low-shift) (a/type [:vector 16 :u3])))
+                      (as (splat 15) (a/type [:vector 16 :u8])))
+            high (ak/& (>> high-packed (as (splat high-shift) (a/type [:vector 16 :u3])))
+                       (as (splat 3) (a/type [:vector 16 :u8])))
+            quantized (- (as (intCast (+ low (* high (as (splat 16) (a/type [:vector 16 :u8])))))
+                             (a/type [:vector 16 :i16]))
+                         (as (splat 32) (a/type [:vector 16 :i16])))
+            scale (as (bitCast (a/index block (+ 192 group))) :i8)
+            scaled-delta (as (splat (* delta (as (floatFromInt scale) :f32)))
+                             (a/type [:vector 16 :f32]))
+            values (* scaled-delta (as (floatFromInt quantized) (a/type [:vector 16 :f32])))
+            inputs (as (bitCast (a/deref (a/cast (+ input (* group 16))
+                                                 [:* {:const? true} [:array 16 :f32]]))) [:vector 16 :f32])]
+        (= total (+ total (* values inputs)))))
+    (reduce :Add total)))
 
 (a/defn- embedding-value-kernel :f32
   "Read the active profile's embedding width and quantization, not a fixed
   350M row stride. The supported GGUF catalog places embeddings at index1."
   [[token :usize]
    [component :usize]]
-  (if (or (ak/== (a/field model-summary valid) false)
+  (if (or (== (a/field model-summary valid) false)
           (< tensor-catalog-count 2)
           (>= token model-vocabulary-size)
           (>= component model-hidden-size))
@@ -2566,19 +2568,19 @@
   "Dot one tied Q6_K token-embedding row with a normalized hidden vector."
   [[token :usize]
    [input [:* {:size :c :const? true} :f32]]]
-  (if (or (ak/== (a/field model-summary valid) false)
+  (if (or (== (a/field model-summary valid) false)
           (< tensor-catalog-count 2)
           (>= token 100352))
     0.0
     (let [tensor (a/index tensor-catalog 1)
-          bytes (ak/as (ak/ptrFromInt (a/field tensor data_address)) [:c-pointer :u8])
+          bytes (as (ptrFromInt (a/field tensor data_address)) [:c-pointer :u8])
           row-offset (* token 630)
-          ^:var total (ak/f32 0.0)]
+          ^:var total (f32 0.0)]
       (dotimes [block 3]
-        (ak/= total
-              (+ total
-                 (q6-k-dot (+ bytes row-offset (* block 210))
-                           (+ input (* block 256))))))
+        (= total
+           (+ total
+              (q6-k-dot (+ bytes row-offset (* block 210))
+                        (+ input (* block 256))))))
       total)))
 
 (a/defn- tensor-element :f32
@@ -2586,20 +2588,20 @@
   [[tensor-index :usize]
    [element-index :usize]]
   (if (or (>= tensor-index tensor-catalog-count)
-          (ak/== (a/field model-summary valid) false))
+          (== (a/field model-summary valid) false))
     0.0
     (let [tensor (a/index tensor-catalog tensor-index)
-          bytes (ak/as (ak/ptrFromInt (a/field tensor data_address)) [:c-pointer :u8])]
+          bytes (as (ptrFromInt (a/field tensor data_address)) [:c-pointer :u8])]
       (cond
-        (ak/== (a/field tensor ggml_type) 0)
-        (let [values (ak/as (ak/ptrFromInt (a/field tensor data_address)) [:c-pointer :f32])]
+        (== (a/field tensor ggml_type) 0)
+        (let [values (as (ptrFromInt (a/field tensor data_address)) [:c-pointer :f32])]
           (a/index values element-index))
 
-        (ak/== (a/field tensor ggml_type) 2)
+        (== (a/field tensor ggml_type) 2)
         (q4-0-value (+ bytes (* (/ element-index 32) 18))
                     (mod element-index 32))
 
-        (ak/== (a/field tensor ggml_type) 14)
+        (== (a/field tensor ggml_type) 14)
         (q6-k-value (+ bytes (* (/ element-index 256) 210))
                     (mod element-index 256))
 
@@ -2611,45 +2613,45 @@
    [row :usize]
    [input [:* {:size :c :const? true} :f32]]]
   (if (or (>= tensor-index tensor-catalog-count)
-          (ak/== (a/field model-summary valid) false))
+          (== (a/field model-summary valid) false))
     0.0
     (let [tensor (a/index tensor-catalog tensor-index)
-          input-size (ak/as (ak/intCast (a/index (a/field tensor dimensions) 0))
-                            :usize)
+          input-size (as (intCast (a/index (a/field tensor dimensions) 0))
+                         :usize)
           output-size (if (> (a/field tensor dimension_count) 1)
-                        (ak/as (ak/intCast
-                                (a/index (a/field tensor dimensions) 1))
-                               :usize)
+                        (as (intCast
+                             (a/index (a/field tensor dimensions) 1))
+                            :usize)
                         1)
-          bytes (ak/as (ak/ptrFromInt (a/field tensor data_address)) [:c-pointer :u8])
-          ^:var total (ak/f32 0.0)]
+          bytes (as (ptrFromInt (a/field tensor data_address)) [:c-pointer :u8])
+          ^:var total (f32 0.0)]
       (if (>= row output-size)
         0.0
         (do
           (cond
-            (ak/== (a/field tensor ggml_type) 0)
-            (let [values (ak/as (ak/ptrFromInt (a/field tensor data_address)) [:c-pointer :f32])
+            (== (a/field tensor ggml_type) 0)
+            (let [values (as (ptrFromInt (a/field tensor data_address)) [:c-pointer :f32])
                   row-start (* row input-size)]
               (dotimes [index input-size]
-                (ak/= total (+ total
-                               (* (a/index values (+ row-start index))
-                                  (a/index input index))))))
+                (= total (+ total
+                            (* (a/index values (+ row-start index))
+                               (a/index input index))))))
 
-            (ak/== (a/field tensor ggml_type) 2)
+            (== (a/field tensor ggml_type) 2)
             (let [block-count (/ input-size 32)
                   row-start (* row block-count 18)]
               (dotimes [block-index block-count]
-                (ak/= total (+ total
-                               (q4-0-dot (+ bytes row-start (* block-index 18))
-                                         (+ input (* block-index 32)))))))
+                (= total (+ total
+                            (q4-0-dot (+ bytes row-start (* block-index 18))
+                                      (+ input (* block-index 32)))))))
 
-            (ak/== (a/field tensor ggml_type) 14)
+            (== (a/field tensor ggml_type) 14)
             (let [block-count (/ input-size 256)
                   row-start (* row block-count 210)]
               (dotimes [block-index block-count]
-                (ak/= total (+ total
-                               (q6-k-dot (+ bytes row-start (* block-index 210))
-                                         (+ input (* block-index 256))))))))
+                (= total (+ total
+                            (q6-k-dot (+ bytes row-start (* block-index 210))
+                                      (+ input (* block-index 256))))))))
           total)))))
 
 (a/defn tensor-row-dot :f32
@@ -2667,17 +2669,17 @@
    [input [:* {:size :c :const? true} :f32]]]
   (if (or (>= tensor-index tensor-catalog-count)
           (< (a/field (a/index tensor-catalog tensor-index) dimension_count) 2)
-          (ak/!= output-count
-                 (ak/as (ak/intCast
-                         (a/index
-                          (a/field (a/index tensor-catalog tensor-index) dimensions)
-                          1))
-                        :usize)))
+          (!= output-count
+              (as (intCast
+                   (a/index
+                    (a/field (a/index tensor-catalog tensor-index) dimensions)
+                    1))
+                  :usize)))
     false
     (do
       (dotimes [row output-count]
-        (ak/= (a/index output row)
-              (tensor-row-dot-kernel tensor-index row input)))
+        (= (a/index output row)
+           (tensor-row-dot-kernel tensor-index row input)))
       true)))
 
 (a/defn tensor-rms-norm! :bool
@@ -2688,26 +2690,26 @@
    [length :usize]
    [epsilon :f32]]
   (if (or (>= weights-index tensor-catalog-count)
-          (ak/!= (a/field (a/index tensor-catalog weights-index) ggml_type) 0)
-          (ak/!= (a/index
-                  (a/field (a/index tensor-catalog weights-index) dimensions) 0)
-                 length))
+          (!= (a/field (a/index tensor-catalog weights-index) ggml_type) 0)
+          (!= (a/index
+               (a/field (a/index tensor-catalog weights-index) dimensions) 0)
+              length))
     false
-    (let [^:var square-sum (ak/f32 0.0)]
+    (let [^:var square-sum (f32 0.0)]
       (dotimes [index length]
-        (ak/= square-sum (+ square-sum
-                            (* (a/index input index)
-                               (a/index input index)))))
+        (= square-sum (+ square-sum
+                         (* (a/index input index)
+                            (a/index input index)))))
       (let [inverse-rms (/ 1.0
                            (std-math/sqrt
                             (+ (/ square-sum
-                                  (ak/as (ak/floatFromInt length) :f32))
+                                  (as (floatFromInt length) :f32))
                                epsilon)))]
         (dotimes [index length]
-          (ak/= (a/index output index)
-                (* (a/index input index)
-                   inverse-rms
-                   (tensor-element weights-index index)))))
+          (= (a/index output index)
+             (* (a/index input index)
+                inverse-rms
+                (tensor-element weights-index index)))))
       true)))
 
 (a/defn- silu :f32
@@ -2718,72 +2720,72 @@
   "350M-only diagnostic: first dense FFN on a real token embedding.
   Unsupported profiles/tokens return NaN before accessing fixed-size buffers."
   [[token :usize]]
-  (when (or (ak/!= model-profile-id model-profile-granite-h-350m)
+  (when (or (!= model-profile-id model-profile-granite-h-350m)
             (>= token model-vocabulary-size))
-    (ak/return (std-math/nan :f32)))
-  (let [^:var hidden (ak/as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
-        ^:var normalized (ak/as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
-        ^:var gate (ak/as (std-mem/zeroes (a/type [:array 2048 :f32])) [:array 2048 :f32])
-        ^:var up (ak/as (std-mem/zeroes (a/type [:array 2048 :f32])) [:array 2048 :f32])
-        ^:var activated (ak/as (std-mem/zeroes (a/type [:array 2048 :f32])) [:array 2048 :f32])
-        ^:var output (ak/as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
+    (return (std-math/nan :f32)))
+  (let [^:var hidden (as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
+        ^:var normalized (as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
+        ^:var gate (as (std-mem/zeroes (a/type [:array 2048 :f32])) [:array 2048 :f32])
+        ^:var up (as (std-mem/zeroes (a/type [:array 2048 :f32])) [:array 2048 :f32])
+        ^:var activated (as (std-mem/zeroes (a/type [:array 2048 :f32])) [:array 2048 :f32])
+        ^:var output (as (std-mem/zeroes (a/type [:array 768 :f32])) [:array 768 :f32])
         norm-index (find-tensor "blk.0.ffn_norm.weight")
         gate-index (find-tensor "blk.0.ffn_gate.weight")
         up-index (find-tensor "blk.0.ffn_up.weight")
         down-index (find-tensor "blk.0.ffn_down.weight")]
     (dotimes [index 768]
-      (ak/= (a/index hidden index)
-            (* 12.0 (embedding-value-kernel token index))))
-    (if (or (ak/== norm-index tensor-not-found)
-            (ak/== gate-index tensor-not-found)
-            (ak/== up-index tensor-not-found)
-            (ak/== down-index tensor-not-found))
+      (= (a/index hidden index)
+         (* 12.0 (embedding-value-kernel token index))))
+    (if (or (== norm-index tensor-not-found)
+            (== gate-index tensor-not-found)
+            (== up-index tensor-not-found)
+            (== down-index tensor-not-found))
       0.0
       (do
-        (ak/= :_ (tensor-rms-norm! (ak/& (a/index normalized 0))
-                                   (ak/& (a/index hidden 0))
-                                   norm-index 768 0.00001))
-        (ak/= :_ (tensor-matvec! (ak/& (a/index gate 0)) 2048 gate-index
-                                 (ak/& (a/index normalized 0))))
-        (ak/= :_ (tensor-matvec! (ak/& (a/index up 0)) 2048 up-index
-                                 (ak/& (a/index normalized 0))))
+        (= :_ (tensor-rms-norm! (ak/& (a/index normalized 0))
+                                (ak/& (a/index hidden 0))
+                                norm-index 768 0.00001))
+        (= :_ (tensor-matvec! (ak/& (a/index gate 0)) 2048 gate-index
+                              (ak/& (a/index normalized 0))))
+        (= :_ (tensor-matvec! (ak/& (a/index up 0)) 2048 up-index
+                              (ak/& (a/index normalized 0))))
         (dotimes [index 2048]
-          (ak/= (a/index activated index)
-                (* (silu (a/index gate index)) (a/index up index))))
-        (ak/= :_ (tensor-matvec! (ak/& (a/index output 0)) 768 down-index
-                                 (ak/& (a/index activated 0))))
+          (= (a/index activated index)
+             (* (silu (a/index gate index)) (a/index up index))))
+        (= :_ (tensor-matvec! (ak/& (a/index output 0)) 768 down-index
+                              (ak/& (a/index activated 0))))
         (a/index output 0)))))
 
 (a/defn action-head-logit :f32
   "Evaluate one racing action row over Granite's normalized final state."
   [[action :usize]
    [hidden [:* {:size :c :const? true} :f32]]]
-  (if (or (ak/! (a/field action-head-summary valid))
+  (if (or (! (a/field action-head-summary valid))
           (>= action action-head-output-count))
     0.0
     (let [row-start (* action action-head-input-count)
-          ^:var total (ak/f32 (a/index action-head-biases action))]
+          ^:var total (f32 (a/index action-head-biases action))]
       (dotimes [index action-head-input-count]
-        (ak/= total
-              (+ total
-                 (* (a/index action-head-weights (+ row-start index))
-                    (a/index hidden index)))))
+        (= total
+           (+ total
+              (* (a/index action-head-weights (+ row-start index))
+                 (a/index hidden index)))))
       total)))
 
 (a/defn team-head-logit :f32
   "Evaluate one independent team-strategy row over Granite's prompt state."
   [[action :usize]
    [hidden [:* {:size :c :const? true} :f32]]]
-  (if (or (ak/! (a/field team-head-summary valid))
+  (if (or (! (a/field team-head-summary valid))
           (>= action team-head-output-count))
     0.0
     (let [row-start (* action action-head-input-count)
-          ^:var total (ak/f32 (a/index team-head-biases action))]
+          ^:var total (f32 (a/index team-head-biases action))]
       (dotimes [index action-head-input-count]
-        (ak/= total
-              (+ total
-                 (* (a/index team-head-weights (+ row-start index))
-                    (a/index hidden index)))))
+        (= total
+           (+ total
+              (* (a/index team-head-weights (+ row-start index))
+                 (a/index hidden index)))))
       total)))
 
 (a/defn forward-token! ForwardReport
@@ -2792,93 +2794,93 @@
   prepared by `forward-fused-observation!`; ordinary token calls are unchanged."
   [[racer :usize]
    [token :usize]]
-  (let [^:var hidden (ak/as (std-mem/zeroes (a/type [:array model-max-hidden-size :f32])) [:array model-max-hidden-size :f32])
-        ^:var normalized (ak/as (std-mem/zeroes (a/type [:array model-max-hidden-size :f32])) [:array model-max-hidden-size :f32])
-        ^:var projected (ak/as (std-mem/zeroes (a/type [:array model-max-mamba-projection-size :f32])) [:array model-max-mamba-projection-size :f32])
-        ^:var convolved (ak/as (std-mem/zeroes (a/type [:array model-max-mamba-conv-size :f32])) [:array model-max-mamba-conv-size :f32])
-        ^:var scan-output (ak/as (std-mem/zeroes (a/type [:array model-max-mamba-inner-size :f32])) [:array model-max-mamba-inner-size :f32])
-        ^:var gated-output (ak/as (std-mem/zeroes (a/type [:array model-max-mamba-inner-size :f32])) [:array model-max-mamba-inner-size :f32])
-        ^:var branch-output (ak/as (std-mem/zeroes (a/type [:array model-max-hidden-size :f32])) [:array model-max-hidden-size :f32])
-        ^:var ffn-gate (ak/as (std-mem/zeroes (a/type [:array model-max-ffn-size :f32])) [:array model-max-ffn-size :f32])
-        ^:var ffn-up (ak/as (std-mem/zeroes (a/type [:array model-max-ffn-size :f32])) [:array model-max-ffn-size :f32])
-        ^:var ffn-activated (ak/as (std-mem/zeroes (a/type [:array model-max-ffn-size :f32])) [:array model-max-ffn-size :f32])
-        ^:var ffn-output (ak/as (std-mem/zeroes (a/type [:array model-max-hidden-size :f32])) [:array model-max-hidden-size :f32])
-        ^:var query (ak/as (std-mem/zeroes (a/type [:array model-max-hidden-size :f32])) [:array model-max-hidden-size :f32])
-        ^:var key (ak/as (std-mem/zeroes (a/type [:array model-max-attention-kv-size :f32])) [:array model-max-attention-kv-size :f32])
-        ^:var value (ak/as (std-mem/zeroes (a/type [:array model-max-attention-kv-size :f32])) [:array model-max-attention-kv-size :f32])
-        ^:var scores (ak/as (std-mem/zeroes (a/type [:array sequence-capacity :f32])) [:array sequence-capacity :f32])
-        ^:var attention-output (ak/as (std-mem/zeroes (a/type [:array model-max-hidden-size :f32])) [:array model-max-hidden-size :f32])
+  (let [^:var hidden (as (std-mem/zeroes (a/type [:array model-max-hidden-size :f32])) [:array model-max-hidden-size :f32])
+        ^:var normalized (as (std-mem/zeroes (a/type [:array model-max-hidden-size :f32])) [:array model-max-hidden-size :f32])
+        ^:var projected (as (std-mem/zeroes (a/type [:array model-max-mamba-projection-size :f32])) [:array model-max-mamba-projection-size :f32])
+        ^:var convolved (as (std-mem/zeroes (a/type [:array model-max-mamba-conv-size :f32])) [:array model-max-mamba-conv-size :f32])
+        ^:var scan-output (as (std-mem/zeroes (a/type [:array model-max-mamba-inner-size :f32])) [:array model-max-mamba-inner-size :f32])
+        ^:var gated-output (as (std-mem/zeroes (a/type [:array model-max-mamba-inner-size :f32])) [:array model-max-mamba-inner-size :f32])
+        ^:var branch-output (as (std-mem/zeroes (a/type [:array model-max-hidden-size :f32])) [:array model-max-hidden-size :f32])
+        ^:var ffn-gate (as (std-mem/zeroes (a/type [:array model-max-ffn-size :f32])) [:array model-max-ffn-size :f32])
+        ^:var ffn-up (as (std-mem/zeroes (a/type [:array model-max-ffn-size :f32])) [:array model-max-ffn-size :f32])
+        ^:var ffn-activated (as (std-mem/zeroes (a/type [:array model-max-ffn-size :f32])) [:array model-max-ffn-size :f32])
+        ^:var ffn-output (as (std-mem/zeroes (a/type [:array model-max-hidden-size :f32])) [:array model-max-hidden-size :f32])
+        ^:var query (as (std-mem/zeroes (a/type [:array model-max-hidden-size :f32])) [:array model-max-hidden-size :f32])
+        ^:var key (as (std-mem/zeroes (a/type [:array model-max-attention-kv-size :f32])) [:array model-max-attention-kv-size :f32])
+        ^:var value (as (std-mem/zeroes (a/type [:array model-max-attention-kv-size :f32])) [:array model-max-attention-kv-size :f32])
+        ^:var scores (as (std-mem/zeroes (a/type [:array sequence-capacity :f32])) [:array sequence-capacity :f32])
+        ^:var attention-output (as (std-mem/zeroes (a/type [:array model-max-hidden-size :f32])) [:array model-max-hidden-size :f32])
         candidate-tokens
         (a/init [32 33 34 35 36 37 38 39] [:array 8 :u32])
-        ^:var candidate-logits (ak/as (std-mem/zeroes (a/type [:array 8 :f32])) [:array 8 :f32])
-        position (ak/usize (if (< racer sequence-racer-count)
-                             (ak/as (a/index sequence-positions racer) :usize)
-                             sequence-capacity))
-        ^:var valid (ak/bool (and (a/field model-summary valid)
-                                  (ak/!= sequence-memory ak/null)
-                                  (< racer sequence-racer-count)
-                                  (< position sequence-capacity)
-                                  (<= token model-vocabulary-size)))
-        ^:var checksum (ak/f32 0.0)
+        ^:var candidate-logits (as (std-mem/zeroes (a/type [:array 8 :f32])) [:array 8 :f32])
+        position (usize (if (< racer sequence-racer-count)
+                          (as (a/index sequence-positions racer) :usize)
+                          sequence-capacity))
+        ^:var valid (bool (and (a/field model-summary valid)
+                               (!= sequence-memory null)
+                               (< racer sequence-racer-count)
+                               (< position sequence-capacity)
+                               (<= token model-vocabulary-size)))
+        ^:var checksum (f32 0.0)
         team-actor (>= racer protocol/racer-count)
         candidate-count (if team-actor team-head-output-count
                             action-head-output-count)
-        ^:var best-token (ak/u32 32)
-        ^:var best-logit (ak/f32 -3.4e38)]
+        ^:var best-token (u32 32)
+        ^:var best-logit (f32 -3.4e38)]
     (when valid
       (dotimes [index model-hidden-size]
-        (ak/= (a/index hidden index)
-              (if (ak/== token model-vocabulary-size)
-                (a/index fused-observation-inputs
-                         (+ (* racer model-hidden-size) index))
-                (* 12.0 (embedding-value-kernel token index)))))
+        (= (a/index hidden index)
+           (if (== token model-vocabulary-size)
+             (a/index fused-observation-inputs
+                      (+ (* racer model-hidden-size) index))
+             (* 12.0 (embedding-value-kernel token index)))))
       (dotimes [layer model-layer-count]
         (when valid
           (if (attention-layer? layer)
             (let [key-cache (sequence-key-cache racer layer)
                   value-cache (sequence-value-cache racer layer)]
-              (if (or (ak/== key-cache ak/null) (ak/== value-cache ak/null))
-                (ak/= valid false)
-                (ak/= valid
-                      (attention-ffn-layer!
-                       layer position
-                       (ak/& (a/index hidden 0))
-                       (a/unwrap key-cache) (a/unwrap value-cache)
-                       (ak/& (a/index normalized 0))
-                       (ak/& (a/index query 0))
-                       (ak/& (a/index key 0))
-                       (ak/& (a/index value 0))
-                       (ak/& (a/index scores 0))
-                       (ak/& (a/index attention-output 0))
-                       (ak/& (a/index branch-output 0))
-                       (ak/& (a/index ffn-gate 0))
-                       (ak/& (a/index ffn-up 0))
-                       (ak/& (a/index ffn-activated 0))
-                       (ak/& (a/index ffn-output 0))))))
+              (if (or (== key-cache null) (== value-cache null))
+                (= valid false)
+                (= valid
+                   (attention-ffn-layer!
+                    layer position
+                    (ak/& (a/index hidden 0))
+                    (a/unwrap key-cache) (a/unwrap value-cache)
+                    (ak/& (a/index normalized 0))
+                    (ak/& (a/index query 0))
+                    (ak/& (a/index key 0))
+                    (ak/& (a/index value 0))
+                    (ak/& (a/index scores 0))
+                    (ak/& (a/index attention-output 0))
+                    (ak/& (a/index branch-output 0))
+                    (ak/& (a/index ffn-gate 0))
+                    (ak/& (a/index ffn-up 0))
+                    (ak/& (a/index ffn-activated 0))
+                    (ak/& (a/index ffn-output 0))))))
             (let [recurrent-state (sequence-mamba-state racer layer)
                   conv-state (sequence-conv-state racer layer)]
-              (if (or (ak/== recurrent-state ak/null) (ak/== conv-state ak/null))
-                (ak/= valid false)
-                (ak/= valid
-                      (mamba-ffn-layer!
-                       layer
-                       (ak/& (a/index hidden 0))
-                       (a/unwrap recurrent-state) (a/unwrap conv-state)
-                       (ak/& (a/index normalized 0))
-                       (ak/& (a/index projected 0))
-                       (ak/& (a/index convolved 0))
-                       (ak/& (a/index scan-output 0))
-                       (ak/& (a/index gated-output 0))
-                       (ak/& (a/index branch-output 0))
-                       (ak/& (a/index ffn-gate 0))
-                       (ak/& (a/index ffn-up 0))
-                       (ak/& (a/index ffn-activated 0))
-                       (ak/& (a/index ffn-output 0)))))))))
+              (if (or (== recurrent-state null) (== conv-state null))
+                (= valid false)
+                (= valid
+                   (mamba-ffn-layer!
+                    layer
+                    (ak/& (a/index hidden 0))
+                    (a/unwrap recurrent-state) (a/unwrap conv-state)
+                    (ak/& (a/index normalized 0))
+                    (ak/& (a/index projected 0))
+                    (ak/& (a/index convolved 0))
+                    (ak/& (a/index scan-output 0))
+                    (ak/& (a/index gated-output 0))
+                    (ak/& (a/index branch-output 0))
+                    (ak/& (a/index ffn-gate 0))
+                    (ak/& (a/index ffn-up 0))
+                    (ak/& (a/index ffn-activated 0))
+                    (ak/& (a/index ffn-output 0)))))))))
       (when valid
-        (ak/= valid
-              (tensor-rms-norm! (ak/& (a/index normalized 0))
-                                (ak/& (a/index hidden 0))
-                                0 model-hidden-size model-rms-epsilon)))
+        (= valid
+           (tensor-rms-norm! (ak/& (a/index normalized 0))
+                             (ak/& (a/index hidden 0))
+                             0 model-hidden-size model-rms-epsilon)))
       (when valid
         ;; Keep the final eight real sequential token states. Short prompts
         ;; fill from slot zero; longer readable prompts slide one state at a
@@ -2886,23 +2888,23 @@
         (when (>= position action-head-token-count)
           (dotimes [slot (- action-head-token-count 1)]
             (dotimes [index model-hidden-size]
-              (ak/= (a/index action-head-inputs
-                             (+ (* racer action-head-input-count)
-                                (* slot model-hidden-size)
-                                index))
-                    (a/index action-head-inputs
-                             (+ (* racer action-head-input-count)
-                                (* (+ slot 1) model-hidden-size)
-                                index))))))
+              (= (a/index action-head-inputs
+                          (+ (* racer action-head-input-count)
+                             (* slot model-hidden-size)
+                             index))
+                 (a/index action-head-inputs
+                          (+ (* racer action-head-input-count)
+                             (* (+ slot 1) model-hidden-size)
+                             index))))))
         (dotimes [index model-hidden-size]
           (let [hidden-value (a/index normalized index)
-                feature-slot (ak/min position (- action-head-token-count 1))]
-            (ak/= checksum (+ checksum hidden-value))
-            (ak/= (a/index action-head-inputs
-                           (+ (* racer action-head-input-count)
-                              (* feature-slot model-hidden-size)
-                              index))
-                  hidden-value)))
+                feature-slot (min position (- action-head-token-count 1))]
+            (= checksum (+ checksum hidden-value))
+            (= (a/index action-head-inputs
+                        (+ (* racer action-head-input-count)
+                           (* feature-slot model-hidden-size)
+                           index))
+               hidden-value)))
         (dotimes [candidate candidate-count]
           (let [candidate-token (a/index candidate-tokens candidate)
                 logit
@@ -2913,7 +2915,7 @@
                    (ak/& (a/index action-head-inputs
                                   (* racer action-head-input-count))))
 
-                  (and (ak/! team-actor)
+                  (and (! team-actor)
                        (a/field action-head-summary valid))
                   (action-head-logit
                    candidate
@@ -2922,24 +2924,24 @@
 
                   :else
                   (/ (embedding-row-dot
-                      (ak/as candidate-token :usize)
+                      (as candidate-token :usize)
                       (ak/& (a/index normalized 0)))
                      3.0))]
-            (ak/= (a/index candidate-logits candidate) logit)
+            (= (a/index candidate-logits candidate) logit)
             (when (> logit best-logit)
-              (ak/= best-logit logit)
-              (ak/= best-token candidate-token))))
-        (ak/= (a/index sequence-positions racer) (ak/intCast (+ position 1)))))
+              (= best-logit logit)
+              (= best-token candidate-token))))
+        (= (a/index sequence-positions racer) (intCast (+ position 1)))))
     (ForwardReport
      {:valid valid
-      :racer (ak/intCast racer)
-      :position (ak/intCast position)
-      :input_token (ak/intCast token)
+      :racer (intCast racer)
+      :position (intCast position)
+      :input_token (intCast token)
       :best_token best-token
       :best_logit best-logit
       :hidden_first (a/index normalized 0)
       :hidden_checksum checksum
-      :candidate_count (ak/intCast candidate-count)
+      :candidate_count (intCast candidate-count)
       :candidate_tokens candidate-tokens
       :candidate_logits candidate-logits})))
 
@@ -2954,14 +2956,14 @@
    [length :usize]
    [reset :bool]]
   (let [tokenized (tokenize-compact-ascii bytes length)
-        ^:var report (ak/as (empty-forward-report) ForwardReport)
-        ^:var valid (ak/bool (and (a/field tokenized valid)
-                                  (ak/! (a/field tokenized truncated))
-                                  (ak/== (a/field tokenized token_count)
-                                         action-head-token-count)
-                                  (< racer sequence-racer-count)))]
+        ^:var report (as (empty-forward-report) ForwardReport)
+        ^:var valid (bool (and (a/field tokenized valid)
+                               (! (a/field tokenized truncated))
+                               (== (a/field tokenized token_count)
+                                   action-head-token-count)
+                               (< racer sequence-racer-count)))]
     (when (and valid reset)
-      (ak/= valid (reset-sequence! racer)))
+      (= valid (reset-sequence! racer)))
     (when valid
       ;; Two ordered four-field groups preserve the complete observation while
       ;; reducing eight sequential model passes to two. Position binding keeps
@@ -2969,26 +2971,26 @@
       (dotimes [group 2]
         (when valid
           (dotimes [dimension model-hidden-size]
-            (let [^:var total (ak/f32 0.0)]
+            (let [^:var total (f32 0.0)]
               (dotimes [local-position 4]
                 (let [position (+ (* group 4) local-position)
                       token
-                      (ak/as (a/index (a/field tokenized tokens) position)
-                             :usize)
+                      (as (a/index (a/field tokenized tokens) position)
+                          :usize)
                       position-value
                       (embedding-value-kernel (+ 32 position) dimension)
-                      position-sign (ak/f32 (if (>= position-value 0.0) 1.0 -1.0))]
-                  (ak/= total
-                        (+ total
-                           (* position-sign
-                              (embedding-value-kernel token dimension))))))
-              (ak/= (a/index fused-observation-inputs
-                             (+ (* racer model-hidden-size) dimension))
-                    (* total 6.0))))
-          (ak/= report (forward-token! racer model-vocabulary-size))
-          (ak/= valid (a/field report valid)))))
-    (when (ak/! valid)
-      (ak/= (a/field report valid) false))
+                      position-sign (f32 (if (>= position-value 0.0) 1.0 -1.0))]
+                  (= total
+                     (+ total
+                        (* position-sign
+                           (embedding-value-kernel token dimension))))))
+              (= (a/index fused-observation-inputs
+                          (+ (* racer model-hidden-size) dimension))
+                 (* total 6.0))))
+          (= report (forward-token! racer model-vocabulary-size))
+          (= valid (a/field report valid)))))
+    (when (! valid)
+      (= (a/field report valid) false))
     report))
 
 (a/defn empty-forward-report ForwardReport
@@ -3008,23 +3010,23 @@
    [length :usize]
    [reset :bool]]
   (let [tokenized (tokenize-compact-ascii bytes length)
-        ^:var report (ak/as (empty-forward-report) ForwardReport)
-        ^:var valid (ak/bool (and (a/field tokenized valid)
-                                  (ak/! (a/field tokenized truncated))
-                                  (> (a/field tokenized token_count) 0)))]
+        ^:var report (as (empty-forward-report) ForwardReport)
+        ^:var valid (bool (and (a/field tokenized valid)
+                               (! (a/field tokenized truncated))
+                               (> (a/field tokenized token_count) 0)))]
     (when (and valid reset)
-      (ak/= valid (reset-sequence! racer)))
+      (= valid (reset-sequence! racer)))
     (when valid
       (dotimes [index (a/field tokenized token_count)]
         (when valid
-          (ak/= report
-                (forward-token!
-                 racer
-                 (ak/as (a/index (a/field tokenized tokens) index)
-                        :usize)))
-          (ak/= valid (a/field report valid)))))
-    (when (ak/! valid)
-      (ak/= (a/field report valid) false))
+          (= report
+             (forward-token!
+              racer
+              (as (a/index (a/field tokenized tokens) index)
+                  :usize)))
+          (= valid (a/field report valid)))))
+    (when (! valid)
+      (= (a/field report valid) false))
     report))
 
 (a/defstruct LanguageGeneration
@@ -3042,71 +3044,71 @@
   (cond
     (or (and (>= code 33) (<= code 126))
         (and (>= code 161) (<= code 172))
-        (and (>= code 174) (<= code 255))) (ak/intCast code)
-    (and (>= code 256) (<= code 288)) (ak/intCast (- code 256))
-    (and (>= code 289) (<= code 322)) (ak/intCast (- code 162))
-    (ak/== code 323) (ak/as 173 :i16)
-    :else (ak/as -1 :i16)))
+        (and (>= code 174) (<= code 255))) (intCast code)
+    (and (>= code 256) (<= code 288)) (intCast (- code 256))
+    (and (>= code 289) (<= code 322)) (intCast (- code 162))
+    (== code 323) (as 173 :i16)
+    :else (as -1 :i16)))
 
 (a/defn decode-language-token! :u16
   "Decode one real GGUF vocabulary entry into bytes. Return65535 on invalid
   Unicode/alphabet or insufficient space; never silently truncate a token." [[token :u32] [output [:c-pointer :u8]] [capacity :usize]]
-  (when (or (ak/! tokenizer-valid) (>= token tokenizer-token-count))
-    (ak/return (ak/as 65535 :u16)))
-  (let [start (ak/as (a/index tokenizer-token-starts token) :usize)
-        length (ak/as (a/index tokenizer-token-lengths token) :usize)
-        ^:var offset (ak/usize 0)
-        ^:var written (ak/u16 0)]
-    (ak/while (< offset length)
+  (when (or (! tokenizer-valid) (>= token tokenizer-token-count))
+    (return (as 65535 :u16)))
+  (let [start (as (a/index tokenizer-token-starts token) :usize)
+        length (as (a/index tokenizer-token-lengths token) :usize)
+        ^:var offset (usize 0)
+        ^:var written (u16 0)]
+    (while (< offset length)
       (let [first-byte (a/index (a/unwrap model-bytes) (+ start offset))
-            ^:var code (ak/u32 first-byte)]
-        (ak/= offset (+ offset 1))
+            ^:var code (u32 first-byte)]
+        (= offset (+ offset 1))
         (when (>= first-byte 128)
           (when (or (< first-byte 194) (> first-byte 197) (>= offset length))
-            (ak/return (ak/as 65535 :u16)))
+            (return (as 65535 :u16)))
           (let [second-byte (a/index (a/unwrap model-bytes) (+ start offset))]
             (when (or (< second-byte 128) (> second-byte 191))
-              (ak/return (ak/as 65535 :u16)))
-            (ak/= code (+ (* (ak/as (- first-byte 192) :u32) 64)
-                          (ak/as (- second-byte 128) :u32)))
-            (ak/= offset (+ offset 1))))
+              (return (as 65535 :u16)))
+            (= code (+ (* (as (- first-byte 192) :u32) 64)
+                       (as (- second-byte 128) :u32)))
+            (= offset (+ offset 1))))
         (let [byte (gpt2-codepoint-byte code)]
           (when (or (< byte 0) (>= written capacity))
-            (ak/return (ak/as 65535 :u16)))
-          (ak/= (a/index output written) (ak/intCast byte))
-          (ak/= written (+ written 1)))))
+            (return (as 65535 :u16)))
+          (= (a/index output written) (intCast byte))
+          (= written (+ written 1)))))
     written))
 
 (a/defn next-language-token :u32
   "Greedy argmax over the pretrained model's ENTIRE vocabulary. No A-H or
   pit-head scores influence this result. Consume the last normalized native
   backbone state already retained by forward-token!. Invalid returns0xffffffff." [[racer :usize]]
-  (when (or (>= racer sequence-racer-count) (ak/! tokenizer-valid)
-            (ak/== (a/index sequence-positions racer) 0))
-    (ak/return (ak/as 0xffffffff :u32)))
+  (when (or (>= racer sequence-racer-count) (! tokenizer-valid)
+            (== (a/index sequence-positions racer) 0))
+    (return (as 0xffffffff :u32)))
   (let [separate (find-tensor "output.weight")
         output (if (< separate tensor-catalog-count) separate
                    (find-tensor "token_embd.weight"))
-        slot (ak/min (- (ak/as (a/index sequence-positions racer) :usize) 1)
-                     (- action-head-token-count 1))
+        slot (min (- (as (a/index sequence-positions racer) :usize) 1)
+                  (- action-head-token-count 1))
         hidden (ak/& (a/index action-head-inputs
                               (+ (* racer action-head-input-count) (* slot model-hidden-size))))
-        ^:var best (ak/u32 0xffffffff)
-        ^:var best-score (ak/f32 -3.4e38)]
+        ^:var best (u32 0xffffffff)
+        ^:var best-score (f32 -3.4e38)]
     (when (>= output tensor-catalog-count)
-      (ak/return (ak/as 0xffffffff :u32)))
+      (return (as 0xffffffff :u32)))
     (let [tensor (a/index tensor-catalog output)]
-      (when (or (ak/!= (a/field tensor dimension_count) 2)
-                (ak/!= (a/index (a/field tensor dimensions) 0) model-hidden-size)
-                (ak/!= (a/index (a/field tensor dimensions) 1) tokenizer-token-count))
-        (ak/return (ak/as 0xffffffff :u32))))
+      (when (or (!= (a/field tensor dimension_count) 2)
+                (!= (a/index (a/field tensor dimensions) 0) model-hidden-size)
+                (!= (a/index (a/field tensor dimensions) 1) tokenizer-token-count))
+        (return (as 0xffffffff :u32))))
     (dotimes [token tokenizer-token-count]
       (let [score (tensor-row-dot-kernel output token hidden)]
-        (when (ak/! (std-math/isFinite score))
-          (ak/return (ak/as 0xffffffff :u32)))
+        (when (! (std-math/isFinite score))
+          (return (as 0xffffffff :u32)))
         (when (> score best-score)
-          (ak/= best-score score)
-          (ak/= best (ak/intCast token)))))
+          (= best-score score)
+          (= best (intCast token)))))
     best))
 
 (a/defn vocabulary-token-id :u32
@@ -3115,15 +3117,15 @@
   [[spelling [:* {:size :c :const? true} :u8]] [length :usize]]
   (when tokenizer-valid
     (dotimes [token tokenizer-token-count]
-      (when (ak/== (a/index tokenizer-token-lengths token) length)
+      (when (== (a/index tokenizer-token-lengths token) length)
         (let [start (a/index tokenizer-token-starts token)
               ^:var same true]
           (dotimes [i length]
-            (when (ak/!= (a/index (a/unwrap model-bytes) (+ start i))
-                         (a/index spelling i))
-              (ak/= same false)))
-          (when same (ak/return (ak/as (ak/intCast token) :u32)))))))
-  (ak/as 0xffffffff :u32))
+            (when (!= (a/index (a/unwrap model-bytes) (+ start i))
+                      (a/index spelling i))
+              (= same false)))
+          (when same (return (as (intCast token) :u32)))))))
+  (as 0xffffffff :u32))
 
 (a/defn- language-letter? :bool [[byte :u8]]
   (or (and (>= byte 65) (<= byte 90)) (and (>= byte 97) (<= byte 122))))
@@ -3132,7 +3134,7 @@
   (and (>= byte 48) (<= byte 57)))
 
 (a/defn- language-space? :bool [[byte :u8]]
-  (or (ak/== byte 32) (and (>= byte 9) (<= byte 13))))
+  (or (== byte 32) (and (>= byte 9) (<= byte 13))))
 
 (a/defn- language-lower :u8 [[byte :u8]]
   (if (and (>= byte 65) (<= byte 90)) (+ byte 32) byte))
@@ -3140,80 +3142,80 @@
 (a/defn language-piece-length :usize
   "ASCII subset of Granite's published pre-tokenizer regex, in its alternative
   order. BPE must not merge across these word/number/punctuation boundaries." [[bytes [:* {:size :c :const? true} :u8]] [length :usize]]
-  (when (ak/== length 0) (ak/return (ak/as 0 :usize)))
+  (when (== length 0) (return (as 0 :usize)))
   (let [first-byte (a/index bytes 0)]
-    (when (and (ak/== first-byte 39) (>= length 2))
+    (when (and (== first-byte 39) (>= length 2))
       (let [second-byte (language-lower (a/index bytes 1))]
-        (when (or (ak/== second-byte 115) (ak/== second-byte 116)
-                  (ak/== second-byte 109) (ak/== second-byte 100))
-          (ak/return (ak/as 2 :usize)))
+        (when (or (== second-byte 115) (== second-byte 116)
+                  (== second-byte 109) (== second-byte 100))
+          (return (as 2 :usize)))
         (when (>= length 3)
           (let [third-byte (language-lower (a/index bytes 2))]
-            (when (or (and (ak/== second-byte 114) (ak/== third-byte 101))
-                      (and (ak/== second-byte 118) (ak/== third-byte 101))
-                      (and (ak/== second-byte 108) (ak/== third-byte 108)))
-              (ak/return (ak/as 3 :usize)))))))
-    (let [prefix (if (language-letter? first-byte) (ak/as 0 :usize) (ak/as 1 :usize))]
+            (when (or (and (== second-byte 114) (== third-byte 101))
+                      (and (== second-byte 118) (== third-byte 101))
+                      (and (== second-byte 108) (== third-byte 108)))
+              (return (as 3 :usize)))))))
+    (let [prefix (if (language-letter? first-byte) (as 0 :usize) (as 1 :usize))]
       (when (and (< prefix length) (language-letter? (a/index bytes prefix))
-                 (ak/!= first-byte 10) (ak/!= first-byte 13)
-                 (ak/! (language-digit? first-byte)))
+                 (!= first-byte 10) (!= first-byte 13)
+                 (! (language-digit? first-byte)))
         (let [^:var end (+ prefix 1)]
-          (ak/while (and (< end length) (language-letter? (a/index bytes end)))
-            (ak/= end (+ end 1)))
-          (ak/return end))))
+          (while (and (< end length) (language-letter? (a/index bytes end)))
+            (= end (+ end 1)))
+          (return end))))
     (when (language-digit? first-byte)
-      (let [^:var end (ak/usize 1)]
-        (ak/while (and (< end (ak/min length 3)) (language-digit? (a/index bytes end)))
-          (ak/= end (+ end 1)))
-        (ak/return end)))
-    (let [prefix (if (ak/== first-byte 32) (ak/as 1 :usize) (ak/as 0 :usize))
+      (let [^:var end (usize 1)]
+        (while (and (< end (min length 3)) (language-digit? (a/index bytes end)))
+          (= end (+ end 1)))
+        (return end)))
+    (let [prefix (if (== first-byte 32) (as 1 :usize) (as 0 :usize))
           ^:var end prefix]
-      (ak/while (and (< end length)
-                     (ak/! (language-space? (a/index bytes end)))
-                     (ak/! (language-letter? (a/index bytes end)))
-                     (ak/! (language-digit? (a/index bytes end))))
-        (ak/= end (+ end 1)))
+      (while (and (< end length)
+                  (! (language-space? (a/index bytes end)))
+                  (! (language-letter? (a/index bytes end)))
+                  (! (language-digit? (a/index bytes end))))
+        (= end (+ end 1)))
       (when (> end prefix)
-        (ak/while (and (< end length)
-                       (or (ak/== (a/index bytes end) 10) (ak/== (a/index bytes end) 13)))
-          (ak/= end (+ end 1)))
-        (ak/return end)))
+        (while (and (< end length)
+                    (or (== (a/index bytes end) 10) (== (a/index bytes end) 13)))
+          (= end (+ end 1)))
+        (return end)))
     (when (language-space? first-byte)
-      (let [^:var end (ak/usize 0)
-            ^:var last-newline (ak/usize 0)]
-        (ak/while (and (< end length) (language-space? (a/index bytes end)))
-          (ak/= end (+ end 1))
-          (when (or (ak/== (a/index bytes (- end 1)) 10)
-                    (ak/== (a/index bytes (- end 1)) 13))
-            (ak/= last-newline end)))
-        (ak/return (cond (> last-newline 0) last-newline
-                         (ak/== end length) end
-                         (> end 1) (- end 1)
-                         :else end))))
-    (ak/as 1 :usize)))
+      (let [^:var end (usize 0)
+            ^:var last-newline (usize 0)]
+        (while (and (< end length) (language-space? (a/index bytes end)))
+          (= end (+ end 1))
+          (when (or (== (a/index bytes (- end 1)) 10)
+                    (== (a/index bytes (- end 1)) 13))
+            (= last-newline end)))
+        (return (cond (> last-newline 0) last-newline
+                      (== end length) end
+                      (> end 1) (- end 1)
+                      :else end))))
+    (as 1 :usize)))
 
 (a/defn tokenize-language-ascii TokenizationReport
   "Bounded ordinary text: apply Granite's word-splitting rule before GGUF BPE.
   The old compact-head tokenizer is left unchanged for existing head fixtures."
   [[bytes [:* {:size :c :const? true} :u8]] [length :usize]]
   (let [^:var result (std-mem/zeroes (a/type TokenizationReport))
-        ^:var offset (ak/usize 0)
-        bound (ak/min length tokenizer-capacity)]
-    (ak/= (a/field result byte_count) (ak/intCast bound))
-    (ak/= (a/field result truncated) (> length tokenizer-capacity))
-    (ak/= (a/field result valid) tokenizer-valid)
-    (ak/while (and (< offset bound) (a/field result valid))
+        ^:var offset (usize 0)
+        bound (min length tokenizer-capacity)]
+    (= (a/field result byte_count) (intCast bound))
+    (= (a/field result truncated) (> length tokenizer-capacity))
+    (= (a/field result valid) tokenizer-valid)
+    (while (and (< offset bound) (a/field result valid))
       (let [size (language-piece-length (+ bytes offset) (- bound offset))
             piece (tokenize-compact-ascii (+ bytes offset) size)]
-        (when (ak/! (a/field piece valid))
-          (ak/= (a/field result valid) false)
-          (ak/= (a/field result unsupported_index)
-                (ak/intCast (+ offset (a/field piece unsupported_index)))))
+        (when (! (a/field piece valid))
+          (= (a/field result valid) false)
+          (= (a/field result unsupported_index)
+             (intCast (+ offset (a/field piece unsupported_index)))))
         (dotimes [i (a/field piece token_count)]
-          (ak/= (a/index (a/field result tokens) (a/field result token_count))
-                (a/index (a/field piece tokens) i))
-          (ak/= (a/field result token_count) (+ (a/field result token_count) 1)))
-        (ak/= offset (+ offset size))))
+          (= (a/index (a/field result tokens) (a/field result token_count))
+             (a/index (a/field piece tokens) i))
+          (= (a/field result token_count) (+ (a/field result token_count) 1)))
+        (= offset (+ offset size))))
     result))
 
 (a/defn tokenize-language-chat-with-system TokenizationReport
@@ -3234,52 +3236,52 @@
                  (a/field system-role token_count) (a/field system-content token_count)
                  (a/field user-role token_count) (a/field assistant-role token_count))
         ^:var result (std-mem/zeroes (a/type TokenizationReport))
-        ^:var cursor (ak/usize 0)]
-    (ak/= (a/field result byte_count) (a/field content byte_count))
-    (ak/= (a/field result truncated)
-          (or (a/field content truncated) (a/field system-content truncated)
-              (> total tokenizer-capacity)))
-    (when (or (ak/! tokenizer-valid) (ak/! (a/field content valid))
-              (ak/! (a/field system-content valid))
+        ^:var cursor (usize 0)]
+    (= (a/field result byte_count) (a/field content byte_count))
+    (= (a/field result truncated)
+       (or (a/field content truncated) (a/field system-content truncated)
+           (> total tokenizer-capacity)))
+    (when (or (! tokenizer-valid) (! (a/field content valid))
+              (! (a/field system-content valid))
               (a/field result truncated) (>= start-role tokenizer-token-count)
               (>= end-role tokenizer-token-count) (>= eos tokenizer-token-count))
-      (ak/return result))
-    (ak/= (a/index (a/field result tokens) cursor) start-role)
-    (ak/= cursor (+ cursor 1))
+      (return result))
+    (= (a/index (a/field result tokens) cursor) start-role)
+    (= cursor (+ cursor 1))
     (dotimes [i (a/field system-role token_count)]
-      (ak/= (a/index (a/field result tokens) cursor) (a/index (a/field system-role tokens) i))
-      (ak/= cursor (+ cursor 1)))
-    (ak/= (a/index (a/field result tokens) cursor) end-role)
-    (ak/= cursor (+ cursor 1))
+      (= (a/index (a/field result tokens) cursor) (a/index (a/field system-role tokens) i))
+      (= cursor (+ cursor 1)))
+    (= (a/index (a/field result tokens) cursor) end-role)
+    (= cursor (+ cursor 1))
     (dotimes [i (a/field system-content token_count)]
-      (ak/= (a/index (a/field result tokens) cursor) (a/index (a/field system-content tokens) i))
-      (ak/= cursor (+ cursor 1)))
-    (ak/= (a/index (a/field result tokens) cursor) eos)
-    (ak/= cursor (+ cursor 1))
-    (ak/= (a/index (a/field result tokens) cursor) (ascii-byte-token 10))
-    (ak/= cursor (+ cursor 1))
-    (ak/= (a/index (a/field result tokens) cursor) start-role)
-    (ak/= cursor (+ cursor 1))
+      (= (a/index (a/field result tokens) cursor) (a/index (a/field system-content tokens) i))
+      (= cursor (+ cursor 1)))
+    (= (a/index (a/field result tokens) cursor) eos)
+    (= cursor (+ cursor 1))
+    (= (a/index (a/field result tokens) cursor) (ascii-byte-token 10))
+    (= cursor (+ cursor 1))
+    (= (a/index (a/field result tokens) cursor) start-role)
+    (= cursor (+ cursor 1))
     (dotimes [i (a/field user-role token_count)]
-      (ak/= (a/index (a/field result tokens) cursor) (a/index (a/field user-role tokens) i))
-      (ak/= cursor (+ cursor 1)))
-    (ak/= (a/index (a/field result tokens) cursor) end-role)
-    (ak/= cursor (+ cursor 1))
+      (= (a/index (a/field result tokens) cursor) (a/index (a/field user-role tokens) i))
+      (= cursor (+ cursor 1)))
+    (= (a/index (a/field result tokens) cursor) end-role)
+    (= cursor (+ cursor 1))
     (dotimes [i (a/field content token_count)]
-      (ak/= (a/index (a/field result tokens) cursor) (a/index (a/field content tokens) i))
-      (ak/= cursor (+ cursor 1)))
-    (ak/= (a/index (a/field result tokens) cursor) eos)
-    (ak/= cursor (+ cursor 1))
-    (ak/= (a/index (a/field result tokens) cursor) (ascii-byte-token 10))
-    (ak/= cursor (+ cursor 1))
-    (ak/= (a/index (a/field result tokens) cursor) start-role)
-    (ak/= cursor (+ cursor 1))
+      (= (a/index (a/field result tokens) cursor) (a/index (a/field content tokens) i))
+      (= cursor (+ cursor 1)))
+    (= (a/index (a/field result tokens) cursor) eos)
+    (= cursor (+ cursor 1))
+    (= (a/index (a/field result tokens) cursor) (ascii-byte-token 10))
+    (= cursor (+ cursor 1))
+    (= (a/index (a/field result tokens) cursor) start-role)
+    (= cursor (+ cursor 1))
     (dotimes [i (a/field assistant-role token_count)]
-      (ak/= (a/index (a/field result tokens) cursor) (a/index (a/field assistant-role tokens) i))
-      (ak/= cursor (+ cursor 1)))
-    (ak/= (a/index (a/field result tokens) cursor) end-role)
-    (ak/= (a/field result token_count) (ak/intCast (+ cursor 1)))
-    (ak/= (a/field result valid) true)
+      (= (a/index (a/field result tokens) cursor) (a/index (a/field assistant-role tokens) i))
+      (= cursor (+ cursor 1)))
+    (= (a/index (a/field result tokens) cursor) end-role)
+    (= (a/field result token_count) (intCast (+ cursor 1)))
+    (= (a/field result valid) true)
     result))
 
 (a/defn tokenize-language-chat TokenizationReport
@@ -3300,45 +3302,45 @@
   (let [^:var result (std-mem/zeroes (a/type LanguageGeneration))
         tokenized (tokenize-language-chat-with-system system system-length prompt length)
         eos (metadata-u32 (find-metadata "tokenizer.ggml.eos_token_id") 0xffffffff)]
-    (ak/= (a/field result stop) 4)
-    (when (or (ak/! tokenizer-valid) (ak/! (a/field tokenized valid))
-              (a/field tokenized truncated) (ak/== (a/field tokenized token_count) 0)
-              (>= eos tokenizer-token-count) (ak/! (reset-sequence! racer)))
-      (ak/return result))
+    (= (a/field result stop) 4)
+    (when (or (! tokenizer-valid) (! (a/field tokenized valid))
+              (a/field tokenized truncated) (== (a/field tokenized token_count) 0)
+              (>= eos tokenizer-token-count) (! (reset-sequence! racer)))
+      (return result))
     (dotimes [i (a/field tokenized token_count)]
-      (when (ak/! (a/field (forward-token! racer (a/index (a/field tokenized tokens) i)) valid))
-        (ak/return result))
-      (ak/= (a/field result input_tokens) (+ (a/field result input_tokens) 1)))
-    (ak/= (a/field result valid) true)
-    (ak/= (a/field result stop) 2)
-    (dotimes [_ (ak/min max-new-tokens 64)]
+      (when (! (a/field (forward-token! racer (a/index (a/field tokenized tokens) i)) valid))
+        (return result))
+      (= (a/field result input_tokens) (+ (a/field result input_tokens) 1)))
+    (= (a/field result valid) true)
+    (= (a/field result stop) 2)
+    (dotimes [_ (min max-new-tokens 64)]
       (let [token (next-language-token racer)]
-        (when (ak/== token eos)
-          (ak/= (a/field result stop) 1)
-          (ak/return result))
+        (when (== token eos)
+          (= (a/field result stop) 1)
+          (return result))
         (when (>= (a/field result byte_count) 2048)
-          (ak/= (a/field result valid) false)
-          (ak/= (a/field result stop) 4)
-          (ak/return result))
+          (= (a/field result valid) false)
+          (= (a/field result stop) 4)
+          (return result))
         (let [size (decode-language-token! token
                                            (ak/& (a/index (a/field result bytes) (a/field result byte_count)))
                                            (- 2048 (a/field result byte_count)))]
-          (when (ak/== size 65535)
-            (ak/= (a/field result valid) false)
-            (ak/= (a/field result stop) 4)
-            (ak/return result))
-          (ak/= (a/field result byte_count) (+ (a/field result byte_count) size)))
-        (ak/= (a/index (a/field result tokens) (a/field result output_tokens)) token)
-        (ak/= (a/field result output_tokens) (+ (a/field result output_tokens) 1))
-        (when (>= (a/field result output_tokens) (ak/min max-new-tokens 64))
-          (ak/return result))
+          (when (== size 65535)
+            (= (a/field result valid) false)
+            (= (a/field result stop) 4)
+            (return result))
+          (= (a/field result byte_count) (+ (a/field result byte_count) size)))
+        (= (a/index (a/field result tokens) (a/field result output_tokens)) token)
+        (= (a/field result output_tokens) (+ (a/field result output_tokens) 1))
+        (when (>= (a/field result output_tokens) (min max-new-tokens 64))
+          (return result))
         (when (>= (a/index sequence-positions racer) sequence-capacity)
-          (ak/= (a/field result stop) 3)
-          (ak/return result))
-        (when (ak/! (a/field (forward-token! racer token) valid))
-          (ak/= (a/field result valid) false)
-          (ak/= (a/field result stop) 4)
-          (ak/return result))))
+          (= (a/field result stop) 3)
+          (return result))
+        (when (! (a/field (forward-token! racer token) valid))
+          (= (a/field result valid) false)
+          (= (a/field result stop) 4)
+          (return result))))
     result))
 
 (a/defn generate-language! LanguageGeneration
@@ -3361,8 +3363,8 @@
                        1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0] [:array 32 :f32])
         norm-input (a/init [1.0 2.0 3.0 4.0] [:array 4 :f32])
         weights (a/init [1.0 1.0 1.0 1.0] [:array 4 :f32])
-        ^:var norm-output (ak/as (a/init [0.0 0.0 0.0 0.0] [:array 4 :f32]) [:array 4 :f32])
-        ^:var probabilities (ak/as (a/init [1.0 2.0 3.0 4.0] [:array 4 :f32]) [:array 4 :f32])]
+        ^:var norm-output (as (a/init [0.0 0.0 0.0 0.0] [:array 4 :f32]) [:array 4 :f32])
+        ^:var probabilities (as (a/init [1.0 2.0 3.0 4.0] [:array 4 :f32]) [:array 4 :f32])]
     (rms-norm! (ak/& (a/index norm-output 0)) (ak/& (a/index norm-input 0))
                (ak/& (a/index weights 0)) 4 0.00001)
     (softmax! (ak/& (a/index probabilities 0)) 4)

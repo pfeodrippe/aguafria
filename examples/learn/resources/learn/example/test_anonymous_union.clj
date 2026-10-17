@@ -1,9 +1,11 @@
 (ns learn.example.test-anonymous-union
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
-            [aguafria.zig :as a]))
+            [aguafria.zig :as a]
+            [clojure.core :as c]))
 
-(ns-unmap *ns* 'Number)
+(c/ns-unmap c/*ns* 'Number)
 
 (a/defunion Number
   [[:int :i32]

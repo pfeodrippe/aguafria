@@ -42,7 +42,7 @@
   (let [command (mapv #(if (= "zig" %) (a/zig-executable) %) command)
         process (-> (ProcessBuilder. ^java.util.List command)
                     (doto (.directory directory)
-                          (.redirectErrorStream true))
+                      (.redirectErrorStream true))
                     .start)
         output (slurp (.getInputStream process))
         exit (.waitFor process)]

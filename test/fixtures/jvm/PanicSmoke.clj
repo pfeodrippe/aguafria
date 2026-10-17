@@ -41,7 +41,7 @@
   (debug/assert (ak/== optional-value nil))
   (expect-panic #(debug/assert (ak/!= optional-value nil))))
 
-(a/defn overflowing :i32 [[value :i32]] (+ value 1))
+(a/defn overflowing :i32 [[value :i32]] (aguafria.keyword/+ value 1))
 (expect-source-panic #(overflowing Integer/MAX_VALUE) "(+ value 1)")
 (a/deftest panic-test (debug/assert false))
 (expect-source-panic panic-test "(debug/assert false)")

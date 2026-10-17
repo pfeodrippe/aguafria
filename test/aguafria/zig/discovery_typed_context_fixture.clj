@@ -1,5 +1,6 @@
 (ns aguafria.zig.discovery-typed-context-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defn take-index :usize [[index :usize]] index)
@@ -9,10 +10,10 @@
 (a/defn take-pointer [:*const :u8] [[pointer [:*const :u8]]] pointer)
 
 (a/defn cast-index :usize [[index :u32]]
-  (take-index (k/intCast index)))
+  (take-index (intCast index)))
 
 (a/defn cast-float :f32 [[index :u32]]
-  (take-float (k/floatFromInt index)))
+  (take-float (floatFromInt index)))
 
 (a/defn cast-pointer [:*const :u8] [[pointer [:*const [:array 2 :u8]]]]
-  (take-pointer (k/ptrCast pointer)))
+  (take-pointer (ptrCast pointer)))

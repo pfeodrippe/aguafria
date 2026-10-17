@@ -1,9 +1,10 @@
 (ns learn.example.test-invalid-defer
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defn- deferInvalidExample [:error-union :void] []
-  (k/defer (k/return (a/error-value :DeferError)))
+  (defer (return (a/error-value :DeferError)))
   (a/error-value :DeferError))
 
 (comment

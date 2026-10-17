@@ -7,10 +7,10 @@
 
 (deftest metre-scale-blender-circuit-test
   (let [{:keys [samples length-metres]} (edn/read-string
-                                        (slurp (io/resource "geometry/circuit.edn")))
+                                         (slurp (io/resource "geometry/circuit.edn")))
         segment-length (fn [[a b]]
                          (Math/sqrt (reduce + (map #(Math/pow (- %1 %2) 2)
-                                                  (take 3 a) (take 3 b)))))
+                                                   (take 3 a) (take 3 b)))))
         measured (reduce + (map segment-length (partition 2 1 samples)))]
     (is (< (abs (- length-metres measured)) 0.01))
     (is (= (take 3 (first samples)) (take 3 (last samples))))

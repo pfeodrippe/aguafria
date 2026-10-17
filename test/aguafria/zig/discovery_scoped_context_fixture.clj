@@ -1,5 +1,6 @@
 (ns aguafria.zig.discovery-scoped-context-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
@@ -12,9 +13,9 @@
 
 (a/defn typed-local :i32
   [[input :i32]]
-  (k/const choice Choice
-           (a/with-block :result
-             (k/break :result ((a/enum-literal ".first") input))))
+  (const choice Choice
+         (a/with-block :result
+           (break :result ((a/enum-literal ".first") input))))
   (:value choice))
 
 (a/defn read-value :i32
@@ -23,30 +24,30 @@
 
 (a/defn typed-cast :i32
   [[input :i32]]
-  (let [choice (k/as (a/with-block :result
-                       (k/break :result ((a/enum-literal ".second") input)))
-                     Choice)]
+  (let [choice (as (a/with-block :result
+                     (break :result ((a/enum-literal ".second") input)))
+                   Choice)]
     (:value choice)))
 
 (a/defn propagates :!Choice
   [[input :i32]]
-  (k/const choice Choice
-           (a/with-block :result
-             (try (testing/expectEqual input input))
-             (k/break :result ((a/enum-literal ".first") input))))
+  (const choice Choice
+         (a/with-block :result
+           (try (testing/expectEqual input input))
+           (break :result ((a/enum-literal ".first") input))))
   choice)
 
 (a/defenum Status [:first :second])
 
 (a/defn typed-enum :usize
   [[input :i32]]
-  (k/const selected Status
-           (a/with-block :pick
-             (when (k/> input 10)
-               (k/break :pick :second))
-             (k/break :pick :first)))
-  (k/intFromEnum selected))
+  (const selected Status
+         (a/with-block :pick
+           (when (> input 10)
+             (break :pick :second))
+           (break :pick :first)))
+  (intFromEnum selected))
 
 (a/deftest input-construction
-  (let [input (k/i32 4)]
-    (k/= :_ input)))
+  (let [input (i32 4)]
+    (= :_ input)))

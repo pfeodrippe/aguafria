@@ -1,13 +1,14 @@
 (ns aguafria.zig.precompile-comptime-receiver-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defstruct Settings
   [[:element :type]
    [:count :usize]
    (a/fn bytes :usize
-     [[self {:attrs #{k/comptime}} Settings]]
-     (k/* (:count self) (k/sizeOf (:element self))))])
+     [[self {:attrs #{comptime}} Settings]]
+     (* (:count self) (sizeOf (:element self))))])
 
 (a/defstruct Root
   [[:settings Settings]])

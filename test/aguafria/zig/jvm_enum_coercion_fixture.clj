@@ -1,5 +1,6 @@
 (ns aguafria.zig.jvm-enum-coercion-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
@@ -27,11 +28,11 @@
 
 (a/deftest known-enum-to-union
   (let [tag (:ready-now Tag)
-        payload (k/as tag Payload)]
+        payload (as tag Payload)]
     (try (testing/expectEqual (:ready-now Tag) payload)))
-  (let [payload (k/as :ready_now Payload)]
+  (let [payload (as :ready_now Payload)]
     (try (testing/expectEqual (:ready-now Tag) payload)))
-  (let [payload (k/as (:ready Constants) Payload)]
+  (let [payload (as (:ready Constants) Payload)]
     (try (testing/expectEqual (:ready-now Tag) payload)))
   (let [payload (Payload {:ratio 0.25})]
     (try (testing/expectEqual 0.25 (:ratio payload)))))
@@ -39,7 +40,7 @@
 (a/deftest aliased-and-shadowed-enum-sources
   (let [tag (:ready-now Tag)
         alias tag
-        payload (k/as alias Payload)]
+        payload (as alias Payload)]
     (try (testing/expectEqual alias payload)))
   (let [tag (:ready-now Tag)
         tag (echo-tag tag)]

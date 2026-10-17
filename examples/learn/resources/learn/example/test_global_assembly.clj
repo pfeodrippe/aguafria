@@ -1,10 +1,11 @@
 (ns learn.example.test-global-assembly
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
 (a/defcomptime install-addition
-  (k/asm
+  (asm
    (a/multiline-string
     [".global my_func;"
      ".type my_func, @function;"

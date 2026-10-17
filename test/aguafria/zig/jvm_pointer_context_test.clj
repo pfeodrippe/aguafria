@@ -22,21 +22,22 @@
         (binding [*ns* *ns* *file* file]
           (doseq [form (take-while #(not= declaration %) forms)]
             (eval form))
-          (is (= {:ok nil} (eval body)))
-          (when (= 'k/comptime (first (nth declaration 2)))
-            (is (= {:ok nil} (eval (nth declaration 2))))))
+          (is (nil? (a/value (eval body))))
+          (when (#{'comptime 'k/comptime} (first (nth declaration 2)))
+            (is (nil? (a/value (eval (nth declaration 2)))))))
         (binding [*ns* (the-ns (second (first forms))) *file* file]
           ;; Separately verify native Zig compilation/execution of the same test.
           (eval declaration)
           (is (= :passed (:status ((ns-resolve *ns* (second declaration)))))))))))
 
-(deftest jvm-comptime-is-identity-not-a-second-execution
-  (let [calls (atom 0)
-        marker (Object.)]
-    (is (identical? marker (k/comptime (do (swap! calls inc) marker))))
-    (is (= 1 @calls))
-    (is (nil? (k/comptime nil)))
-    (is (false? (k/comptime false)))))
+(deftest jvm-comptime-captures-native-syntax-without-host-execution
+  (let [calls (atom 0)]
+    (is (:macro (meta #'k/comptime)))
+    (is (thrown? Exception (k/comptime (swap! calls inc))))
+    (is (= 0 @calls))
+    (is (= 20 (a/value (k/comptime (let [x (k/+ 2 3)] (k/* x 4))))))
+    (is (nil? (a/value (k/comptime nil))))
+    (is (false? (a/value (k/comptime false))))))
 
 (deftest contextual-casts-keep-zig-result-types-and-owners
   (let [pending (k/ptrFromInt 0xdeadbee0)]

@@ -1,6 +1,7 @@
 (ns racing-game.standalone
   "JVM-free fast entry point generated from the same Aguafria graph."
-  (:require [aguafria.keyword :as ak]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as ak :refer :all]
             [aguafria.zig :as a]
             [racing-game.monitor :as monitor]))
 
@@ -10,4 +11,4 @@
 
 (a/defn main :void
   []
-  (ak/= :_ (monitor/run!)))
+  (= :_ (monitor/run!)))

@@ -1,5 +1,6 @@
 (ns learn.example.test-exhaustive-switch
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
@@ -10,7 +11,7 @@
 
 (a/deftest enum-literals-with-switch
   (let [color (:off Color)
-        result (k/switch color
+        result (switch color
                  :auto false
                  :on false
                  :off true)]

@@ -1,10 +1,11 @@
 (ns learn.example.testing-namespace
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
 (a/deftest expectEqual-demo
-  (let [expected (k/i32 42)
+  (let [expected (i32 42)
         actual 42]
     ;; The first argument to `expectEqual` is the known, expected, result.
     ;; The second argument is the result of some expression.
@@ -13,7 +14,7 @@
 
 (a/deftest expectError-demo
   (let [expected-error (a/error-value :DemoError)
-        actual-error-union (k/as (a/error-value :DemoError) [:error-union :anyerror :void])]
+        actual-error-union (as (a/error-value :DemoError) [:error-union :anyerror :void])]
     ;; `expectError` will fail when the actual error is different than
     ;; the expected error.
     (k/try (testing/expectError expected-error actual-error-union))))

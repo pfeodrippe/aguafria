@@ -1,11 +1,12 @@
 (ns learn.example.runtime-overflow
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as a]))
 
 (a/defn main :void []
   (let [byte (k/var 255 :u8)]
-    (k/+= byte 1)
+    (+= byte 1)
     (debug/print "value: {}\n" [byte])))
 
 (comment

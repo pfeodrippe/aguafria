@@ -1,6 +1,8 @@
 (ns aguafria.zig.discovery-const-container-caller-fixture
+  (:refer-clojure :only [])
   (:require [aguafria.zig :as a]
-            [aguafria.zig.discovery-const-container-fixture :as containers]))
+            [aguafria.zig.discovery-const-container-fixture :as containers]
+            [aguafria.keyword :as k :refer :all]))
 
 (a/defn increment :u32
   []

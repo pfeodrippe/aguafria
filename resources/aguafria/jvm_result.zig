@@ -845,17 +845,37 @@ pub const __aguafria_jvm = struct {
         return sink.finish();
     }
 
-    pub fn scopedValueResult(value: anytype) usize {
+    fn writeScopedValue(writer: *std.Io.Writer, value: anytype) !void {
         // A native expression's void value is not Zig null. Keep that type
         // when an enclosing JVM let captures the result of an empty block.
         if (@TypeOf(value) == void) {
-            var sink = NativeWriter.init();
-            defer sink.deinit();
-            sink.writer.writeAll("{:aguafria.jvm/comptime {:type :void :value nil}}") catch
-                @panic("Cannot encode native void value");
-            return sink.finish();
+            try writer.writeAll("{:aguafria.jvm/comptime {:type :void :value nil}}");
+        } else {
+            try writeResult(writer, value);
         }
-        return result(value);
+    }
+
+    pub fn scopedValueResult(value: anytype) usize {
+        var sink = NativeWriter.init();
+        defer sink.deinit();
+        writeScopedValue(&sink.writer, value) catch @panic("Cannot encode native scoped value");
+        return sink.finish();
+    }
+
+    // Encode the result and compiler-only writebacks while their local storage
+    // is still alive, using the same ownership/type encoding as other results.
+    pub fn scopedMutationResult(value: anytype, writebacks: anytype) usize {
+        var sink = NativeWriter.init();
+        defer sink.deinit();
+        const writer = &sink.writer;
+        writer.writeByte('[') catch @panic("Cannot encode scoped result");
+        writeScopedValue(writer, value) catch @panic("Cannot encode scoped result");
+        inline for (writebacks) |item| {
+            writer.writeByte(' ') catch @panic("Cannot encode scoped writeback");
+            writeResult(writer, item) catch @panic("Cannot encode scoped writeback");
+        }
+        writer.writeByte(']') catch @panic("Cannot encode scoped result");
+        return sink.finish();
     }
 
     pub fn nominalResult(value: anytype, comptime Candidate: type, comptime identity: []const u8) usize {

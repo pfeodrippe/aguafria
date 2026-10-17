@@ -1,13 +1,14 @@
 (ns learn.example.test-int-to-float-coercion
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
 (a/deftest implicit-integer-to-float
   (let [int (k/var 123 :u8)]
-    (k/= :_ (k/& int))
-    (let [float (k/f32 int)
-          int-from-float (k/u8 (k/intFromFloat float))]
+    (= :_ (k/& int))
+    (let [float (f32 int)
+          int-from-float (u8 (intFromFloat float))]
       (k/try (testing/expectEqual int int-from-float)))))
 
 (comment

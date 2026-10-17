@@ -95,7 +95,7 @@
         :overwrite? true})
       (ac/load-bindings! bindings)
       (a/configure! {:zig-args (vec (distinct (concat (:zig-args (a/configuration))
-                                                     [(str shared) "-lc"])))})
+                                                      [(str shared) "-lc"])))})
       (reset! loaded? true)))
   {:loaded? @loaded? :commit (get-in vendor/dependencies [:box3d :commit])})
 

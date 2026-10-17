@@ -1,5 +1,6 @@
 (ns learn.example.error-return-trace
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defn- bang1 [:error-union :void] []
@@ -20,11 +21,11 @@
 (a/defn- bar [:error-union :void] []
   (a/if-capture-stmt {:error [err]} (baz)
                      (k/try (quux))
-                     (k/switch err
+                     (switch err
                        (a/error-value :FileNotFound) (k/try (hello)))))
 
 (a/defn- foo [:error-union :void] [[x :i32]]
-  (if (k/>= x 5)
+  (if (>= x 5)
     (k/try (bar))
     (k/try (bang2))))
 

@@ -1,9 +1,11 @@
 (ns learn.example.test-switch-non-exhaustive
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
-            [aguafria.zig :as a]))
+            [aguafria.zig :as a]
+            [clojure.core :as c]))
 
-(ns-unmap *ns* 'Number)
+(c/ns-unmap c/*ns* 'Number)
 
 (a/defenum Number
   {:type :u8}
@@ -14,12 +16,12 @@
 
 (a/deftest switch-on-non-exhaustive-enum
   (let [number (:one Number)
-        result (k/switch number
+        result (switch number
                  :one true
                  (:two :three) false
                  _ false)]
     (k/try (testing/expect result))
-    (let [is-one (k/switch number
+    (let [is-one (switch number
                    :one true
                    false)]
       (k/try (testing/expect is-one)))))

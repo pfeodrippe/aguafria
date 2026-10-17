@@ -31,13 +31,13 @@
   "Compare the compiled coarse points with the original runtime sampler." []
   (let [^{:var :f32} maximum 0.0]
     (dotimes [i track/projection-samples]
-      (let [progress (/ (ak/as (ak/floatFromInt i) :f32)
-                        (ak/as (ak/floatFromInt track/projection-samples) :f32))
+      (let [progress (ak// (ak/as (ak/floatFromInt i) :f32)
+                           (ak/as (ak/floatFromInt track/projection-samples) :f32))
             original (track/pose progress 0.0)
             cached (a/index track/projection-centers i)]
         (ak/= maximum (ak/max maximum
-                       (ak/max (ak/abs (- (a/field original x) (a/index cached 0)))
-                               (ak/abs (- (a/field original y) (a/index cached 1))))))))
+                              (ak/max (ak/abs (ak/- (a/field original x) (a/index cached 0)))
+                                      (ak/abs (ak/- (a/field original y) (a/index cached 1))))))))
     maximum))
 
 (deftest immutable-projection-cache-test
@@ -233,7 +233,7 @@
                ;; Never accidentally expose technical payloads added to data later.
                :tokens [50 35 32] :encoded "SDAAAADB"}
         rejected (assoc entry :sequence 22 :reply "" :complete? false
-                             :reason "model response was incomplete or exceeded the limit")
+                        :reason "model response was incomplete or exceeded the limit")
         text (race-log/language-text-report [rejected entry] {})]
     (is (str/includes? text (:observation entry)))
     (is (str/includes? text (:reply entry)))
@@ -266,7 +266,7 @@
     (is (= 1 (count (re-seq #"Model replied:" text))))
     (is (str/includes? text "for the latest call"))
     (is (= 2 (count (re-seq #"Model replied:"
-                           (race-log/language-text-report [entry older] {:every-call? true})))))
+                            (race-log/language-text-report [entry older] {:every-call? true})))))
     (doseq [[key value] [[:racer 1] [:race 2] [:instructions "Different instructions"]
                          [:observation "Left clear"] [:reply "hold"] [:reason "expired"]
                          [:complete? false] [:generation-valid? false] [:generation-stop 2]]]
@@ -289,17 +289,17 @@
         a (simulation/LanguageExchange data)]
     (is (monitor/same-language-exchange? a a))
     (doseq [[path value] [[[:valid] false] [[:reason] 1]
-                         [[:result :request :actor] 1] [[:result :request :epoch] 2]
-                         [[:result :generation :valid] false] [[:result :generation :stop] 2]
-                         [[:result :request :system_bytes 0] 65]
-                         [[:result :request :prompt_bytes 0] 65]
-                         [[:result :generation :bytes 0] 65]
-                         [[:result :request :prompt_byte_count] 0]]]
+                          [[:result :request :actor] 1] [[:result :request :epoch] 2]
+                          [[:result :generation :valid] false] [[:result :generation :stop] 2]
+                          [[:result :request :system_bytes 0] 65]
+                          [[:result :request :prompt_bytes 0] 65]
+                          [[:result :generation :bytes 0] 65]
+                          [[:result :request :prompt_byte_count] 0]]]
       (is (not (monitor/same-language-exchange? a (simulation/LanguageExchange (assoc-in data path value))))
           (str "Native boundary " path)))
     (doseq [[path value] [[[:sequence] 3] [[:result :inference_us] 999]
-                         [[:result :generation :input_tokens] 99]
-                         [[:result :request :prompt_bytes 100] 65]]]
+                          [[:result :generation :input_tokens] 99]
+                          [[:result :request :prompt_bytes 100] 65]]]
       (is (monitor/same-language-exchange? a (simulation/LanguageExchange (assoc-in data path value)))
           (str "Ignore timing/count/unused storage " path)))))
 
@@ -966,7 +966,7 @@
         (is (= (a/value simulation/racer-count) (:deadline_misses expired)))
         (is (= (a/value simulation/racer-count) (:deadline_misses cognition)))
         (is (every? #(= 1 (:deadline_misses
-                            (a/value (simulation/racer-view %))))
+                           (a/value (simulation/racer-view %))))
                     (range (a/value simulation/racer-count)))))
       (let [workers (await-workers-idle 10000)]
         (is (= [1 1 1 1 1 1 1 1 0 0 0 0] (:requests_by_actor workers)))
@@ -1025,7 +1025,7 @@
         racers (mapv #(a/value (simulation/racer-view %)) (range (a/value simulation/racer-count)))
         cognition (a/value (telemetry/summary))
         recorded (reduce + (map #(min telemetry/entries-per-racer
-                                     (telemetry/decision-count %))
+                                      (telemetry/decision-count %))
                                 (range (a/value simulation/racer-count))))
         latest (mapv #(a/value (telemetry/latest %)) (range (a/value simulation/racer-count)))
         semantic-log (core/decision-log 0)

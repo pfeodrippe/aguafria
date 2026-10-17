@@ -1,18 +1,19 @@
 (ns learn.example.test-if-optionals
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
 (a/deftest if-optional
   ;; If expressions test for null.
-  (let [a (k/as 0 [:optional :u32])
-        b (k/as nil [:optional :u32])]
+  (let [a (as 0 [:optional :u32])
+        b (as nil [:optional :u32])]
     (a/if-capture-stmt {:payload [value]} a
                        (k/try (testing/expectEqual 0 value))
-                       (k/unreachable))
+                       (unreachable))
 
     (a/if-capture-stmt {:payload [_]} b
-                       (k/unreachable)
+                       (unreachable)
                        (k/try (testing/expect true)))
 
     ;; The else is not required.
@@ -20,38 +21,38 @@
                        (k/try (testing/expectEqual 0 value)))
 
     ;; To test against null only, use the binary equality operator.
-    (when (k/== b nil)
+    (when (== b nil)
       (k/try (testing/expect true))))
 
   ;; Access the value by reference using a pointer capture.
   (let [c (k/var 3 [:optional :u32])]
     (a/if-capture-stmt {:payload [(a/pointer-capture value)]} c
-                       (k/= @value 2))
+                       (= @value 2))
 
     (a/if-capture-stmt {:payload [value]} c
                        (k/try (testing/expectEqual 2 value))
-                       (k/unreachable))))
+                       (unreachable))))
 
 (a/deftest if-error-union-with-optional
   ;; If expressions test for errors before unwrapping optionals.
   ;; The |optional_value| capture's type is ?u32.
-  (let [a (k/as 0 [:error-union :anyerror [:optional :u32]])
-        b (k/as nil [:error-union :anyerror [:optional :u32]])
-        c (k/as (a/error-value :BadValue) [:error-union :anyerror [:optional :u32]])]
+  (let [a (as 0 [:error-union :anyerror [:optional :u32]])
+        b (as nil [:error-union :anyerror [:optional :u32]])
+        c (as (a/error-value :BadValue) [:error-union :anyerror [:optional :u32]])]
     (a/if-capture-stmt {:payload [optional-value] :error [err]} a
                        (k/try (testing/expectEqual 0 (a/unwrap optional-value)))
                        (a/block
-                        (k/= :_ err)
-                        (k/unreachable)))
+                        (= :_ err)
+                        (unreachable)))
 
     (a/if-capture-stmt {:payload [optional-value] :error [_]} b
                        (k/try (testing/expectEqual nil optional-value))
-                       (k/unreachable))
+                       (unreachable))
 
     (a/if-capture-stmt {:payload [optional-value] :error [err]} c
                        (a/block
-                        (k/= :_ optional-value)
-                        (k/unreachable))
+                        (= :_ optional-value)
+                        (unreachable))
                        (k/try (testing/expectEqual (a/error-value :BadValue) err))))
 
   ;; Access the value by reference by using a pointer capture each time.
@@ -59,12 +60,12 @@
     (a/if-capture-stmt {:payload [(a/pointer-capture optional-value)] :error [_]}
                        d
                        (a/if-capture-stmt {:payload [(a/pointer-capture value)]} @optional-value
-                                          (k/= @value 9))
-                       (k/unreachable))
+                                          (= @value 9))
+                       (unreachable))
 
     (a/if-capture-stmt {:payload [optional-value] :error [_]} d
                        (k/try (testing/expectEqual 9 (a/unwrap optional-value)))
-                       (k/unreachable))))
+                       (unreachable))))
 
 (comment
   (if-optional)

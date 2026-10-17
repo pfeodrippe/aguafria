@@ -318,7 +318,7 @@
            [capability
             {:cases (mapv :name (filter #(contains? (:capabilities %)
                                                     capability)
-                                       results))
+                                        results))
              :accepted (count (filter #(and (contains? (:capabilities %)
                                                        capability)
                                             (:accepted %))

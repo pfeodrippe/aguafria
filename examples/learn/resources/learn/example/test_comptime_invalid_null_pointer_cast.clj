@@ -1,8 +1,9 @@
 (ns learn.example.test-comptime-invalid-null-pointer-cast
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defcomptime reject-null-pointer
-  (let [opt-ptr (k/as nil [:optional [:* :i32]])
-        ptr (k/as (k/ptrCast opt-ptr) [:* :i32])]
-    (k/= :_ ptr)))
+  (let [opt-ptr (as nil [:optional [:* :i32]])
+        ptr (as (ptrCast opt-ptr) [:* :i32])]
+    (= :_ ptr)))

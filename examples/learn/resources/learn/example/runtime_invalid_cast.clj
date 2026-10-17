@@ -1,12 +1,13 @@
 (ns learn.example.runtime-invalid-cast
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as a]))
 
 (a/defn main :void []
   (let [value (k/var -1 :i32)] ; runtime-known
-    (k/= :_ (k/& value))
-    (let [unsigned (k/u32 (k/intCast value))]
+    (= :_ (k/& value))
+    (let [unsigned (u32 (intCast value))]
       (debug/print "value: {}\n" [unsigned]))))
 
 (comment

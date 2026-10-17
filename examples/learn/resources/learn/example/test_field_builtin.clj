@@ -1,5 +1,6 @@
 (ns learn.example.test-field-builtin
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
@@ -10,16 +11,16 @@
 
 (a/deftest field-access-by-string
   (let [p (k/var (Point {:x 0 :y 0}))]
-    (k/= (k/field p "x") 4)
-    (k/= (k/field p "y") (k/+ (k/field p "x") 1))
+    (= (field p "x") 4)
+    (= (field p "y") (+ (field p "x") 1))
 
-    (k/try (testing/expectEqual 4 (k/field p "x")))
-    (k/try (testing/expectEqual 5 (k/field p "y")))))
+    (k/try (testing/expectEqual 4 (field p "x")))
+    (k/try (testing/expectEqual 5 (field p "y")))))
 
 (a/deftest decl-access-by-string
-  (k/try (testing/expectEqual 1 (k/field Point "z")))
-  (k/= (k/field Point "z") 2)
-  (k/try (testing/expectEqual 2 (k/field Point "z"))))
+  (k/try (testing/expectEqual 1 (field Point "z")))
+  (= (field Point "z") 2)
+  (k/try (testing/expectEqual 2 (field Point "z"))))
 
 (comment
   (field-access-by-string)

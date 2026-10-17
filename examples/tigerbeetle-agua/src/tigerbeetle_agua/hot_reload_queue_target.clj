@@ -1,6 +1,7 @@
 (ns tigerbeetle-agua.hot-reload-queue-target
   "A concrete native caller of TigerBeetle's real generic QueueType."
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]
             [tigerbeetle.src.queue :as queue]))
 
@@ -11,4 +12,4 @@
 
 (a/defn queue-size :usize
   []
-  (k/sizeOf (queue/QueueType QueueItem)))
+  (sizeOf (queue/QueueType QueueItem)))

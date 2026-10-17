@@ -12,9 +12,9 @@
         (refer 'clojure.core)
         (alias 'a 'aguafria.zig)
         (eval '(a/defstruct Packed {:layout :packed}
-                             [[:a :u32] [:b :u32]]))
+                            [[:a :u32] [:b :u32]]))
         (eval '(a/defstruct Bits {:layout :packed}
-                             [[:low :u3] [:high :u5]])))
+                            [[:low :u3] [:high :u5]])))
       (let [Packed (var-get (ns-resolve fixture 'Packed))
             Bits (var-get (ns-resolve fixture 'Bits))
             packed (k/var (Packed {:a 1 :b 2}) nil {:align 4})

@@ -8,8 +8,8 @@
 
 (deftest coercion-emission
   (doseq [[form expected]
-          [['(ak/i32 (+ 1 1)) "@as(i32, (1 + 1))"]
-           ['(ak/f32 (/ 7.0 3.0)) "@as(f32, (7.0 / 3.0))"]
+          [['(ak/i32 (ak/+ 1 1)) "@as(i32, (1 + 1))"]
+           ['(ak/f32 (ak// 7.0 3.0)) "@as(f32, (7.0 / 3.0))"]
            ['(ak/as [1 2] [:array 2 :u8]) "@as([2]u8, .{1, 2})"]
            ['(ak/as nil [:optional :u8]) "@as(?u8, null)"]
            ['(-> 42 (ak/as :i32)) "@as(i32, 42)"]
@@ -82,14 +82,14 @@
       (alias 'a 'aguafria.zig)
       (eval '(a/defstruct Foo [[:a {:default 1234} :i32] [:b :i32]]))
       (eval '(a/defn add :i32 []
-               (let [one-plus-one (ak/i32 (+ 1 1))]
+               (let [one-plus-one (ak/i32 (ak/+ 1 1))]
                  (-> one-plus-one (ak/as :i32)))))
-      (eval '(a/defn quotient :f32 [] (ak/f32 (/ 7.0 3.0))))
+      (eval '(a/defn quotient :f32 [] (ak/f32 (ak// 7.0 3.0))))
       (eval '(a/defn input-type-name [:slice-const :u8]
                [[input :anytype]]
                (ak/typeName (ak/TypeOf input))))
       (eval '(a/defn sum :u32 [[values [:slice-const :u16]]]
-               (+ (a/index values 0) (a/index values 1))))
+               (ak/+ (a/index values 0) (a/index values 1))))
       (eval '(a/defn first-field :i32 [[value Foo]] (a/field value :a))))
     (is (= 2 (a/value ((ns-resolve fixture 'add)))))
     (is (= (float (/ 7.0 3.0)) (float (a/value ((ns-resolve fixture 'quotient))))))

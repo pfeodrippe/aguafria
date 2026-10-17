@@ -50,7 +50,7 @@
                          (:builds before))]
     (->> (:builds after)
          (remove #(contains? before-ids
-                            [(:module %) (:purpose %) (:generation %)]))
+                             [(:module %) (:purpose %) (:generation %)]))
          (sort-by (juxt :requested-at-ms :module :generation))
          vec)))
 

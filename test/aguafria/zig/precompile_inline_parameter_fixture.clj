@@ -1,5 +1,6 @@
 (ns aguafria.zig.precompile-inline-parameter-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defn public-value :u32
@@ -14,5 +15,5 @@
   [[options (a/container {:kind :struct}
                          [(a/field-decl string [:slice-const :u8])
                           (a/field-decl port_default :u16)])]]
-  (k/+ (k/as (k/intCast (:len (:string options))) :u32)
-       (k/as (:port_default options) :u32)))
+  (+ (as (intCast (:len (:string options))) :u32)
+     (as (:port_default options) :u32)))

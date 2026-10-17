@@ -1,20 +1,21 @@
 (ns learn.example.test-inline-switch
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.lang.Type :as type-info]
             [aguafria.std.lang.Type.Struct :as struct-info]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
 (a/defn- isFieldOptional :!bool
-  [[T {:attrs #{k/comptime}} :type] [field-index :usize]]
-  (let [field-types (-> (k/typeInfo T) type-info/-struct struct-info/-field_types)]
-    (k/switch field-index
+  [[T {:attrs #{comptime}} :type] [field-index :usize]]
+  (let [field-types (-> (typeInfo T) type-info/-struct struct-info/-field_types)]
+    (switch field-index
       ;; This prong is analyzed twice with `idx` being a
       ;; comptime-known value each time.
       (0 1)
-      (k/inline (a/with-block :_ [idx] (k/== (k/typeInfo (a/get field-types idx)) :optional)))
+      (inline (a/with-block :_ [idx] (== (typeInfo (a/get field-types idx)) :optional)))
 
-      (k/return (a/error-value :IndexOutOfBounds)))))
+      (return (a/error-value :IndexOutOfBounds)))))
 
 (a/defstruct Struct1
   [[:a :u32]
@@ -22,10 +23,10 @@
 
 (a/deftest using-typeInfo-with-runtime-values
   (let [index (k/var 0 :usize)]
-    (k/try (testing/expect (k/! (k/try (isFieldOptional Struct1 index)))))
-    (k/+= index 1)
+    (k/try (testing/expect (! (k/try (isFieldOptional Struct1 index)))))
+    (+= index 1)
     (k/try (testing/expect (k/try (isFieldOptional Struct1 index))))
-    (k/+= index 1)
+    (+= index 1)
     (k/try (testing/expectError (a/error-value :IndexOutOfBounds)
                                 (isFieldOptional Struct1 index)))))
 
@@ -33,11 +34,11 @@
 ;; of this function:
 (a/defn- isFieldOptionalUnrolled :!bool
   [[field-index :usize]]
-  (k/switch field-index
+  (switch field-index
     0 false
     1 true
 
-    (k/return (a/error-value :IndexOutOfBounds))))
+    (return (a/error-value :IndexOutOfBounds))))
 
 (comment
   (using-typeInfo-with-runtime-values))

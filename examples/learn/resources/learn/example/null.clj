@@ -1,4 +1,6 @@
 (ns learn.example.null
-  (:require [aguafria.zig :as a]))
+  (:refer-clojure :only [])
+  (:require [aguafria.zig :as a]
+            [aguafria.keyword :as k :refer :all]))
 
 (a/defconst optional-value [:optional :i32] nil)

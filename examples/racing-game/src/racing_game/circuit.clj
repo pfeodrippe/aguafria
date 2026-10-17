@@ -1,37 +1,39 @@
 (ns racing-game.circuit
   "Metre-based, arc-length-parameterized circuit exported from Blender."
+  (:refer-clojure :only [])
   (:require [aguafria.std]
-            [aguafria.keyword :as ak]
+            [aguafria.keyword :as ak :refer :all]
             [aguafria.std.math :as math]
             [aguafria.zig :as a]
             [clojure.edn :as edn]
-            [clojure.java.io :as io]))
+            [clojure.java.io :as io]
+            [clojure.core :as c]))
 
 (let [{:keys [length-metres samples]} (edn/read-string
-                                     (slurp (io/resource "geometry/circuit.edn")))]
-  (when-not (and (= 4309.0 length-metres) (> (count samples) 100)
-                 (every? #(and (= 4 (count %))
-                               (every? (fn [n] (and (number? n) (Double/isFinite (double n)))) %)) samples)
-                 (apply < (map last samples)))
-    (throw (ex-info "Invalid metre-based Blender circuit export" {})))
-  (eval `(a/defconst ~'centerline [:array ~(count samples) [:array 4 :f32]] ~samples))
-  (eval `(a/defconst ~'sample-count :usize ~(count samples)))
-  (eval `(a/defconst ~'minimum-elevation :f32 ~(apply min (map #(nth % 2) samples)))))
+                                       (c/slurp (io/resource "geometry/circuit.edn")))]
+  (when-not (c/and (c/= 4309.0 length-metres) (c/> (c/count samples) 100)
+                   (c/every? #(c/and (c/= 4 (c/count %))
+                                     (c/every? (c/fn [n] (c/and (c/number? n) (Double/isFinite (c/double n)))) %)) samples)
+                   (c/apply c/< (c/map c/last samples)))
+    (throw (c/ex-info "Invalid metre-based Blender circuit export" {})))
+  (c/eval `(a/defconst ~'centerline [:array ~(clojure.core/count samples) [:array 4 :f32]] ~samples))
+  (c/eval `(a/defconst ~'sample-count :usize ~(clojure.core/count samples)))
+  (c/eval `(a/defconst ~'minimum-elevation :f32 ~(clojure.core/apply min (clojure.core/map #(clojure.core/nth % 2) samples)))))
 
 (a/defconst length-metres :f32 4309.0)
 
 (a/defconst road-width-metres :f32 13.0)
 
 (a/defstruct Sample {:layout :extern}
-  [[:x :f32] [:y :f32] [:z :f32] [:heading :f32]])
+             [[:x :f32] [:y :f32] [:z :f32] [:heading :f32]])
 
 (a/defn tangent :f32
   "Arc-distance derivative at an authored knot, including the closed seam." [[index :usize] [axis :usize]]
-  (let [i (if (ak/== index (- sample-count 1)) (ak/as 0 :usize) index)
-        previous (a/index centerline (if (ak/== i 0) (- sample-count 2) (- i 1)))
+  (let [i (if (== index (- sample-count 1)) (as 0 :usize) index)
+        previous (a/index centerline (if (== i 0) (- sample-count 2) (- i 1)))
         following (a/index centerline (+ i 1))
         span (- (a/index following 3)
-                (- (a/index previous 3) (if (ak/== i 0) length-metres 0.0)))]
+                (- (a/index previous 3) (if (== i 0) length-metres 0.0)))]
     (/ (- (a/index following axis) (a/index previous axis)) span)))
 
 (a/defn hermite :f32 [[a :f32] [b :f32] [ma :f32] [mb :f32] [t :f32]]
@@ -52,13 +54,13 @@
   heading share the same curve derivative; lane offsets no longer jump at
   each polyline boundary. Distance remains the authored arc-distance coordinate." [[distance :f32] [lane :f32]]
   (let [d (mod distance length-metres)
-        ^:var low (ak/usize 0)
-        ^:var high (ak/usize (- sample-count 1))]
+        ^:var low (usize 0)
+        ^:var high (usize (- sample-count 1))]
     (while (> (- high low) 1)
-      (let [middle (ak/divTrunc (+ low high) 2)]
+      (let [middle (divTrunc (+ low high) 2)]
         (if (> (a/index (a/index centerline middle) 3) d)
-          (ak/= high middle)
-          (ak/= low middle))))
+          (= high middle)
+          (= low middle))))
     (let [a (a/index centerline low) b (a/index centerline high)
           span (- (a/index b 3) (a/index a 3))
           t (/ (- d (a/index a 3)) span)

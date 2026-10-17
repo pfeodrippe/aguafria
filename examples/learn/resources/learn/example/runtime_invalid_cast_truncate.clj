@@ -1,12 +1,13 @@
 (ns learn.example.runtime-invalid-cast-truncate
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.debug :as debug]
             [aguafria.zig :as a]))
 
 (a/defn main :void []
   (let [spartan-count (k/var 300 :u16)] ; runtime-known
-    (k/= :_ (k/& spartan-count))
-    (let [byte (k/u8 (k/intCast spartan-count))]
+    (= :_ (k/& spartan-count))
+    (let [byte (u8 (intCast spartan-count))]
       (debug/print "value: {}\n" [byte]))))
 
 (comment

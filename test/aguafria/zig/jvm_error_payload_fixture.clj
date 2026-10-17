@@ -1,5 +1,6 @@
 (ns aguafria.zig.jvm-error-payload-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.heap :as heap]
             [aguafria.std.mem :as mem]
             [aguafria.std.testing :as testing]
@@ -10,9 +11,9 @@
 (a/defstruct Packet [[:number :i32]])
 
 (a/defn generic-number :!i32 [[number :anytype]]
-  (if (k/< number 0)
+  (if (< number 0)
     (:Rejected Failure)
-    (k/+ number 1)))
+    (+ number 1)))
 
 (a/defn generic-optional [:error-union :anyerror [:optional :i32]]
   [[number :anytype]]
@@ -32,7 +33,7 @@
     (k/try (testing/expectEqual 43 (:number packet)))))
 
 (a/deftest direct-error-union-payload
-  (let [input (k/as 7 [:error-union :anyerror [:optional :i32]])
+  (let [input (as 7 [:error-union :anyerror [:optional :i32]])
         payload (k/try input)]
     (k/try (testing/expectEqual 7 (a/unwrap payload)))))
 
@@ -40,7 +41,7 @@
   (k/try (testing/expectError (:Rejected Failure) (generic-number -1))))
 
 (a/deftest constructed-native-error
-  (let [result (k/as (:Rejected Failure) [:error-union Failure :i32])]
+  (let [result (as (:Rejected Failure) [:error-union Failure :i32])]
     (k/try (testing/expectError (:Rejected Failure) result))))
 
 (a/deftest source-backed-values
@@ -53,11 +54,11 @@
 (a/defn copy-text [:error-union [:slice :u8]]
   [[allocator mem/Allocator] [text [:slice-const :u8]]]
   (let [result (k/try ((:alloc allocator) :u8 (:len text)))]
-    (k/memcpy result text)
+    (memcpy result text)
     result))
 
 (a/deftest imported-factory-result
-  (let [buffer (k/var k/undefined [:array 100 :u8])
+  (let [buffer (k/var undefined [:array 100 :u8])
         fba (k/var ((:init heap/FixedBufferAllocator) (k/& buffer)))
         allocator ((:allocator fba))
         result (k/try (copy-text allocator "hello"))]

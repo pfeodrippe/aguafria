@@ -1,11 +1,12 @@
 (ns aguafria.zig.precompile-module-type-leaf-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]
             [aguafria.zig.precompile-member-leaf-fixture :as constants]))
 
-(a/defconst Self (k/This))
+(a/defconst Self (This))
 
 (a/deffield value :u32)
 
 (a/defn read-value :u32 [[self Self]]
-  (k/+ (:value self) constants/selected-value))
+  (+ (:value self) constants/selected-value))

@@ -3147,9 +3147,10 @@ The October 1 results below describe 0.16.0, not this migration.
   raw-JVM-value expectations (4 failures; generated-answer, data-path-length).
   These are outside the focused passing suite; do not report all tests green.
 
-- [x] `k/comptime` is identity in ordinary JVM evaluation: its argument runs
-  once and its result is preserved, including nil/false. Inside Aguafria forms
-  it still emits Zig `comptime`. Tested the complete pointer-conversion wrapper.
+- [x] Historical implementation: `k/comptime` was identity in ordinary JVM
+  evaluation. **Superseded:** it is now a syntax-capturing macro using the native
+  scoped compiler/handler path, including for the pointer-conversion wrapper.
+  The body is not evaluated as Clojure.
 - [x] Reuse imported-call adapters when changing integer/float literals is safe.
   Read the original Zig AST to check that arguments first become a common type
   and are passed to a normal typed helper; no function-name special cases or

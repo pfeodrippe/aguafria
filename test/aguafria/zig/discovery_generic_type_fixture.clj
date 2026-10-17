@@ -1,9 +1,10 @@
 (ns aguafria.zig.discovery-generic-type-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defn Box :type
-  [[T {:attrs #{k/comptime}} :type]]
+  [[T {:attrs #{comptime}} :type]]
   (a/struct [[:value T]]))
 
 (a/defn make-box (Box :i32)
@@ -13,11 +14,11 @@
 (a/deftest do-not-execute
   (let [box-type (Box :i32)
         box (a/init {:value 42} box-type)]
-    (k/= :_ (:value box)))
+    (= :_ (:value box)))
   (let [box-type (Box :u16)
         box (a/init {:value 7} box-type)]
-    (k/= :_ (:value box)))
+    (= :_ (:value box)))
   (let [box-type (Box :i32)
         box (a/init {:value 15} box-type)]
-    (k/= :_ (:value box)))
-  (k/unreachable))
+    (= :_ (:value box)))
+  (unreachable))

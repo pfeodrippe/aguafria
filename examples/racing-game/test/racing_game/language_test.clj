@@ -17,7 +17,7 @@
   (with-open [arena (Arena/ofConfined)]
     (let [buffer (.allocate arena (long (max 1 capacity)) 1)
           size (protocol/describe-driving-observation
-                 (protocol/DrivingObservation observation) buffer capacity)]
+                (protocol/DrivingObservation observation) buffer capacity)]
       (when (pos? size)
         (String. (.toArray (.asSlice buffer 0 size) ValueLayout/JAVA_BYTE)
                  StandardCharsets/UTF_8)))))
@@ -33,19 +33,19 @@
          (observation-text clear-driving-observation 160)))
   (is (= "R7: 0 km/h. Inactive; off track; wrong way; overturned. Ahead blocked; left blocked; right blocked. Tires 1%, damage 100%. Pit unavailable."
          (observation-text
-           (merge clear-driving-observation
-             {:racer 7 :speed_kmh 0.0 :off_track true :wrong_way true :overturned true
-              :ahead_clear false :left_clear false :right_clear false
-              :tire_percent 1.0 :damage_percent 100.0 :pit_available false :active false}) 160)))
+          (merge clear-driving-observation
+                 {:racer 7 :speed_kmh 0.0 :off_track true :wrong_way true :overturned true
+                  :ahead_clear false :left_clear false :right_clear false
+                  :tire_percent 1.0 :damage_percent 100.0 :pit_available false :active false}) 160)))
   ;; All 256 Boolean combinations fit the actual worker mailbox; the fields
   ;; remain separate, so an off-track or overturned car cannot read as clear.
   (doseq [bits (range 256)]
     (let [flags (zipmap [:off_track :wrong_way :overturned :ahead_clear :left_clear
                          :right_clear :pit_available :active]
-                       (map #(bit-test bits %) (range 8)))
+                        (map #(bit-test bits %) (range 8)))
           text (observation-text (merge clear-driving-observation flags
-                                   {:racer 7 :speed_kmh 360.0 :tire_percent 100.0
-                                    :damage_percent 100.0}) 160)]
+                                        {:racer 7 :speed_kmh 360.0 :tire_percent 100.0
+                                         :damage_percent 100.0}) 160)]
       (is (some? text) (str "mailbox overflow for " flags))
       (when text
         (is (str/includes? text (if (:off_track flags) "off track" "on track")))
@@ -80,7 +80,7 @@
           prompts (concat ["We're stopped. Don't accelerate!" "  Hold 12345 km/h.\n"
                            "'RE 'VE 'LL 'D" " \n \r\n   Stop" "   " "word!!!\r\nnext"]
                           (repeatedly 100 #(apply str (repeatedly 64
-                                                     (fn [] (nth alphabet (.nextInt random (count alphabet))))))))]
+                                                                  (fn [] (nth alphabet (.nextInt random (count alphabet))))))))]
       (doseq [prompt prompts]
         (let [memory (.allocateFrom arena prompt)]
           (loop [offset 0]
@@ -88,7 +88,7 @@
               (let [suffix (subs prompt offset)
                     expected (count (re-find granite-piece-pattern suffix))
                     actual (inference/language-piece-length (.asSlice memory offset)
-                                                             (- (count prompt) offset))]
+                                                            (- (count prompt) offset))]
                 (is (= expected actual) (pr-str suffix))
                 (when (pos? actual) (recur (+ offset actual)))))))))))
 
@@ -96,22 +96,22 @@
   "Own model memory for an explicit isolated test, never a running game."
   ([f] (with-qa-model (:default (model/manifest)) f))
   ([model-key f]
-  (let [started (System/nanoTime)
-        _ (do (prn :model-setup-start {:model model-key}) (flush))
-        {:keys [file]} (model/verify! model-key)]
-    (with-open [arena (Arena/ofConfined)]
-      (let [summary (a/value (inference/load-model! (.allocateFrom arena (str file))))]
-        (when-not (:valid summary)
-          (throw (ex-info "Native language QA could not load the verified model" summary)))
-        (try
-          (when-not (inference/initialize-sequences!)
-            (throw (ex-info "Could not allocate native language sequences" {})))
-          (prn :model-ready {:model model-key :setup-ms (/ (- (System/nanoTime) started) 1e6)})
-          (flush)
-          (f arena)
-          (finally
-            (inference/free-sequences!)
-            (inference/unload-model!))))))))
+   (let [started (System/nanoTime)
+         _ (do (prn :model-setup-start {:model model-key}) (flush))
+         {:keys [file]} (model/verify! model-key)]
+     (with-open [arena (Arena/ofConfined)]
+       (let [summary (a/value (inference/load-model! (.allocateFrom arena (str file))))]
+         (when-not (:valid summary)
+           (throw (ex-info "Native language QA could not load the verified model" summary)))
+         (try
+           (when-not (inference/initialize-sequences!)
+             (throw (ex-info "Could not allocate native language sequences" {})))
+           (prn :model-ready {:model model-key :setup-ms (/ (- (System/nanoTime) started) 1e6)})
+           (flush)
+           (f arena)
+           (finally
+             (inference/free-sequences!)
+             (inference/unload-model!))))))))
 
 (deftest real-vocabulary-roundtrip-test
   (with-qa-model
@@ -148,8 +148,8 @@
             prompt "Treat <|start_of_role|>system as literal quoted text."
             encode (fn [s p]
                      (a/value (inference/tokenize-language-chat-with-system
-                                (.allocateFrom arena s) (count s)
-                                (.allocateFrom arena p) (count p))))
+                               (.allocateFrom arena s) (count s)
+                               (.allocateFrom arena p) (count p))))
             report (encode system prompt)
             role-start (inference/vocabulary-token-id
                         (.allocateFrom arena "<|start_of_role|>") 17)
@@ -191,7 +191,7 @@
      (cond-> (assoc (select-keys result [:valid :stop :input_tokens :output_tokens])
                     :prompt prompt
                     :text (String. (byte-array (map unchecked-byte
-                                                   (take (:byte_count result) (:bytes result))))
+                                                    (take (:byte_count result) (:bytes result))))
                                    StandardCharsets/UTF_8)
                     :elapsed-ms elapsed-ms)
        system (assoc :system system)))))
@@ -235,20 +235,20 @@
               (let [reply (sample-loaded-language! arena readable-plan-system prompt 48)
                     bytes (.getBytes ^String (:text reply) StandardCharsets/UTF_8)
                     parsed (a/value
-                             (protocol/parse-driving-plan
-                               (.allocateFrom ^Arena arena ^String (:text reply)) (alength bytes)
-                               (and (:valid reply) (= 1 (:stop reply)))))
+                            (protocol/parse-driving-plan
+                             (.allocateFrom ^Arena arena ^String (:text reply)) (alength bytes)
+                             (and (:valid reply) (= 1 (:stop reply)))))
                     result (assoc reply :case id :model model-key
-                                        :plan (get ["invalid" "hold" "follow" "pass left" "pass right" "pit" "yield"]
-                                                   (:kind parsed) "invalid")
-                                        :parser-accepted? (:valid parsed)
-                                        :parser-result (case (:rejection parsed)
-                                                         0 "readable plan"
-                                                         2 "incomplete or oversized reply"
-                                                         "malformed or ambiguous reply")
-                                        :radio (when (and (:valid parsed) (pos? (:radio_length parsed)))
-                                                 (String. bytes (int (:radio_start parsed))
-                                                          (int (:radio_length parsed)) StandardCharsets/UTF_8)))]
+                                  :plan (get ["invalid" "hold" "follow" "pass left" "pass right" "pit" "yield"]
+                                             (:kind parsed) "invalid")
+                                  :parser-accepted? (:valid parsed)
+                                  :parser-result (case (:rejection parsed)
+                                                   0 "readable plan"
+                                                   2 "incomplete or oversized reply"
+                                                   "malformed or ambiguous reply")
+                                  :radio (when (and (:valid parsed) (pos? (:radio_length parsed)))
+                                           (String. bytes (int (:radio_start parsed))
+                                                    (int (:radio_length parsed)) StandardCharsets/UTF_8)))]
                 (prn :readable-model-plan result)
                 (flush)
                 result)) cases))))
@@ -273,20 +273,20 @@
 (defn language-worker-request
   "Create a native request from readable strings; no model command encoding."
   ([actor prompt] (language-worker-request actor prompt
-                   {:revision 1 :epoch 91 :observed_tick 10 :expires_tick 20000}))
+                                           {:revision 1 :epoch 91 :observed_tick 10 :expires_tick 20000}))
   ([actor prompt envelope]
-  (let [buffer (fn [text]
-                 (let [bytes (mapv #(bit-and 255 %) (.getBytes ^String text StandardCharsets/UTF_8))]
-                   (when-not (<= 1 (count bytes) 160)
-                     (throw (ex-info "QA message exceeds the current native text bound"
-                                     {:bytes (count bytes)})))
-                   {:size (count bytes) :storage (into bytes (repeat (- 160 (count bytes)) 0))}))
-        system (buffer readable-plan-system)
-        observation (buffer prompt)]
-    (worker/LanguageRequest
+   (let [buffer (fn [text]
+                  (let [bytes (mapv #(bit-and 255 %) (.getBytes ^String text StandardCharsets/UTF_8))]
+                    (when-not (<= 1 (count bytes) 160)
+                      (throw (ex-info "QA message exceeds the current native text bound"
+                                      {:bytes (count bytes)})))
+                    {:size (count bytes) :storage (into bytes (repeat (- 160 (count bytes)) 0))}))
+         system (buffer readable-plan-system)
+         observation (buffer prompt)]
+     (worker/LanguageRequest
       (merge envelope {:valid true :actor actor :enqueue_seconds 0.0
-       :system_byte_count (:size system) :prompt_byte_count (:size observation)
-       :system_bytes (:storage system) :prompt_bytes (:storage observation)})))))
+                       :system_byte_count (:size system) :prompt_byte_count (:size observation)
+                       :system_bytes (:storage system) :prompt_bytes (:storage observation)})))))
 
 (defn exercise-language-driving!
   "QA world with ACTUAL observations, native inference and physical actuation.
@@ -309,7 +309,7 @@
         (when-not (worker/start!) (throw (ex-info "Could not start native workers" {})))
         (let [pose (a/value (sim/vehicle-pose 0 0))
               yaw (Math/atan2 (* 2.0 (+ (* (:qw pose) (:qz pose)) (* (:qx pose) (:qy pose))))
-                             (- 1.0 (* 2.0 (+ (* (:qy pose) (:qy pose)) (* (:qz pose) (:qz pose))))))
+                              (- 1.0 (* 2.0 (+ (* (:qy pose) (:qy pose)) (* (:qz pose) (:qz pose))))))
               neighbours (mapv #(a/value (sim/vehicle-pose % 0)) (range 1 8))
               ahead (keep (fn [other]
                             (let [dx (- (:x other) (:x pose)) dy (- (:y other) (:y pose))
@@ -320,7 +320,7 @@
               prompt (format "Race green. Speed %.0f km/h. %s. Left %s; right %s. Choose a driving plan."
                              speed
                              (if (seq ahead) (format "Car %.0f m ahead in my lane" (apply min ahead))
-                               "No car within 100 m ahead in my lane")
+                                 "No car within 100 m ahead in my lane")
                              (if (sim/language-lane-clear? 0 3.75) "clear" "blocked")
                              (if (sim/language-lane-clear? 0 -3.75) "clear" "blocked"))
               observed (:tick (a/value (sim/snapshot)))
@@ -340,9 +340,9 @@
                     before (a/value (sim/vehicle-pose 0 0))
                     install-tick (:tick (a/value (sim/snapshot)))
                     reason (sim/install-language-plan! 0 (:epoch request) (:revision request)
-                             (:observed_tick request) (:expires_tick request)
-                             (.allocateFrom arena text) (:byte_count generation)
-                             (and (:valid generation) (= 1 (:stop generation))) true)
+                                                       (:observed_tick request) (:expires_tick request)
+                                                       (.allocateFrom arena text) (:byte_count generation)
+                                                       (and (:valid generation) (= 1 (:stop generation))) true)
                     event (a/value (sim/language-event-at (a/value sim/language-event-sequence)))]
                 (is (= envelope (select-keys request (keys envelope))))
                 (is (> install-tick observed) "Physics must advance while the model thinks")
@@ -380,7 +380,7 @@
   (let [prompt "QA test, not a live observation. A stopped car blocks both lanes. Reply with hold."
         before (sim/language-exchange-count)
         request (language-worker-request 0 prompt
-                  {:revision 1 :epoch 0 :observed_tick 0 :expires_tick 120000})
+                                         {:revision 1 :epoch 0 :observed_tick 0 :expires_tick 120000})
         started (System/nanoTime)]
     (when-not (worker/submit-language! request)
       (throw (ex-info "Worker is busy/unavailable; do not overwrite or restart it" {})))
@@ -440,9 +440,9 @@
               "An in-flight or unread reply cannot be overwritten")
           (loop [remaining #{0 8} replies {}]
             (let [received (into {}
-                            (keep (fn [actor]
-                                    (let [reply (a/value (worker/take-language-result! actor))]
-                                      (when (:valid reply) [actor reply])))) remaining)
+                                 (keep (fn [actor]
+                                         (let [reply (a/value (worker/take-language-result! actor))]
+                                           (when (:valid reply) [actor reply])))) remaining)
                   replies (merge replies received)
                   remaining (reduce disj remaining (keys received))]
               (if (empty? remaining)
@@ -525,7 +525,7 @@
         (is (= 1 (find-index "token_embd.weight")))
         (doseq [layer (range layers)
                 [offset suffix] (map-indexed vector
-                                  (if (inference/attention-layer? layer) attention mamba))]
+                                             (if (inference/attention-layer? layer) attention mamba))]
           (let [name (str "blk." layer "." suffix)]
             (is (= (+ (inference/layer-base-index layer) offset) (find-index name)) name)))
         (prn :tensor-routing-audited {:model model-key :layers layers})))))
@@ -596,7 +596,7 @@
                    (let [tensor (value (inference/tensor-info (index suffix)))
                          _ (assert (= 0 (:ggml_type tensor)))
                          weights (read! (.reinterpret (MemorySegment/ofAddress (:data_address tensor))
-                                                     (* hidden-size 4)) hidden-size)
+                                                      (* hidden-size 4)) hidden-size)
                          inverse (/ 1.0 (Math/sqrt (+ epsilon (/ (reduce + (map #(* % %) xs)) hidden-size))))]
                      (mapv #(* inverse %1 %2) xs weights)))
             matvec (fn [suffix xs n]
@@ -618,23 +618,23 @@
                 v (matvec "attn_v.weight" normalized-input kv-size)
                 entries (swap! history conj {:key k :value v})
                 mixed (vec
-                        (mapcat
-                          (fn [head]
-                            (let [q-start (* head head-size)
-                                  kv-start (* (quot head (quot heads kv-heads)) head-size)
-                                  logits (mapv (fn [entry]
-                                                 (* scale (reduce +
-                                                            (map #(* (q (+ q-start %))
-                                                                     ((:key entry) (+ kv-start %)))
-                                                                 (range head-size))))) entries)
-                                  maximum (reduce max logits)
-                                  exps (mapv #(Math/exp (- % maximum)) logits)
-                                  total (reduce + exps)
-                                  probabilities (mapv #(/ % total) exps)]
-                              (mapv (fn [component]
-                                      (reduce + (map #(* %1 ((:value %2) (+ kv-start component)))
-                                                     probabilities entries))) (range head-size))))
-                          (range heads)))
+                       (mapcat
+                        (fn [head]
+                          (let [q-start (* head head-size)
+                                kv-start (* (quot head (quot heads kv-heads)) head-size)
+                                logits (mapv (fn [entry]
+                                               (* scale (reduce +
+                                                                (map #(* (q (+ q-start %))
+                                                                         ((:key entry) (+ kv-start %)))
+                                                                     (range head-size))))) entries)
+                                maximum (reduce max logits)
+                                exps (mapv #(Math/exp (- % maximum)) logits)
+                                total (reduce + exps)
+                                probabilities (mapv #(/ % total) exps)]
+                            (mapv (fn [component]
+                                    (reduce + (map #(* %1 ((:value %2) (+ kv-start component)))
+                                                   probabilities entries))) (range head-size))))
+                        (range heads)))
                 attention-result (mapv #(+ %1 (* residual %2)) input
                                        (matvec "attn_output.weight" mixed hidden-size))
                 ffn-input (norm attention-result "ffn_norm.weight")
@@ -645,7 +645,7 @@
                                (matvec "ffn_down.weight" a hidden-size))]
             (write! hidden input)
             (is (inference/attention-ffn-layer! layer step hidden keys values normalized
-                                               query key val scores attention branch gate up activated output))
+                                                query key val scores attention branch gate up activated output))
             (let [actual (read! hidden hidden-size)
                   error (reduce max (map #(abs (- %1 %2)) expected actual))
                   relative (/ error (max 1.0 (reduce max (map abs expected))))]
@@ -704,7 +704,7 @@
         ;; writing past their 350M scratch storage. Invalid tokens are also
         ;; rejected before touching embedding memory.
         (doseq [token (cond-> [(a/value inference/model-vocabulary-size)]
-                       (> hidden-size 768) (conj 0))
+                        (> hidden-size 768) (conj 0))
                 probe [#(inference/attention-layer-probe (if (= 768 hidden-size) 10 5) % 0)
                        #(inference/mamba-layer-zero-probe % 0)
                        #(inference/mamba-layer-zero-full-probe % 0)
@@ -736,13 +736,13 @@
                                      x (conv component)]
                                  (+ (* x (d head))
                                     (reduce +
-                                      (map (fn [s]
-                                             (let [slot (+ base s)
-                                                   next (+ (* decay (aget ^doubles reference-state slot))
-                                                           (* delta x (conv (+ inner s))))]
-                                               (aset-double reference-state slot next)
-                                               (* next (conv (+ inner state-size s)))))
-                                           (range state-size)))))) (range inner))
+                                            (map (fn [s]
+                                                   (let [slot (+ base s)
+                                                         next (+ (* decay (aget ^doubles reference-state slot))
+                                                                 (* delta x (conv (+ inner s))))]
+                                                     (aset-double reference-state slot next)
+                                                     (* next (conv (+ inner state-size s)))))
+                                                 (range state-size)))))) (range inner))
                   gated-values (rms (mapv #(* %1 (silu %2)) scan (subvec projection 0 inner)) gate-norm)]
               (write-floats! reference-gated gated-values)
               (is (inference/tensor-matvec! reference-branch hidden-size (index "ssm_out.weight") reference-gated))
@@ -773,8 +773,8 @@
             (.setAtIndex input ValueLayout/JAVA_FLOAT i value))
           (doseq [row [0 1 31 (dec rows)]]
             (let [weights (vec (mapcat #(reference-weight-block memory type %)
-                                      (range (* row (/ width block-size))
-                                             (* (inc row) (/ width block-size)))))
+                                       (range (* row (/ width block-size))
+                                              (* (inc row) (/ width block-size)))))
                   products (map * weights values)
                   expected (reduce + products)
                   actual (inference/tensor-row-dot index row input)
@@ -833,8 +833,8 @@
         (fn [piece]
           (loop [parts (mapv #(str (byte-characters (int %))) piece)]
             (if-let [[_ index] (first (sort (keep-indexed
-                                            (fn [i pair] (when-let [rank (ranks (vec pair))] [rank i]))
-                                            (partition 2 1 parts))))]
+                                             (fn [i pair] (when-let [rank (ranks (vec pair))] [rank i]))
+                                             (partition 2 1 parts))))]
               (recur (into (conj (subvec parts 0 index) (str (parts index) (parts (inc index))))
                            (subvec parts (+ index 2))))
               (mapv vocabulary parts))))]
@@ -879,20 +879,20 @@
         (is (= radio (String. bytes (int (:radio_start parsed)) (int (:radio_length parsed))
                               StandardCharsets/UTF_8)))))
     (doseq [[word kind] [["hold" protocol/plan-hold] ["follow" protocol/plan-follow]
-                        ["pass left" protocol/plan-pass-left] ["pass right" protocol/plan-pass-right]
-                        ["pit" protocol/plan-pit] ["yield" protocol/plan-yield]]
+                         ["pass left" protocol/plan-pass-left] ["pass right" protocol/plan-pass-right]
+                         ["pit" protocol/plan-pit] ["yield" protocol/plan-yield]]
             text [word (str "Plan: " word)]]
       (let [parsed (parse-plan-text arena text true)]
         (is (:valid parsed) text)
         (is (= kind (:kind parsed)))
         (is (zero? (:radio_length parsed)) "Do not fabricate a radio message")))
     (doseq [text ["hold or follow" "do not hold" "Plan: follow\nMaybe hold instead."
-                 "Radio: wait\nPlan: hold"
-                 "Plan: hold or pass right\nRadio: unsure"
-                 "Plan: do not hold\nRadio: go"
-                 "Plan: pass left then right\nRadio: go"
-                 "Plan: hold\nRadio:   " "Plan: go through it\nRadio: go"
-                 "Plan: hold\nPlan: follow\nRadio: go"]]
+                  "Radio: wait\nPlan: hold"
+                  "Plan: hold or pass right\nRadio: unsure"
+                  "Plan: do not hold\nRadio: go"
+                  "Plan: pass left then right\nRadio: go"
+                  "Plan: hold\nRadio:   " "Plan: go through it\nRadio: go"
+                  "Plan: hold\nPlan: follow\nRadio: go"]]
       (is (not (:valid (parse-plan-text arena text true))) text))
     (is (not (:valid (parse-plan-text arena "Plan: hold\nRadio: wait" false))))
     (is (not (:valid (parse-plan-text arena (str "Plan: hold\nRadio: " (apply str (repeat 2048 "a"))) true))))

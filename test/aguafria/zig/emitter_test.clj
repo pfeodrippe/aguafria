@@ -109,9 +109,9 @@
                    (swap! observations conj observation)
                    (:source observation))]
     (doseq [[form native-form]
-            [['(+ left right) '(aguafria.keyword/+ left right)]
-             ['(- number) '(aguafria.keyword/- number)]
-             ['(mod left right) '(aguafria.keyword/mod left right)]
+            [['(ak/+ left right) '(aguafria.keyword/+ left right)]
+             ['(ak/- number) '(aguafria.keyword/- number)]
+             ['(ak/mod left right) '(ak/mod left right)]
              ['(a/op "+" left right) '(aguafria.keyword/+ left right)]
              ['(a/op "-" number) '(aguafria.keyword/- number)]]]
       (reset! observations [])
@@ -122,8 +122,8 @@
       (is (= form (:source-form (last @observations)))))
     (reset! observations [])
     (binding [emit/*expression-observer* observer]
-      (emit/emit-expr context '(callee (+ left right))))
-    (is (= '(callee (+ left right)) (:form (last @observations)))
+      (emit/emit-expr context '(callee (ak/+ left right))))
+    (is (= '(callee (ak/+ left right)) (:form (last @observations)))
         "An inner operator must not change its enclosing call's identity")))
 
 (deftest inspection-resolves-native-structural-constructors
@@ -405,7 +405,7 @@
                        {:kind :fn :name 'read-value :return :u32
                         :args [{:name 'a :type :u32}]
                         :body ['(a/field a :value)]})]
-      (is (= '[(field a :value)] (:body declaration)))
+      (is (= '[(aguafria.zig/field a :value)] (:body declaration)))
       (is (empty? (emit/declaration-imports [declaration]))))))
 
 (deftest captured-names-shadow-aliases-only-in-their-body
@@ -800,7 +800,7 @@
               :args [{:name 'value :type :i32}
                      {:name 'transform :type [:*const [:fn [:i32 :i32] :i32]]}]
               :return :i32
-              :body '((-> value (transform 1)))})))))
+              :body '((clojure.core/-> value (transform 1)))})))))
   (let [context-ns (the-ns 'aguafria.zig.emitter-test)
         declaration
         (emit/prepare-declaration
@@ -810,7 +810,7 @@
           :args [{:name 'pointer :type [:optional [:* :anyopaque]]}
                  {:name 'Widget :type :type}]
           :return :void
-          :body '((-> pointer (a/cast [:* Widget])))})]
+          :body '((clojure.core/-> pointer (a/cast [:* Widget])))})]
     (is (= "@as(*Widget, @ptrCast(@alignCast(pointer.?)))"
            (emit/emit-expr context-ns (first (:body declaration))))))
   (let [context-ns (the-ns 'aguafria.zig.emitter-test)
@@ -821,9 +821,9 @@
           :name 'choose
           :args [{:name 'value :type :i32}]
           :return :i32
-          :body '((cond (ak/== value 0) 10
-                        (ak/== value 1) 20
-                        :else 30))})]
+          :body '((clojure.core/cond (ak/== value 0) 10
+                                     (ak/== value 1) 20
+                                     :else 30))})]
     (is (= '(if (aguafria.keyword/== value 0)
               10
               (if (aguafria.keyword/== value 1) 20 30))
@@ -857,14 +857,14 @@
     (is (some #{'(sync)} (tree-seq coll? seq (:body declaration))))))
 
 (deftest expression-emission-test
-  (is (= "(a + (b * 2))" (emit/emit-expr '(+ a (* b 2)))))
-  (is (= "@mod(counter, 5)" (emit/emit-expr '(mod counter 5))))
+  (is (= "(a + (b * 2))" (emit/emit-expr '(ak/+ a (ak/* b 2)))))
+  (is (= "@mod(counter, 5)" (emit/emit-expr '(ak/mod counter 5))))
   (is (= "@max(a, b)"
          (emit/emit-expr (the-ns 'aguafria.zig.emitter-test)
                          '(ak/max a b))))
   (is (= "(~bits)" (emit/emit-expr '(op "~" bits))))
   (is (= "(if ((x < 0)) (-x) else x)"
-         (emit/emit-expr '(if (< x 0) (- x) x))))
+         (emit/emit-expr '(if (ak/< x 0) (ak/- x) x))))
   (is (= "point.x" (emit/emit-expr '(field point x))))
   (is (= "tuple.@\"3\"" (emit/emit-expr '(field tuple :3))))
   (is (= "tuple.@\"3\"[0]" (emit/emit-expr '(index (field tuple :3) 0))))
@@ -908,8 +908,8 @@
   (is (= ".{.x = 1, .y = 2}" (emit/emit-expr {:y 2 :x 1})))
   (is (= ".{1, 2, 3}" (emit/emit-expr [1 2 3])))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                        #"expects at least two operands"
-                        (emit/emit-expr '(== 1)))))
+                        #"expects at least 2 arguments"
+                        (emit/emit-expr '(ak/== 1)))))
 
 (deftest mutable-binding-type-shorthand-test
   (doseq [type [:i32 [:array 4096 :u8] 'Point [:* 'Point]]
@@ -966,7 +966,7 @@
 (deftest statement-emission-test
   (is (= "const answer: i32 = 42;"
          (emit/emit-stmt '(const answer :i32 42))))
-  (is (= "total += value;" (emit/emit-stmt '(+= total value))))
+  (is (= "total += value;" (emit/emit-stmt '(ak/+= total value))))
   (is (= "total /= divisor;"
          (emit/emit-stmt '(assign "/=" total divisor))))
   (is (= "defer cleanup();" (emit/emit-stmt '(aguafria.keyword/defer (cleanup)))))
@@ -978,7 +978,7 @@
                   '(let [a 4
                          ^:var b 10
                          ^{:zig/type :u8} c 2]
-                     (set! b (+ a c))))]
+                     (set! b (ak/+ a c))))]
       (is (str/includes? source "const a = 4;"))
       (is (str/includes? source "var b = 10;"))
       (is (str/includes? source "const c: u8 = 2;"))))
@@ -992,13 +992,13 @@
               "    total += i;\n"
               "    i += 1;\n"
               "}")
-         (emit/emit-stmt '(while (< i n) (+= total i) (+= i 1)))))
+         (emit/emit-stmt '(while (ak/< i n) (ak/+= total i) (ak/+= i 1)))))
   (is (= (str "if ((x < 0)) {\n"
               "    return (-x);\n"
               "} else {\n"
               "    return x;\n"
               "}")
-         (emit/emit-stmt '(if (< x 0) (return (- x)) (return x)))))
+         (emit/emit-stmt '(if (ak/< x 0) (return (ak/- x)) (return x)))))
   (testing "for-else expressions terminate the complete Zig statement"
     (is (= (str "for (items) |item| {\n"
                 "    use(item);\n"
@@ -1017,7 +1017,7 @@
                 "    advance();\n"
                 "} else max;")
            (emit/emit-stmt
-            '(while-loop {:else-expression max} (< head max) (advance)))))
+            '(while-loop {:else-expression max} (ak/< head max) (advance)))))
     (let [source
           (emit/emit-stmt
            '(while-loop
@@ -1055,7 +1055,7 @@
                 "demo"
                 [{:kind :fn :name 'add :return :i32 :export? true
                   :args [{:name 'a :type :i32} {:name 'b :type :i32}]
-                  :body ['(+ a b)]}
+                  :body ['(ak/+ a b)]}
                  {:kind :const :name 'factor :type :i32 :value 3}])]
     (testing "top-level declarations are deterministic and constants precede functions"
       (is (< (.indexOf source "pub const factor")
@@ -1093,7 +1093,7 @@
            :args [{:name 'value
                    :type :u32
                    :properties {:zig/prefix "comptime"}}]
-           :body ['(* value 2)]}])]
+           :body ['(ak/* value 2)]}])]
     (is (str/includes? source "pub fn scale(comptime value: u32) u32"))
     (is (not (str/includes? source "callconv(.c)")))))
 
@@ -1177,7 +1177,7 @@
   (let [declaration {:kind :fn :name 'increment :return :i32 :export? true
                      :declaration-key [:fn 'increment]
                      :args [{:name 'value :type :i32}]
-                     :body ['(+ value 1)]}
+                     :body ['(ak/+ value 1)]}
         source
         (emit/emit-reloadable-module
          "demo.live" [declaration]
@@ -1501,7 +1501,7 @@
   (let [context (the-ns 'aguafria.zig.emitter-test)
         declaration {:kind :fn :name 'local-discard :return :u32 :args []
                      :body '[(ak/var value 7 :u32)
-                             (ak/= :_ (& value))
+                             (ak/= :_ (ak/& value))
                              (ak/= _ value)
                              value]}]
     (is (map? (emit/prepare-declaration context declaration)))
@@ -1521,12 +1521,12 @@
         good '[(const values [1 2])
                (destructure {} [{:kind :const :name left}
                                 {:kind :var :name right :type :u32}] values)
-               (+ left right)]]
+               (ak/+ left right)]]
     (is (map? (emit/prepare-declaration context (assoc declaration :body good))))
     (doseq [body ['[(destructure {} [{:kind :const :name left}] left)]
                   '[(destructure {} [{:kind :target :target left}] [1])]
                   '[(destructure {} [{:kind :const :name left :type Missing}] [1])]
-                  '[(+ left 1) (destructure {} [{:kind :const :name left}] [1])]]]
+                  '[(ak/+ left 1) (destructure {} [{:kind :const :name left}] [1])]]]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unresolved Zig reference"
                             (emit/prepare-declaration context (assoc declaration :body body)))))))
 
@@ -1534,7 +1534,7 @@
   (let [context (the-ns 'aguafria.zig.emitter-test)
         declaration {:kind :fn :name 'wrap :return :u32
                      :args [{:name 'value :type :u32}]}]
-    (doseq [op '[mod]]
+    (doseq [op '[ak/mod aguafria.keyword/mod]]
       (is (map? (emit/prepare-declaration
                  context (assoc declaration :body [(list op 'value 3)]))))
       (is (thrown-with-msg?
@@ -1622,21 +1622,21 @@
   (is (= "return result: {\n    break :result 42;\n};"
          (emit/emit-function-body '((with-block :result (break :result 42))) :i32)))
   (is (= "return (a + b);"
-         (emit/emit-function-body '((+ a b)) :i32)))
+         (emit/emit-function-body '((ak/+ a b)) :i32)))
   (is (= (str "if ((x < 0)) {\n"
               "    return (-x);\n"
               "} else {\n"
               "    return x;\n"
               "}")
-         (emit/emit-function-body '((if (< x 0) (- x) x)) :i32)))
+         (emit/emit-function-body '((if (ak/< x 0) (ak/- x) x)) :i32)))
   (is (= "value;" (emit/emit-function-body '(value) :void)))
   (is (= (str "if ((x < 0)) {\n"
               "    return 0;\n"
               "}\n"
               "return (x + 1);")
          (emit/emit-function-body
-          '((when (< x 0) (return 0))
-            (+ x 1))
+          '((when (ak/< x 0) (return 0))
+            (ak/+ x 1))
           :i32)))
   (is (= (str "{\n"
               "    const x = (a + 1);\n"
@@ -1644,7 +1644,7 @@
               "    return (x + y);\n"
               "}")
          (emit/emit-function-body
-          '((let [x (+ a 1) y (* x 2)] (+ x y)))
+          '((let [x (ak/+ a 1) y (ak/* x 2)] (ak/+ x y)))
           :i32)))
   (is (= (str "while (ready) {\n"
               "    continue;\n"
@@ -1681,11 +1681,11 @@
     (is (str/includes? (reloadable 10 false) "// Aguafria form: 10:5"))))
 
 (deftest saturating-left-shift-assignment-test
-  (is (= "value <<|= shift;" (emit/emit-stmt '(<<|= value shift))))
+  (is (= "value <<|= shift;" (emit/emit-stmt '(ak/<<|= value shift))))
   (is (= "value <<|= shift;"
-         (emit/emit-function-body '((<<|= value shift)) :u32)))
+         (emit/emit-function-body '((ak/<<|= value shift)) :u32)))
   (is (= "value <<|= shift;\nreturn value;"
-         (emit/emit-function-body '((<<|= value shift) value) :u32))))
+         (emit/emit-function-body '((ak/<<|= value shift) value) :u32))))
 
 (deftest incomplete-non-void-functions-remain-native-diagnostics
   (testing "empty and statement-only bodies never synthesize a return value"

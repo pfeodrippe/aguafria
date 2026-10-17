@@ -1,5 +1,6 @@
 (ns learn.example.build-object
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std :as std]
             [aguafria.std.Build.Step.Compile :as compile-step]
             [aguafria.zig :as a]))

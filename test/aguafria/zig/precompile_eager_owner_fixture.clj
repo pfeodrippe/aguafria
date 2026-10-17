@@ -1,5 +1,6 @@
 (ns aguafria.zig.precompile-eager-owner-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]
             [aguafria.zig.precompile-eager-constants-fixture :as constants]
             [aguafria.zig.precompile-eager-dependency-fixture :as dependency]
@@ -8,7 +9,7 @@
 
 (a/defn selected-value :u32
   []
-  (k/= :_ file-container/Self)
-  (k/= :_ dependency)
-  (k/= :_ other-dependency)
+  (= :_ file-container/Self)
+  (= :_ dependency)
+  (= :_ other-dependency)
   constants/selected)

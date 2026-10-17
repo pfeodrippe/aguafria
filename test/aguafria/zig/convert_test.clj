@@ -125,7 +125,8 @@
     (is (contains-form? (:forms converted) '(k/== a b)))
     (is (contains-form? (:forms converted) '(k/!= a b)))
     (is (str/includes? source "[aguafria.zig :as a]"))
-    (is (str/includes? source "[aguafria.keyword :as k]"))))
+    (is (str/includes? source "[aguafria.keyword :as k :refer :all]"))
+    (is (str/includes? source "(:refer-clojure :only [])"))))
 
 (deftest null-sentinel-pointer-types-survive-conversion
   (let [result (convert/verify-file "test/fixtures/sentinel_pointers.zig"
@@ -138,7 +139,7 @@
 
 (deftest saturating-left-shift-has-a-readable-assignment-operator
   (is (= "<<|=" (get @#'convert/assignment-tokens :assign_shl_sat)))
-  (is (= '<<|= (get @#'convert/simple-assignment-symbols "<<|="))))
+  (is (= 'k/<<|= (get @#'convert/simple-assignment-symbols "<<|="))))
 
 (deftest arithmetic-and-comparison-operators-use-the-native-jvm-bridge
   (doseq [[tag operator] {:add 'k/+ :sub 'k/- :mul 'k/* :div 'k//
@@ -146,6 +147,16 @@
                           :less_or_equal 'k/<= :greater_or_equal 'k/>=
                           :bit_and 'k/&}]
     (is (= operator (get @#'convert/binary-operators tag)))))
+
+(deftest boolean-fallback-and-assignment-operators-are-explicit
+  (let [path "test/fixtures/explicit_operators.zig"
+        options {:namespace 'fixture.explicit-operators :mode :build-obj}
+        converted (convert/convert-file path options)
+        operators (into #{} (keep #(when (seq? %) (first %)))
+                        (tree-seq coll? seq (:forms converted)))]
+    (doseq [operator '[k/and k/or k/! k/orelse k/catch k/+= k/+]]
+      (is (contains? operators operator) (str operator)))
+    (is (:success? (convert/verify-file path options)))))
 
 (deftest unreachable-expressions-remain-native-keywords
   (let [result (convert/verify-file "test/fixtures/for_else_unreachable.zig"
@@ -303,8 +314,8 @@
                             :mode :build-obj})]
     (is (zero? (:fallback-count report)))
     (is (str/includes? clojure-source "k/undefined"))
-    (is (str/includes? clojure-source "(type :i8)"))
-    (is (str/includes? clojure-source "(type :c_long)"))
+    (is (str/includes? clojure-source "(a/type :i8)"))
+    (is (str/includes? clojure-source "(a/type :c_long)"))
     (is (not (re-find #"(?<![A-Za-z0-9_./-])null(?![A-Za-z0-9_./-])"
                       clojure-source)))
     (is (not (re-find #"(?<![A-Za-z0-9_./-])undefined(?![A-Za-z0-9_./-])"
@@ -395,7 +406,7 @@
                    (:files report))
         source (slurp (:output-path main))]
     (is (str/includes? source "[aguafria.zig :as a]"))
-    (is (str/includes? source "[aguafria.keyword :as k]"))
+    (is (str/includes? source "[aguafria.keyword :as k :refer :all]"))
     (is (str/includes? source ":as module-value-"))
     (convert/load-tree! output)
     (is (= 84 (value/decoded ((ns-resolve (:namespace main) 'answer)))))))
@@ -1122,7 +1133,7 @@
                 (eval
                  '~'(aguafria.zig/defn probe :bool
                       []
-                      (stdx/zeroed (& [0 0 0])))))
+                      (stdx/zeroed (aguafria.keyword/& [0 0 0])))))
               (aguafria.zig.runtime/await! '~caller-module)
               (let [probe# (ns-resolve caller-ns# '~'probe)
                     before-value# (probe#)
@@ -1140,7 +1151,7 @@
                         {:attrs #{:public}}
                         [[bytes [:slice-const :u8]]]
                         (aguafria.keyword/return
-                         (== (aguafria.zig/field bytes len) 0)))))
+                         (aguafria.keyword/== (aguafria.zig/field bytes len) 0)))))
                 (aguafria.zig.runtime/await! '~module)
                 (let [after-generation#
                       (->> (:declarations

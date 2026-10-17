@@ -1,5 +1,6 @@
 (ns aguafria.zig.discovery-constructor-closure-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defconst Text (a/type [:slice-const :u8]))
@@ -22,6 +23,6 @@
 
 (a/defn local-scratch-length :usize
   []
-  (let [scratch (k/var (k/as k/undefined [:array 7 :i32]))]
-    (k/= :_ (k/& scratch))
+  (let [scratch (k/var (as undefined [:array 7 :i32]))]
+    (= :_ (k/& scratch))
     (:len scratch)))

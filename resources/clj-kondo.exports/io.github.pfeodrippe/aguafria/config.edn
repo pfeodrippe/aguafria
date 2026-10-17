@@ -1,10 +1,26 @@
 {:min-clj-kondo-version "2023.04.14"
- :lint-as {aguafria.zig/explain! clojure.core/do}
+ :lint-as {aguafria.zig/explain! clojure.core/do
+           aguafria.keyword/let clojure.core/let
+           aguafria.keyword/-> clojure.core/->
+           aguafria.keyword/->> clojure.core/->>
+           aguafria.keyword/as-> clojure.core/as->
+           aguafria.keyword/cond clojure.core/cond
+           aguafria.keyword/cond-> clojure.core/cond->
+           aguafria.keyword/cond->> clojure.core/cond->>
+           aguafria.keyword/some-> clojure.core/some->
+           aguafria.keyword/some->> clojure.core/some->>
+           aguafria.keyword/doto clojure.core/doto
+           aguafria.keyword/when clojure.core/when
+           aguafria.keyword/when-not clojure.core/when-not
+           aguafria.keyword/dotimes clojure.core/dotimes
+           aguafria.keyword/comment clojure.core/comment}
  :hooks
  {:analyze-call
-  {aguafria.c/defbindings hooks.aguafria/c-bindings
+  {clojure.core/ns hooks.aguafria/namespace-referrals
+   aguafria.c/defbindings hooks.aguafria/c-bindings
    aguafria.keyword/for hooks.aguafria/native-for
    aguafria.keyword/switch hooks.aguafria/native-switch
+   aguafria.keyword/comptime hooks.aguafria/native-scope
    aguafria.zig/with-block hooks.aguafria/native-block
    aguafria.zig/block hooks.aguafria/native-scope
    aguafria.zig/if-capture hooks.aguafria/native-if-capture

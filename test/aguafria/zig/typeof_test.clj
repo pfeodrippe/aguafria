@@ -33,7 +33,7 @@
   (is (thrown? Exception (k/TypeOf (bump 1)))))
 
 (deftest typeof-does-not-write-back-comptime-mutable-captures
-  (with-open [counter (k/var 0 :i32 {:attrs #{k/comptime}})]
+  (with-open [counter (k/var 0 :i32 {:attrs #{:comptime}})]
     (is (k/== (a/type :i32) (k/TypeOf counter)))
     (is (k/== (a/type :i32) (k/TypeOf (bump (k/& counter)))))
     (is (= 0 @counter))))

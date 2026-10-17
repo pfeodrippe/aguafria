@@ -1,5 +1,6 @@
 (ns aguafria.zig.discovery-callback-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.Thread :as thread]
             [aguafria.zig :as a]))
 
@@ -7,7 +8,7 @@
 
 (a/defn worker :void
   [[value :usize]]
-  (k/= observed value))
+  (= observed value))
 
 (a/defn read-observed :usize
   []

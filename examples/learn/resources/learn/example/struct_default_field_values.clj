@@ -1,5 +1,6 @@
 (ns learn.example.struct-default-field-values
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defstruct Foo
@@ -8,8 +9,8 @@
 
 (a/deftest default-struct-initialization-fields
   (let [x (Foo {:b 5})]
-    (when (k/!= (k/+ (:a x) (:b x)) 1239)
-      (k/comptime (k/unreachable)))))
+    (when (!= (+ (:a x) (:b x)) 1239)
+      (comptime (unreachable)))))
 
 (comment
   (default-struct-initialization-fields))

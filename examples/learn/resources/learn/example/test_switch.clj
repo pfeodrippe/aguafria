@@ -1,20 +1,21 @@
 (ns learn.example.test-switch
+  (:refer-clojure :only [])
   (:require [aguafria.builtin :as builtin]
-            [aguafria.keyword :as k]
+            [aguafria.keyword :as k :refer :all]
             [aguafria.std.Target :as target]
             [aguafria.std.Target.Os :as os]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
 (a/deftest switch-simple
-  (let [a (k/u64 10)
-        zz (k/u64 103)
+  (let [a (u64 10)
+        zz (u64 103)
         ;; All branches of a switch expression must be able to be coerced to a
         ;; common type.
         ;;
         ;; Branches cannot fallthrough. If fallthrough behavior is desired, combine
         ;; the cases and use an if.
-        b (k/switch a
+        b (switch a
             ;; Multiple cases can be combined via a ','
             (1 2 3) 0
             ;; Ranges can be specified using the ... syntax. These are inclusive
@@ -23,15 +24,15 @@
             ;; Branches can be arbitrarily complex.
             101
             (a/with-block :blk
-              (let [c (k/u64 5)]
-                (k/break :blk (k/+ (k/* c 2) 1))))
+              (let [c (u64 5)]
+                (break :blk (+ (* c 2) 1))))
             ;; Switching on arbitrary expressions is allowed as long as the
             ;; expression is known at compile-time.
             zz zz
             (a/with-block :blk
-              (let [d (k/u32 5)
-                    e (k/u32 100)]
-                (k/break :blk (k/+ d e))))
+              (let [d (u32 5)
+                    e (u32 100)]
+                (break :blk (+ d e))))
             107
             ;; The else branch catches everything not already captured.
             ;; Else branches are mandatory unless the entire range of values
@@ -41,18 +42,18 @@
 
 ;; Switch expressions can be used outside a function:
 (a/defconst os-msg
-  (k/switch (-> builtin/target target/-os os/-tag)
+  (switch (-> builtin/target target/-os os/-tag)
     :linux "we found a linux user"
     "not a linux user"))
 
 ;; Inside a function, switch statements implicitly are compile-time
 ;; evaluated if the target expression is compile-time known.
 (a/deftest switch-inside-function
-  (k/switch (-> builtin/target target/-os os/-tag)
+  (switch (-> builtin/target target/-os os/-tag)
     ;; On an OS other than fuchsia, block is not even analyzed,
     ;; so this compile error is not triggered.
     ;; On fuchsia this compile error would be triggered.
-    :fuchsia (do (k/compileError "fuchsia not supported"))
+    :fuchsia (do (compileError "fuchsia not supported"))
     (do)))
 
 (comment

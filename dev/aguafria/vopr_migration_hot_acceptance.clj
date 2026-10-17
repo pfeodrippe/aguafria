@@ -28,7 +28,7 @@
    (-> declaration
        (update :args conj {:name 'aguafria_migration_generation
                            :type :u32})
-       (update :body #(vec (cons '(assert (<= aguafria_migration_generation 1))
+       (update :body #(vec (cons '(assert (aguafria.keyword/<= aguafria_migration_generation 1))
                                  %))))))
 
 (defn- changed-state

@@ -1,5 +1,6 @@
 (ns learn.example.test-sentinel-mismatch
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/deftest sentinel-mismatch
@@ -9,9 +10,9 @@
         ;; This does not match the indicated sentinel value of `0` and will lead
         ;; to a runtime panic.
         runtime-length (k/var 2 :usize)]
-    (k/= :_ (k/& runtime-length))
+    (= :_ (k/& runtime-length))
     (let [slice (a/slice-sentinel array 0 runtime-length 0)]
-      (k/= :_ slice))))
+      (= :_ slice))))
 
 (comment
   (sentinel-mismatch))

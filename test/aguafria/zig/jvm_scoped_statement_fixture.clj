@@ -1,5 +1,6 @@
 (ns aguafria.zig.jvm-scoped-statement-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
@@ -9,35 +10,35 @@
   (:Stop Failure))
 
 (a/defn- inline-count :i32
-  [[limit {:attrs #{k/comptime}} :u32] [start :i32]]
+  [[limit {:attrs #{comptime}} :u32] [start :i32]]
   (let [result (k/var start :i32)
-        i (k/var 0 nil {:attrs #{k/comptime}})]
+        i (k/var 0 nil {:attrs #{:comptime}})]
     (a/while-loop {:inline? true :continue (a/assign-expr "+=" i 1)}
-                  (k/< i limit)
-                  (k/+= result 1))
+                  (< i limit)
+                  (+= result 1))
     result))
 
 (a/defn comptime-loop-capture :!void []
   (try (testing/expectEqual 3 (inline-count 3 0))))
 
 (a/defn contextual-switch :!void []
-  (let [selector (k/u8 0)
-        wide (k/u64 73)]
+  (let [selector (u8 0)
+        wide (u64 73)]
     (try (testing/expectEqual
           73
-          (k/as (k/switch selector
-                  0 (k/intCast wide)
-                  (k/intCast wide))
-                :u8)))))
+          (as (switch selector
+                0 (intCast wide)
+                (intCast wide))
+              :u8)))))
 
 (a/defn label-value-collision :!void []
   (let [vm (k/var 7 :u8)
-        selector (k/u8 0)]
-    (k/= :_ (k/& vm))
+        selector (u8 0)]
+    (= :_ (k/& vm))
     (try (testing/expectEqual
           7
-          (k/switch [vm selector]
-            0 (k/continue vm 1)
+          (switch [vm selector]
+            0 (continue vm 1)
             1 vm
             0)))))
 
@@ -46,16 +47,16 @@
         (:Stop Failure)
         (a/while-loop {:error [err] :else-expression err}
                       (stop)
-                      (k/unreachable)))))
+                      (unreachable)))))
 
 (a/defn for-else-value :!void []
   (let [items (a/array [1 2] :i32)
         sum (k/var 0 :i32)
-        result (k/for [item items]
-                 (k/+= sum item)
+        result (for [item items]
+                 (+= sum item)
                  (a/else-expression
                   (a/with-block :done
                     (try (testing/expectEqual 3 sum))
-                    (k/break :done sum))))]
-    (try (testing/expectEqual :i32 (k/TypeOf result)))
+                    (break :done sum))))]
+    (try (testing/expectEqual :i32 (TypeOf result)))
     (try (testing/expectEqual 3 result))))

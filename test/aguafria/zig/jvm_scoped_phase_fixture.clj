@@ -1,5 +1,6 @@
 (ns aguafria.zig.jvm-scoped-phase-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
@@ -9,19 +10,19 @@
 (a/defn right-error RightError [] (a/error-value :Right))
 
 (a/defn phase-error
-  (aguafria.keyword/switch kind 0 LeftError 1 RightError)
-  [[kind {:attrs #{k/comptime}} :u1]]
-  (aguafria.keyword/switch kind 0 (left-error) 1 (right-error)))
+  (switch kind 0 LeftError 1 RightError)
+  [[kind {:attrs #{comptime}} :u1]]
+  (switch kind 0 (left-error) 1 (right-error)))
 
-(a/defn phase-width :usize [[kind {:attrs #{k/comptime}} :u1]]
-  (aguafria.keyword/switch kind
-    0 (k/bitSizeOf (k/TypeOf kind))
-    1 (k/bitSizeOf (k/TypeOf kind))))
+(a/defn phase-width :usize [[kind {:attrs #{comptime}} :u1]]
+  (switch kind
+    0 (bitSizeOf (TypeOf kind))
+    1 (bitSizeOf (TypeOf kind))))
 
 (a/deftest phase-results
   (try (testing/expectEqual (a/error-value :Left) (phase-error 0)))
   (try (testing/expectEqual (a/error-value :Right) (phase-error 1)))
   (try (testing/expectEqual 1 (phase-width 0)))
   (try (testing/expectEqual 1 (phase-width 1)))
-  (let [typed (k/as 1 :u1)]
-    (k/= :_ typed)))
+  (let [typed (as 1 :u1)]
+    (= :_ typed)))

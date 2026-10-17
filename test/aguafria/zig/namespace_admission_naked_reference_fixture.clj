@@ -1,5 +1,6 @@
 (ns aguafria.zig.namespace-admission-naked-reference-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defn- stop-forever :noreturn []
@@ -9,4 +10,4 @@
   (stop-forever))
 
 (a/deftest referenced-entry
-  (k/= :_ (k/& entry)))
+  (= :_ (k/& entry)))

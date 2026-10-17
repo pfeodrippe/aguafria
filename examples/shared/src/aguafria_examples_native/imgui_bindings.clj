@@ -33,7 +33,7 @@
       (let [current (or (:zig-args (a/configuration)) [])
             monitor (build/imgui-development-link-arguments)]
         (a/configure! {:zig-args (vec (distinct (concat current monitor)))
-                        :reloadable? true}))
+                       :reloadable? true}))
       (reset! loaded? true)))
   {:loaded? @loaded?
    :bindings

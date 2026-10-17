@@ -1,5 +1,6 @@
 (ns learn.snippet.handle-some-error-scenarios
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defn- do-another-thing [:error-union [:error-set [:InvalidChar]] :void]
@@ -7,7 +8,7 @@
   (a/if-capture-stmt {:payload [number] :error [error]}
                      (parse-u64 text 10)
                      (do-something-with-number number)
-                     (k/switch error
+                     (switch error
                        ;; Handle overflow here.
                        (a/error-value :Overflow) (a/block)
-                       (a/with-block :_ [remaining-error] (k/return remaining-error)))))
+                       (a/with-block :_ [remaining-error] (return remaining-error)))))

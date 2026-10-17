@@ -1,11 +1,12 @@
 (ns learn.example.mathtest
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defn add :i32
-  {:attrs #{k/export}}
+  {:attrs #{export}}
   [[a :i32] [b :i32]]
-  (k/+ a b))
+  (+ a b))
 
 (comment
   (add 12 34))

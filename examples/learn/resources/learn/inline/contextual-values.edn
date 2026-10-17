@@ -1,5 +1,6 @@
 {"const number = parseU64(\"1234\", 10) catch unreachable;"
- {:clojure-source "(let [number (k/catch (parseU64 \"1234\" 10) (k/unreachable))]\n  number)"
+ {:clojure-source "(let [number (k/catch (parseU64 \"1234\" 10) (k/unreachable))]
+  number)"
   :kind :expr
   :note "Bind the successfully parsed number; an unexpected error reaches unreachable. The surrounding example supplies parseU64."}
 
@@ -90,7 +91,8 @@
   :note "Instantiate a generic map type; choosing void for Value removes stored value data."}
 
  "const x: u32 = 42;"
- {:clojure-source "(let [x (k/as 42 :u32)]\n  x)"
+ {:clojure-source "(let [x (k/as 42 :u32)]
+  x)"
   :kind :expr
   :note "The typed binding coerces 42 to u32. The scoped form returns x to show its resulting value."}
 
@@ -111,12 +113,14 @@
   :note "A single-item pointer to u32."}
 
  "const val: T = x"
- {:clojure-source "(let [val (k/as x T)]\n  val)"
+ {:clojure-source "(let [val (k/as x T)]
+  val)"
   :kind :expr
   :note "An immutable typed binding gives x result type T and the storage location of val; this scoped form returns val."}
 
  "var val: T = x"
- {:clojure-source "(let [val (k/var x T)]\n  val)"
+ {:clojure-source "(let [val (k/var x T)]
+  val)"
   :kind :expr
   :note "The mutable constructor gives x result type T and the storage location of val; mutations belong inside this scope."}
 
@@ -211,7 +215,8 @@
   :note "Result locations make this aggregate assignment write the fields directly, rather than construct an independent temporary copy."}
 
  "foo.a = x; foo.b = y;"
- {:clojure-source "(k/= (:a foo) x)\n(k/= (:b foo) y)"
+ {:clojure-source "(k/= (:a foo) x)
+(k/= (:b foo) y)"
   :kind :statements
   :note "These are sequential field writes, not alternatives; the second expression can observe the first write."}
 
@@ -248,6 +253,6 @@
   :note "As an assembly clobber, this string declares writes to otherwise undeclared memory locations."}
 
  "a + b"
- {:clojure-source "(+ a b)"
+ {:clojure-source "(k/+ a b)"
   :kind :expr
   :note "The arithmetic result whose possible overflow is reported separately by @addWithOverflow."}}

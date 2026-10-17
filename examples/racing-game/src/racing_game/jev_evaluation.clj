@@ -225,9 +225,9 @@
        (throw (ex-info "Jev warmup failed; no further requests sent" (select-keys warmup [:status :error]))))
      (let [model-name (:model warmup)
            _ (write-edn! "jev-prompt.edn" {:driver-instructions driver-instructions
-                                          :driver-criteria driver-criteria
-                                          :team-instructions team-instructions
-                                          :model model-name})
+                                           :driver-criteria driver-criteria
+                                           :team-instructions team-instructions
+                                           :model model-name})
            results
            (vec
             (mapcat

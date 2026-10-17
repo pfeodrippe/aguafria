@@ -1,5 +1,6 @@
 (ns aguafria.zig.bundle-single-pass-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defstruct Point
@@ -9,5 +10,5 @@
 (a/defn shift Point
   [[point Point]
    [dx :i32]]
-  (Point {:x (k/+ (:x point) dx)
+  (Point {:x (+ (:x point) dx)
           :y (:y point)}))

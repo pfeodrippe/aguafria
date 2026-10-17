@@ -1,5 +1,7 @@
 (ns aguafria.zig.namespace-admission-lazy-fixture
-  (:require [aguafria.zig :as a]))
+  (:refer-clojure :only [])
+  (:require [aguafria.zig :as a]
+            [aguafria.keyword :as k :refer :all]))
 
 (a/defextern unused-foreign :i32
   {:zig/prefix "extern \"__aguafria_unavailable_test_library__\""}

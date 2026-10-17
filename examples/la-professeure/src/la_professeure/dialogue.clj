@@ -28,10 +28,10 @@
     (when-not (native/parse! markdown)
       (let [line (a/value native/error-line) code (a/value native/error-code)]
         (throw (ex-info (str "Dialogue line " line ": "
-                            ({1 "Invalid heading, tag or choice" 2 "Dialogue capacity exceeded"
-                              3 "Unknown speaker" 4 "Invalid indentation" 5 "Invalid/duplicate passage ID"
-                              6 "Could not read or write the dialogue file"
-                              7 "Duplicate scene heading; give repeated headings explicit IDs"} code))
+                             ({1 "Invalid heading, tag or choice" 2 "Dialogue capacity exceeded"
+                               3 "Unknown speaker" 4 "Invalid indentation" 5 "Invalid/duplicate passage ID"
+                               6 "Could not read or write the dialogue file"
+                               7 "Duplicate scene heading; give repeated headings explicit IDs"} code))
                         {:line line :code code}))))
     (let [raw (mapv (fn [i]
                       (let [n (native-value (native/node-at i))
@@ -40,7 +40,7 @@
                         (assoc n :text text :id id)))
                     (range (a/value native/count-nodes)))
           keys (mapv #(if (zero? (:kind %)) (or (:id %) (str "scene-" (subs (digest (:text %)) 0 12)))
-                        (str "node-" %2)) raw (range))]
+                          (str "node-" %2)) raw (range))]
       {:version 1 :speakers speakers
        :nodes (mapv (fn [n key]
                       (let [speaker (when (pos? (:speaker n)) (str (char (:speaker n))))]
@@ -54,15 +54,15 @@
 
 (defn digest [text]
   (apply str (map #(format "%02x" (bit-and 255 %))
-                 (.digest (MessageDigest/getInstance "SHA-256")
-                          (.getBytes (str text) "UTF-8")))))
+                  (.digest (MessageDigest/getInstance "SHA-256")
+                           (.getBytes (str text) "UTF-8")))))
 
 (defn- line-token [number line voices]
   (let [indent (count (re-find #"^ *" line))
         content (str/trim line)
         [_ body block-id] (or (re-matches #"(.*?)\s+\[id:([A-Za-z0-9_-]+)\]" content)
-                             (re-matches #"(.*?)\s+\^([A-Za-z0-9_-]+)" content)
-                             [nil content nil])
+                              (re-matches #"(.*?)\s+\^([A-Za-z0-9_-]+)" content)
+                              [nil content nil])
         [_ heading] (re-matches #"#{1,6}\s+(.+)" body)
         [_ choice] (re-matches #"::\s+(.+)" body)
         [_ speaker speech] (re-matches #"#[∆Δ]?([A-Za-z][A-Za-z0-9_-]*)\s+(.+)" body)]
@@ -156,8 +156,8 @@
         (mapv
          (fn [[node exact]]
            (let [same-place? #(and (= (:scene node) (:scene %))
-                                  (= (:speaker node) (:speaker %))
-                                  (= (:context node) (:context %)))
+                                   (= (:speaker node) (:speaker %))
+                                   (= (:context node) (:context %)))
                  candidates (when-not (or exact (:id node))
                               (filter #(and (not (@used (:recording-id %))) (same-place? %)) old))
                  _ (when (and (seq candidates)
@@ -166,9 +166,9 @@
                  prior (or exact (claim node candidates))
                  id (or (:recording-id prior) (:id node)
                         (str "voice-" (subs (digest (pr-str [(:scene node) (:context node)
-                                                           (:speaker node) (:text node)])) 0 16)))
+                                                             (:speaker node) (:text node)])) 0 16)))
                  changed? (and prior (or (not= (:text-hash prior) (:text-hash node))
-                                        (not= (:speaker prior) (:speaker node))))]
+                                         (not= (:speaker prior) (:speaker node))))]
              (merge node {:recording-id id
                           :revision (if changed? (inc (:revision prior 1)) (:revision prior 1))
                           :status (if changed? :needs-review (:status prior :needs-recording))
@@ -178,8 +178,8 @@
       (fail! 1 "Identical passages need distinct ^block-ids for independent recordings."))
     {:version 1 :passages records
      :archived (vec (remove #(contains? (set ids) (:recording-id %))
-                           (vals (into {} (map (juxt :recording-id identity)
-                                              (concat (:archived previous) old))))))}))
+                            (vals (into {} (map (juxt :recording-id identity)
+                                                (concat (:archived previous) old))))))}))
 
 (defn atomic-write! [file text]
   (let [target (.toPath (.getAbsoluteFile (io/file file)))

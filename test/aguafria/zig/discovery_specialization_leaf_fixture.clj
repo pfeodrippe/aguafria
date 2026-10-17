@@ -1,15 +1,16 @@
 (ns aguafria.zig.discovery-specialization-leaf-fixture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defn scale :u32
-  [[value {:attrs #{k/comptime}} :u32]]
-  (k/* value 2))
+  [[value {:attrs #{comptime}} :u32]]
+  (* value 2))
 
 (a/defn no-call-site :u32
-  [[value {:attrs #{k/comptime}} :u32]]
-  (k/+ value 3))
+  [[value {:attrs #{comptime}} :u32]]
+  (+ value 3))
 
 (a/defn element-size :usize
-  [[T {:attrs #{k/comptime}} :type]]
-  (k/sizeOf T))
+  [[T {:attrs #{comptime}} :type]]
+  (sizeOf T))

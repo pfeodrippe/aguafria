@@ -1,5 +1,6 @@
 (ns learn.example.test-arrays
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.debug :as debug]
             [aguafria.std.mem :as mem]
             [aguafria.std.testing :as testing]
@@ -17,7 +18,7 @@
 
 ;; get the size of an array
 (a/defcomptime message-length
-  (debug/assert (k/== (:len message) 5)))
+  (debug/assert (== (:len message) 5)))
 
 ;; A string literal is a single-item pointer to an array.
 (a/defconst same-message "hello")
@@ -27,17 +28,17 @@
 
 (a/deftest iterate-over-an-array
   (let [sum (k/var 0 :usize)]
-    (k/for [byte message]
-      (k/+= sum byte))
-    (k/try (testing/expectEqual (k/+ \h \e (k/* \l 2) \o) sum))))
+    (for [byte message]
+      (+= sum byte))
+    (k/try (testing/expectEqual (+ \h \e (* \l 2) \o) sum))))
 
 ;; modifiable array
-(a/defvar some-integers [:array 100 :i32] k/undefined)
+(a/defvar some-integers [:array 100 :i32] undefined)
 
 (a/deftest modify-an-array
-  (k/for [(k/* item) (k/& some-integers)
-          i (a/range 0)]
-    (k/= @item (k/intCast i)))
+  (for [(* item) (k/& some-integers)
+        i (a/range 0)]
+    (= @item (intCast i)))
   (k/try (testing/expectEqual 10 (a/get some-integers 10)))
   (k/try (testing/expectEqual 99 (a/get some-integers 99))))
 
@@ -45,7 +46,7 @@
 ;; at compile time
 (a/defconst part-one (a/array [1 2 3 4] :i32))
 (a/defconst part-two (a/array [5 6 7 8] :i32))
-(a/defconst all-of-it (k/++ part-one part-two))
+(a/defconst all-of-it (++ part-one part-two))
 
 (a/defcomptime concatenated-array
   (debug/assert
@@ -55,17 +56,17 @@
 ;; remember that string literals are arrays
 (a/defconst hello "hello")
 (a/defconst world "world")
-(a/defconst hello-world (k/++ hello " " world))
+(a/defconst hello-world (++ hello " " world))
 
 (a/defcomptime concatenated-string
   (debug/assert (mem/eql :u8 hello-world "hello world")))
 
 ;; initialize an array to zero
-(a/defconst all-zero [:array 10 :u16] (k/splat 0))
+(a/defconst all-zero [:array 10 :u16] (splat 0))
 
 (a/defcomptime zero-initialization
-  (debug/assert (k/== (:len all-zero) 10))
-  (debug/assert (k/== (a/get all-zero 5) 0)))
+  (debug/assert (== (:len all-zero) 10))
+  (debug/assert (== (a/get all-zero 5) 0)))
 
 (a/defstruct Point
   [[:x :i32]
@@ -74,12 +75,12 @@
 ;; use compile-time code to initialize an array
 (a/defvar fancy-array
   (a/with-block :init
-    (let [initial-value (k/var k/undefined [:array 10 Point])]
-      (k/for [(k/* pt) (k/& initial-value)
-              i (a/range 0)]
-        (k/= @pt (Point {:x (k/intCast i)
-                         :y (k/intCast (k/* i 2))})))
-      (k/break :init initial-value))))
+    (let [initial-value (k/var undefined [:array 10 Point])]
+      (for [(* pt) (k/& initial-value)
+            i (a/range 0)]
+        (= @pt (Point {:x (intCast i)
+                       :y (intCast (* i 2))})))
+      (break :init initial-value))))
 
 (a/deftest compile-time-array-initialization
   (k/try (testing/expectEqual 4 (a/get-in fancy-array [4 :x])))
@@ -87,10 +88,10 @@
 
 (a/defn- make-point Point
   [[x :i32]]
-  (Point {:x x :y (k/* x 2)}))
+  (Point {:x x :y (* x 2)}))
 
 ;; call a function to initialize an array
-(a/defvar more-points [:array 10 Point] (k/splat (make-point 3)))
+(a/defvar more-points [:array 10 Point] (splat (make-point 3)))
 
 (a/deftest array-initialization-with-function-calls
   (k/try (testing/expectEqual 3 (a/get-in more-points [4 :x])))

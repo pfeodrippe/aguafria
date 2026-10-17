@@ -54,7 +54,8 @@ rejected. Previously published JARs use their own older loader.
 
 ```clojure
 (ns example.core
-  (:require [aguafria.keyword :as ak]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as ak :refer :all]
             [aguafria.zig :as a]))
 
 (a/defn add :i32
@@ -180,7 +181,7 @@ Omit the type or use `:_` to infer it, e.g. `(a/defvar mouse-down false)`.
 There is no attributes-before-type compatibility form. `:attrs` always takes a set,
 even for one attribute; both native
 declarations and JVM calls reject single values. Local compile-time variables
-use `(ak/var 1 :i32 {:attrs #{ak/comptime}})`. Thread-local native storage is
+use `(ak/var 1 :i32 {:attrs #{:comptime}})`. Thread-local native storage is
 resolved on each calling JVM platform thread; realization from virtual threads
 is rejected because they can migrate between OS threads. Metadata-only inspection
 of a TLS descriptor is allowed and does not materialize thread-local storage.
@@ -251,7 +252,7 @@ For example:
   [[limit :u32]]
   (let [^{:var true :zig/type :u32} total 0
         ^{:var true :zig/type :u32} index 0]
-    (while (< index limit)
+    (while (ak/< index limit)
       (ak/+= total index)
       (ak/+= index 1))
     total))
@@ -259,8 +260,83 @@ For example:
 
 `aguafria.keyword` exposes Zig spellings that have no honest Clojure meaning,
 including `ak/undefined`, `@` builtins, and operators such as Zig equality.
-Ordinary Clojure forms such as `if` and `let` remain ordinary symbols. Nothing
-is injected as an unbound magical name.
+Choose namespace defaults by what the namespace primarily does—not by whether
+it requires `aguafria.zig`.
+
+**Clojure-first namespaces** keep ordinary core referrals and qualify their few
+native operations. Application orchestration, build tools, and JVM tests do not
+need `:refer-clojure :only []` or a wildcard keyword import:
+
+```clojure
+(ns example.application
+  (:require [aguafria.keyword :as k]
+            [aguafria.zig :as a]))
+
+(a/defn twice :i32 [[x :i32]] (k/* x 2))
+
+(defn doubled-values [xs]
+  (mapv #(a/value (twice %)) xs))
+```
+
+If a namespace only calls an existing native module through `a/value`, it need
+not require `aguafria.keyword` at all. Mixed namespaces can also retain core
+defaults and qualify native operations; selective referrals are an option where
+useful, not a reason to disable all core referrals.
+
+**Native-first namespaces** use native defaults and qualify occasional host
+operations as `c/...`. Native operators are identified by the actual Vars they
+resolve to, not by whether their spelling contains a namespace prefix:
+
+
+```clojure
+(ns example.math
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
+            [aguafria.zig :as a]
+            [clojure.core :as c]))
+
+(a/defn calculate :i32 [[x :i32] [y :i32]]
+  (-> x (+ y) (* 2)))
+
+(c/mapv #(a/value (calculate % 2)) [1 2 3])
+;; => [6 8 10]
+```
+
+Here `+` and `*` resolve to Aguafria's real native Vars, just as `k/+` and `k/*`
+do. Clojure operator Vars are not silently reinterpreted inside native captures.
+Host operations are explicit: `c/map`, `c/slurp`, `c/swap!`, or `c/+`.
+Omit the core alias entirely when a native namespace has no host operations.
+
+`aguafria.keyword` also exposes the **unchanged Clojure macro implementations**
+for `let`, threading (`->`, `->>`, `as->`, conditional/some threading), `cond`,
+`doto`, `when`, `when-not`, `dotimes`, and `comment`. Standalone `let` is ordinary
+Clojure `let`, not a new native scope. An enclosing native declaration or
+`comptime` captures its binding syntax before Clojure executes it. As before,
+a macro expansion inside a native capture must consist of supported native
+syntax; exposing a syntax helper does not make arbitrary host calls native.
+
+Clojure special forms are not replaceable by referrals: keep `k/try` and `k/var`
+qualified where their native operations are intended. Reader-sensitive tokens
+such as `k/...` also retain their prefix. No unbound magical names are injected.
+
+`:only []` prevents automatic core referrals in a fresh namespace; it is not a
+sandbox and does not remove old referrals from an already-loaded namespace.
+Use a fresh namespace/session when adopting this convention in an existing REPL.
+
+`ak/comptime` is a macro, including at the JVM/REPL boundary. It captures one
+native expression or block and runs it through the existing native scoped bridge:
+
+```clojure
+(a/value (ak/comptime (let [n (ak/+ 2 3)] (ak/* n 4)))) ;; => 20
+```
+
+Its body is not evaluated as Clojure, and inner calls do not each need a JVM
+handler. Zig decides whether the expression and its lexical captures are valid
+at compile time; runtime storage is not silently promoted to a constant. Results
+use the ordinary native value/type/ownership machinery and prepared handlers.
+As with other Clojure macros, `ak/comptime` is not a first-class function. In an
+evaluated attribute map use `#{:comptime}` or `#{#'ak/comptime}`; captured native
+parameter attributes may still use `#{ak/comptime}`.
 
 `ak/TypeOf` is a macro on the JVM: `(ak/TypeOf (native-call value))` lets Zig
 analyze the expression without executing `native-call`. Its operands must be
@@ -296,7 +372,9 @@ thousands of generated source files:
 
 ```clojure
 (ns example.math
-  (:require [aguafria.std.math :as std-math]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as ak :refer :all]
+            [aguafria.std.math :as std-math]
             [aguafria.zig :as a]))
 
 (a/defn maximum :u32

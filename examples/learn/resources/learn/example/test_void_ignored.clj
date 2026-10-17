@@ -1,5 +1,6 @@
 (ns learn.example.test-void-ignored
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defn- returns-void :void [])
@@ -12,7 +13,7 @@
   (returns-void))
 
 (a/deftest explicitly-ignoring-expression-value
-  (k/= :_ (foo)))
+  (= :_ (foo)))
 
 (comment
   (void-is-ignored)

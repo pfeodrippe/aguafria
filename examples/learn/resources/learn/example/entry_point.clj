@@ -1,6 +1,8 @@
 (ns learn.example.entry-point
+  (:refer-clojure :only [])
   (:require [aguafria.std.debug :as debug]
-            [aguafria.zig :as a]))
+            [aguafria.zig :as a]
+            [aguafria.keyword :as k :refer :all]))
 
 (a/defn main :void
   "`std.start` imports this file using `@import(\"root\")`, and uses this declaration as the program's

@@ -1,12 +1,13 @@
 (ns learn.example.test-comptime-call-extern-function
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defextern exit :noreturn
   [])
 
 (a/deftest foo
-  (k/comptime
+  (comptime
    (a/block
     (exit))))
 

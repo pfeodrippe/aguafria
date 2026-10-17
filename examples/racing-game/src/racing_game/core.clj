@@ -234,87 +234,87 @@
                   3 :human
                   :fallback)
          trace
-        (when entry
+         (when entry
            {:racer racer-id
-        :revision (:revision entry)
-        :source source
-        :schemas {:observation (:observation_schema entry)
-                  :action (:action_schema entry)}
-        :provenance {:model-fingerprint (:model_fingerprint entry)
-                     :action-head-fingerprint (:action_head_fingerprint entry)
-                     :action-head-training-revision
-                     (:action_head_training_revision entry)
-                     :tokenizer {:name :gpt2-base-byte
-                                 :version (:tokenizer_version entry)}
-                     :quantization {:name :granite-q4-0-mixed
-                                    :version (:quantization_version entry)
-                                    :format-code (:quantization_format entry)}
-                     :training-data-fingerprint
-                     (:training_data_fingerprint entry)
-                     :training-data-sha256
-                     (apply str
-                            (map #(format "%02x" (bit-and 0xff (long %)))
-                                 (:training_data_sha256 entry)))}
-        :ticks {:race-epoch (:race_epoch entry)
-                :enqueue (:enqueue_tick entry)
-                :install (:install_tick entry)}
-         :observation {:rank (:rank entry)
-                      :lap (:lap entry)
-                      :item (:item entry)
-                      :target (:target entry)
-                      :progress (:progress entry)
-                      :progress-bin
-                      (long (Math/floor
-                             (* 10.0 (double (:progress entry)))))
-                      :speed (:speed entry)
-                      :speed-bin
-                      (long (Math/floor
-                             (* 100.0 (double (:speed entry)))))
-                      :urgent (:urgent entry)
-                      :input-token-count (:input_token_count entry)
-                      :model-step-count (:input_token_count entry)
-                      :prompt (:prompt entry)
-                      :input-tokens (take (:input_token_count entry)
-                                          (:input_tokens entry))}
-        :intent
-        (cond
-          (and code (<= 0 code 7))
-          {:token response
-           :token-id (+ 32 code)
-           :lane (nth [:left :center :right] (mod code 3))
-           :pace (nth [:steady :attack :maximum] (min 2 (quot code 3)))
+            :revision (:revision entry)
+            :source source
+            :schemas {:observation (:observation_schema entry)
+                      :action (:action_schema entry)}
+            :provenance {:model-fingerprint (:model_fingerprint entry)
+                         :action-head-fingerprint (:action_head_fingerprint entry)
+                         :action-head-training-revision
+                         (:action_head_training_revision entry)
+                         :tokenizer {:name :gpt2-base-byte
+                                     :version (:tokenizer_version entry)}
+                         :quantization {:name :granite-q4-0-mixed
+                                        :version (:quantization_version entry)
+                                        :format-code (:quantization_format entry)}
+                         :training-data-fingerprint
+                         (:training_data_fingerprint entry)
+                         :training-data-sha256
+                         (apply str
+                                (map #(format "%02x" (bit-and 0xff (long %)))
+                                     (:training_data_sha256 entry)))}
+            :ticks {:race-epoch (:race_epoch entry)
+                    :enqueue (:enqueue_tick entry)
+                    :install (:install_tick entry)}
+            :observation {:rank (:rank entry)
+                          :lap (:lap entry)
+                          :item (:item entry)
+                          :target (:target entry)
+                          :progress (:progress entry)
+                          :progress-bin
+                          (long (Math/floor
+                                 (* 10.0 (double (:progress entry)))))
+                          :speed (:speed entry)
+                          :speed-bin
+                          (long (Math/floor
+                                 (* 100.0 (double (:speed entry)))))
+                          :urgent (:urgent entry)
+                          :input-token-count (:input_token_count entry)
+                          :model-step-count (:input_token_count entry)
+                          :prompt (:prompt entry)
+                          :input-tokens (take (:input_token_count entry)
+                                              (:input_tokens entry))}
+            :intent
+            (cond
+              (and code (<= 0 code 7))
+              {:token response
+               :token-id (+ 32 code)
+               :lane (nth [:left :center :right] (mod code 3))
+               :pace (nth [:steady :attack :maximum] (min 2 (quot code 3)))
            ;; Telemetry records the validated installed action. In particular,
            ;; an item-using macro with empty inventory is safely downgraded to
            ;; hold and must not be described as an attempted phantom use.
-           :item (if (zero? (:action entry)) :hold :use)
-           :target (:target entry)
-           :lane-target (:lane_target entry)
-           :target-speed (:target_speed entry)}
+               :item (if (zero? (:action entry)) :hold :use)
+               :target (:target entry)
+               :lane-target (:lane_target entry)
+               :target-speed (:target_speed entry)}
 
-          (not= :llm source)
-          {:lane (cond
-                   (< (:lane_target entry) -0.025) :left
-                   (> (:lane_target entry) 0.025) :right
-                   :else :center)
-           :pace (cond
-                   (< (:target_speed entry) 0.076) :steady
-                   (< (:target_speed entry) 0.084) :attack
-                   :else :maximum)
-           :item (if (zero? (:action entry)) :hold :use)
-           :target (:target entry)
-           :lane-target (:lane_target entry)
-           :target-speed (:target_speed entry)}
+              (not= :llm source)
+              {:lane (cond
+                       (< (:lane_target entry) -0.025) :left
+                       (> (:lane_target entry) 0.025) :right
+                       :else :center)
+               :pace (cond
+                       (< (:target_speed entry) 0.076) :steady
+                       (< (:target_speed entry) 0.084) :attack
+                       :else :maximum)
+               :item (if (zero? (:action entry)) :hold :use)
+               :target (:target entry)
+               :lane-target (:lane_target entry)
+               :target-speed (:target_speed entry)}
 
-          :else
-          {:token response :valid false})
-        :validation {:accepted (:accepted entry)
-                     :code (:validation_code entry)
-                     :deadline (case (:deadline_status entry)
-                                 0 :on-time
-                                 1 :expired
-                                 :unknown)}
-        :sampling {:state (:sampler_state entry)}
-        :outcome (:outcome entry)
+              :else
+              {:token response :valid false})
+            :validation {:accepted (:accepted entry)
+                         :code (:validation_code entry)
+                         :deadline (case (:deadline_status entry)
+                                     0 :on-time
+                                     1 :expired
+                                     :unknown)}
+            :sampling {:state (:sampler_state entry)}
+            :outcome (:outcome entry)
             :timing-us {:queue (:queue_us entry)
                         :prefill (:prefill_us entry)
                         :decode (:decode_us entry)
@@ -597,25 +597,25 @@
    (let [end (long (simulation/language-exchange-count))
          size (min 128 (max 0 (long limit)) end)]
      (into []
-       (keep
-         (fn [sequence]
-           (let [{:keys [valid reason result]} (a/value (simulation/language-exchange-at sequence))]
-             (when valid
-               (let [{:keys [request generation queue_us inference_us total_us]} result
-                     reason-bytes (a/value (protocol/driving-plan-rejection reason))]
-                 {:sequence sequence :racer (:actor request) :race (:epoch request)
-                  :instructions (utf8-preview (:system_bytes request) (:system_byte_count request))
-                  :observation (utf8-preview (:prompt_bytes request) (:prompt_byte_count request))
-                  :reply (utf8-preview (:bytes generation) (:byte_count generation))
-                  :accepted? (zero? reason)
-                  :reason (utf8-preview reason-bytes (count reason-bytes))
-                  :complete? (and (:valid generation) (= 1 (:stop generation)))
-                  :generation-valid? (:valid generation) :generation-stop (:stop generation)
-                  :input-tokens (:input_tokens generation) :output-tokens (:output_tokens generation)
-                  :queue-ms (/ queue_us 1000.0) :inference-ms (/ inference_us 1000.0)
-                  :total-ms (/ total_us 1000.0)
-                  :observed-tick (:observed_tick request) :expires-tick (:expires_tick request)}))))
-         (range end (- end size) -1))))))
+           (keep
+            (fn [sequence]
+              (let [{:keys [valid reason result]} (a/value (simulation/language-exchange-at sequence))]
+                (when valid
+                  (let [{:keys [request generation queue_us inference_us total_us]} result
+                        reason-bytes (a/value (protocol/driving-plan-rejection reason))]
+                    {:sequence sequence :racer (:actor request) :race (:epoch request)
+                     :instructions (utf8-preview (:system_bytes request) (:system_byte_count request))
+                     :observation (utf8-preview (:prompt_bytes request) (:prompt_byte_count request))
+                     :reply (utf8-preview (:bytes generation) (:byte_count generation))
+                     :accepted? (zero? reason)
+                     :reason (utf8-preview reason-bytes (count reason-bytes))
+                     :complete? (and (:valid generation) (= 1 (:stop generation)))
+                     :generation-valid? (:valid generation) :generation-stop (:stop generation)
+                     :input-tokens (:input_tokens generation) :output-tokens (:output_tokens generation)
+                     :queue-ms (/ queue_us 1000.0) :inference-ms (/ inference_us 1000.0)
+                     :total-ms (/ total_us 1000.0)
+                     :observed-tick (:observed_tick request) :expires-tick (:expires_tick request)}))))
+            (range end (- end size) -1))))))
 
 (defn status
   []

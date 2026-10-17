@@ -1,5 +1,6 @@
 (ns learn.example.bad-default-value
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.debug :as debug]
             [aguafria.std.log :as log]
             [aguafria.zig :as a]))
@@ -10,10 +11,10 @@
    [:Category {:const (a/enum [:low :medium :high])} :type]
    (a/fn- categorize Category [[t Threshold] [value :f32]]
           (let [{:keys [minimum maximum]} t]
-            (debug/assert (k/>= maximum minimum))
-            (if (k/< value minimum)
+            (debug/assert (>= maximum minimum))
+            (if (< value minimum)
               :low
-              (if (k/> value maximum) :high :medium))))])
+              (if (> value maximum) :high :medium))))])
 
 (a/defn main [:error-union :void] []
   (let [threshold (k/var (Threshold {:maximum 0.20}))

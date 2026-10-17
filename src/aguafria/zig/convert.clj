@@ -583,9 +583,9 @@
    :mul_sat 'k/*| :add_sat 'k/+| :sub_sat 'k/-|
    :shl 'k/<< :shl_sat 'k/<<| :shr 'k/>>
    :bit_and 'k/& :bit_or 'k/| :bit_xor 'k/bit-xor
-   :bool_and 'and :bool_or 'or
+   :bool_and 'k/and :bool_or 'k/or
    :array_cat 'k/++
-   :merge_error_sets 'k/|| :orelse 'orelse :catch 'catch
+   :merge_error_sets 'k/|| :orelse 'k/orelse :catch 'k/catch
    :switch_range 'k/... :for_range 'a/range})
 
 (def ^:private assignment-tokens
@@ -597,10 +597,10 @@
    :assign_add_sat "+|=" :assign_sub_sat "-|="})
 
 (def ^:private simple-assignment-symbols
-  {"+=" '+= "-=" '-= "*=" '*= "%=" '%=
-   "+%=" '+%= "-%=" '-%= "*%=" '*%=
-   "+|=" '+|= "-|=" '-|= "*|=" '*|=
-   "&=" '&= "|=" '|= "<<=" '<<= "<<|=" '<<|= ">>=" '>>=})
+  {"+=" 'k/+= "-=" 'k/-= "*=" 'k/*= "%=" 'k/%=
+   "+%=" 'k/+%= "-%=" 'k/-%= "*%=" 'k/*%=
+   "+|=" 'k/+|= "-|=" 'k/-|= "*|=" 'k/*|=
+   "&=" 'k/&= "|=" 'k/|= "<<=" 'k/<<= "<<|=" 'k/<<|= ">>=" 'k/>>=})
 
 (def ^:private builtin-symbols
   (delay
@@ -1198,7 +1198,7 @@
           (contains? (:array-type-index context) node-index)
           (contains? (:function-prototype-index context) node-index)
           (contains? #{:optional_type :error_union :error_set_decl} tag))
-      (list 'type (translate-type context node-index))
+      (list 'aguafria.zig/type (translate-type context node-index))
 
       (contains? assignment-tokens tag)
       (list 'assign-expr (get assignment-tokens tag)
@@ -1218,7 +1218,7 @@
           "undefined" (symbol "k" (keyword/token-name text))
           (cond
             (primitive-type? text)
-            (list 'type (keyword text))
+            (list 'aguafria.zig/type (keyword text))
 
             (contains? (:builtin-imports context) text)
             (compiler-builtin-alias context)
@@ -1274,7 +1274,7 @@
           (list 'catch-capture captures
                 (translate-expr context a)
                 (translate-expr context b))
-          (list 'catch (translate-expr context a) (translate-expr context b))))
+          (list 'k/catch (translate-expr context a) (translate-expr context b))))
 
       (contains? binary-operators tag)
       (let [operator (get binary-operators tag)
@@ -1282,7 +1282,7 @@
                        (some? b) (conj (translate-expr context b)))]
         (apply list operator operands))
 
-      (= :bool_not tag) (list '! (translate-expr context a))
+      (= :bool_not tag) (list 'k/! (translate-expr context a))
       (= :negation tag) (list 'k/- (translate-expr context a))
       (= :negation_wrap tag)
       (list 'k/-% (translate-expr context a))
@@ -2576,6 +2576,13 @@
         (pprint/pprint-newline :mandatory))
       (write-clojure-comments (concat leading-comments comments))
       (case (first form)
+        ;; The stock namespace formatter cannot print an empty :only list.
+        ns (write-declaration-header form 2)
+        :require (pprint/pprint-logical-block :prefix "(:require" :suffix ")"
+                                              (pprint/pprint-indent :block 1)
+                                              (doseq [spec (rest form)]
+                                                (pprint/pprint-newline :mandatory)
+                                                (pr spec)))
         (a/defn a/defn- a/defextern a/fn a/fn- a/fn-decl a/fn-proto-decl
           fn-decl fn-proto-decl) (write-declaration-header form 3)
         (a/deftest a/defstruct a/defenum a/defunion) (write-declaration-header form 2)
@@ -2617,17 +2624,16 @@
               (get project-require-modes namespace-symbol :as-alias)
               alias])
            (sort-by (comp str key) project-aliases))
-      [['aguafria.keyword :as 'k]
+      [['aguafria.keyword :as 'k :refer :all]
        ['aguafria.zig :as 'a]]))))
 
 (defn- namespace-form
   [namespace-symbol std-aliases project-aliases project-require-modes
-   core-exclusions]
+   _core-exclusions]
   (apply list
          (concat
           ['ns namespace-symbol]
-          (when (seq core-exclusions)
-            [(list :refer-clojure :exclude (vec core-exclusions))])
+          [(list :refer-clojure :only [])]
           [(list* :require (require-specs std-aliases project-aliases
                                           project-require-modes))])))
 
@@ -2767,7 +2773,9 @@
 (defn- generated-source-operator
   [operator]
   (if-not (and (symbol? operator) (nil? (namespace operator)))
-    operator
+    (if (and (symbol? operator) (= "aguafria.zig" (namespace operator)))
+      (with-meta (symbol "a" (name operator)) (meta operator))
+      operator)
     (cond
       ;; Clojure's `(var x)` is a Var-literal special form. Zig's local
       ;; mutable declaration deliberately resolves through the real `k/var`
@@ -2775,8 +2783,9 @@
       (= 'var operator)
       (symbol "k" (keyword/token-name "var"))
 
-      ;; These spellings already name a Clojure special form or real core Var,
-      ;; so they have an ordinary, inspectable source without an Aguafria alias.
+      ;; Structural syntax and declaration calls may share core spellings.
+      ;; Native arithmetic/boolean/assignment AST producers above already use
+      ;; explicit k/... operators; never infer their meaning from a core Var.
       (or (special-symbol? operator)
           (ns-resolve 'clojure.core operator))
       operator
@@ -3226,7 +3235,7 @@
               (when-let [names (seq (filter symbol? (keep second forms)))]
                 ;; Zig/C declarations may refer forward, including recursive
                 ;; structs. Make those references explicit Clojure Vars.
-                (str (pprint-code (cons 'declare names)) "\n\n"))
+                (str (pprint-code (cons 'clojure.core/declare names)) "\n\n"))
               (str/join "\n\n" (map pprint-code forms))
               (when (seq forms) "\n")
               "")
@@ -3303,7 +3312,6 @@
     (try
       (binding [*ns* scratch
                 *file* (str namespace-symbol)]
-        (refer 'clojure.core)
         (doseq [require-spec (require-specs std-aliases project-aliases
                                             project-require-modes)]
           (require require-spec))
@@ -3319,9 +3327,9 @@
           (doseq [form forms]
             ;; A Zig declaration may legitimately be named `assert`, `map`,
             ;; `count`, and so on. Remove only the inherited clojure.core
-            ;; mapping immediately before its generated def; this prevents
-            ;; hundreds of irrelevant shadowing warnings during a large
-            ;; source-only bootstrap while preserving every other core Var.
+            ;; or native-token mapping immediately before its generated def.
+            ;; The scratch namespace, like generated namespaces, has no
+            ;; implicit clojure.core referrals.
             (let [declaration-name (second form)
                   before-count (count (runtime/collected-declarations collector))]
               (when (and (symbol? declaration-name)

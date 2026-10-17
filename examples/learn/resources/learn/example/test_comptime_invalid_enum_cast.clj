@@ -1,5 +1,6 @@
 (ns learn.example.test-comptime-invalid-enum-cast
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defenum Foo {:type :u2}
@@ -8,6 +9,6 @@
    :c])
 
 (a/defcomptime reject-invalid-tag
-  (let [a (k/u2 3)
-        b (k/as (k/fromBackingInt a) Foo)]
-    (k/= :_ b)))
+  (let [a (u2 3)
+        b (as (fromBackingInt a) Foo)]
+    (= :_ b)))

@@ -10,22 +10,22 @@
 (defn ensure-loaded!
   []
   (locking loaded?
-   (when-not @loaded?
-    (let [specs (generate/binding-specs)]
+    (when-not @loaded?
+      (let [specs (generate/binding-specs)]
       ;; The translator's cache includes the compiler format version. File
       ;; existence alone would keep incompatible bindings after an upgrade.
-      (generate/generate!)
-      (build/prepare-shared!)
-      (doseq [{:keys [output]} specs]
-        (ac/load-bindings! output))
+        (generate/generate!)
+        (build/prepare-shared!)
+        (doseq [{:keys [output]} specs]
+          (ac/load-bindings! output))
       ;; Optional libraries (e.g. Box3D) can be required first. Loading the
       ;; graphics bindings must not discard their linker arguments. Preserve
       ;; argument groups verbatim: deduplicating individual tokens can corrupt
       ;; repeated options such as -framework followed by different names.
-      (a/configure! {:zig-args (into (vec (:zig-args (a/configuration)))
-                                     (build/development-link-arguments))
-                      :reloadable? true})
-      (reset! loaded? true))))
+        (a/configure! {:zig-args (into (vec (:zig-args (a/configuration)))
+                                       (build/development-link-arguments))
+                       :reloadable? true})
+        (reset! loaded? true))))
   {:loaded? @loaded?
    :flecs (when @loaded?
             (select-keys (ac/namespace-info

@@ -4,7 +4,7 @@
 
 (defn- sexpr
   [node]
-  (api/sexpr node))
+  (when node (api/sexpr node)))
 
 (defn- token
   [value]
@@ -12,7 +12,30 @@
 
 (defn- call-node
   [operator children]
-  (api/list-node (cons (token operator) children)))
+  ;; These are model operations introduced by the hook, not user operators.
+  ;; They must not depend on the consumer's implicit core referrals.
+  (let [operator (get {'let 'clojure.core/let
+                       'atom 'clojure.core/atom
+                       'first 'clojure.core/first} operator operator)]
+    ;; Child transformations may call hooks-api/resolve. Realize them while
+    ;; this hook's analysis context is still bound, not during later linting.
+    (api/list-node (into [(token operator)] children))))
+
+(declare core-referral-names)
+
+(defn namespace-referrals
+  "Model :only [] accurately for kondo versions which ignore that ns option.
+  The exclusion set is generated from all actual clojure.core public Vars;
+  this is only a lint view, never a change to the consumer namespace."
+  [{:keys [node]}]
+  {:node (assoc node :children
+                (mapv (fn [child]
+                        (cond
+                          (= '(:refer-clojure :only []) (sexpr child))
+                          (api/list-node [(token :refer-clojure) (token :exclude)
+                                          (api/vector-node (mapv token core-referral-names))])
+                          :else child))
+                      (:children node)))})
 
 (defn c-bindings
   "Expose native binding names while checking the ordinary Clojure import expression."
@@ -29,10 +52,15 @@
         resolved (when (symbol? operator)
                    (select-keys (api/resolve {:name operator}) [:ns :name]))]
     (cond
+      ;; The reader's @ syntax denotes core deref even without core referrals.
+      (= :deref (:tag node))
+      (call-node 'clojure.core/deref (mapv native-expression (:children node)))
       (or (= :quote (:tag node)) (#{'quote 'clojure.core/quote} operator)) node
       ;; Host escapes contain ordinary Clojure, including real try/catch.
       ;; Do not apply the surrounding native syntax rewrites inside them.
       (= {:ns 'aguafria.zig :name 'clj!} resolved) node
+      (= {:ns 'aguafria.zig :name 'field} resolved)
+      (native-expression (second (:children node)))
       (= {:ns 'aguafria.keyword :name 'continue} resolved)
       (call-node 'do (cons (first (:children node))
                            (mapv native-expression (drop 2 (:children node)))))
@@ -41,6 +69,10 @@
                            (mapv native-expression (take-last 1 (rest (:children node))))))
       (= {:ns 'aguafria.zig :name 'break-label} resolved)
       (call-node 'do [(first (:children node))])
+      ;; Leave ordinary heads intact: resolving them here precedes analysis of
+      ;; their enclosing bindings/definitions. In particular, :refer :all may
+      ;; provisionally resolve an unknown or self-referential name to keyword.
+      ;; Qualifying that guess would hide unknown calls and break local names.
       (:children node)
       (assoc node :children
              (mapv native-expression
@@ -251,7 +283,7 @@
                                     types
                                     (when extern? arguments)
                                     body)))
-        rewritten (concat [(token (cond nested? 'fn private? 'defn- :else 'defn))
+        rewritten (concat [(token (cond nested? 'clojure.core/fn private? 'clojure.core/defn- :else 'clojure.core/defn))
                            definition-name]
                           (when (and docstring (not nested?)) [docstring])
                           (if (process-entry? operator-name definition-name return-type types options)
@@ -265,8 +297,13 @@
   [{:keys [node]}]
   (let [[_ definition-name & raw-declaration] (:children node)
         {:keys [declaration option-nodes]} (declaration-prefix raw-declaration)]
-    {:node (call-node 'def
-                      [definition-name (expression-node (into option-nodes declaration))])}))
+    ;; Native containers can refer to their own declaration in field types and
+    ;; methods. Register that name before walking its initializer, especially
+    ;; when a wildcard import could otherwise claim an unresolved self-name.
+    {:node (call-node 'do
+                      [(call-node 'clojure.core/declare [definition-name])
+                       (call-node 'def
+                                  [definition-name (expression-node (into option-nodes declaration))])])}))
 
 (defn import-declaration
   "Register the import alias Var without treating Zig member names as locals."
@@ -280,7 +317,7 @@
   (let [[_ definition-name & raw-declaration] (:children node)
         {:keys [declaration docstring]} (declaration-prefix raw-declaration)]
     {:node (api/list-node
-            (concat [(token 'defn) definition-name]
+            (concat [(token 'clojure.core/defn) definition-name]
                     (when docstring [docstring])
                     [(api/vector-node []) (expression-node (vec declaration))]))}))
 
@@ -294,7 +331,7 @@
   "Analyze the container expression, treating the field label as Zig data."
   [{:keys [node]}]
   (let [[_ target] (:children node)]
-    {:node (or target (token nil))}))
+    {:node (if target (native-expression target) (token nil))}))
 
 (defn field-declaration
   "Ignore a struct/enum field label while analyzing its type and initializer."
@@ -320,3 +357,76 @@
   "Treat an explicitly structural Zig identifier as data."
   [_]
   {:node (token nil)})
+
+;; BEGIN GENERATED CORE REFERRALS
+;; All core public Vars, not an operator exclusion list. Metadata only.
+(def ^:private core-referral-names
+  '[* *' *1 *2 *3 *agent* *allow-unresolved-vars* *assert* *clojure-version* *command-line-args*
+    *compile-files* *compile-path* *compiler-options* *data-readers* *default-data-reader-fn* *e *err* *file* *flush-on-newline* *fn-loader*
+    *in* *math-context* *ns* *out* *print-dup* *print-length* *print-level* *print-meta* *print-namespace-maps* *print-readably*
+    *read-eval* *reader-resolver* *repl* *source-path* *suppress-read* *unchecked-math* *use-context-classloader* *verbose-defrecords* *warn-on-reflection* +
+    +' - -' -> ->> ->ArrayChunk ->Eduction ->Vec ->VecNode ->VecSeq
+    -cache-protocol-fn -reset-methods .. / < <= = == > >=
+    EMPTY-NODE Inst NaN? PrintWriter-on StackTraceElement->vec Throwable->map abs accessor aclone add-classpath
+    add-tap add-watch agent agent-error agent-errors aget alength alias all-ns alter
+    alter-meta! alter-var-root amap ancestors and any? apply areduce array-map as->
+    aset aset-boolean aset-byte aset-char aset-double aset-float aset-int aset-long aset-short assert
+    assoc assoc! assoc-in associative? atom await await-for await1 bases bean
+    bigdec bigint biginteger binding bit-and bit-and-not bit-clear bit-flip bit-not bit-or
+    bit-set bit-shift-left bit-shift-right bit-test bit-xor boolean boolean-array boolean? booleans bound-fn
+    bound-fn* bound? bounded-count butlast byte byte-array bytes bytes? case cast
+    cat char char-array char-escape-string char-name-string char? chars chunk chunk-append chunk-buffer
+    chunk-cons chunk-first chunk-next chunk-rest chunked-seq? class class? clear-agent-errors clojure-version coll?
+    comment commute comp comparator compare compare-and-set! compile complement completing concat
+    cond cond-> cond->> condp conj conj! cons constantly construct-proxy contains?
+    count counted? create-ns create-struct cycle dec dec' decimal? declare dedupe
+    default-data-readers definline definterface defmacro defmethod defmulti defn defn- defonce defprotocol
+    defrecord defstruct deftype delay delay? deliver denominator deref derive descendants
+    destructure disj disj! dissoc dissoc! distinct distinct? doall dorun doseq
+    dosync dotimes doto double double-array double? doubles drop drop-last drop-while
+    eduction empty empty? ensure ensure-reduced enumeration-seq error-handler error-mode eval even?
+    every-pred every? ex-cause ex-data ex-info ex-message extend extend-protocol extend-type extenders
+    extends? false? ffirst file-seq filter filterv find find-keyword find-ns find-protocol-impl
+    find-protocol-method find-var first flatten float float-array float? floats flush fn
+    fn? fnext fnil for force format frequencies future future-call future-cancel
+    future-cancelled? future-done? future? gen-class gen-interface gensym get get-in get-method get-proxy-class
+    get-thread-bindings get-validator group-by halt-when hash hash-combine hash-map hash-ordered-coll hash-set hash-unordered-coll
+    ident? identical? identity if-let if-not if-some ifn? import in-ns inc
+    inc' indexed? infinite? init-proxy inst-ms inst-ms* inst? instance? int int-array
+    int? integer? interleave intern interpose into into-array ints io! isa?
+    iterate iteration iterator-seq juxt keep keep-indexed key keys keyword keyword?
+    last lazy-cat lazy-seq let letfn line-seq list list* list? load
+    load-file load-reader load-string loaded-libs locking long long-array longs loop macroexpand
+    macroexpand-1 make-array make-hierarchy map map-entry? map-indexed map? mapcat mapv max
+    max-key memfn memoize merge merge-with meta method-sig methods min min-key
+    mix-collection-hash mod munge name namespace namespace-munge nat-int? neg-int? neg? newline
+    next nfirst nil? nnext not not-any? not-empty not-every? not= ns
+    ns-aliases ns-imports ns-interns ns-map ns-name ns-publics ns-refers ns-resolve ns-unalias ns-unmap
+    nth nthnext nthrest num number? numerator object-array odd? or parents
+    parse-boolean parse-double parse-long parse-uuid partial partition partition-all partition-by partitionv partitionv-all
+    pcalls peek persistent! pmap pop pop! pop-thread-bindings pos-int? pos? pr
+    pr-str prefer-method prefers primitives-classnames print print-ctor print-dup print-method print-simple print-str
+    printf println println-str prn prn-str promise proxy proxy-call-with-super proxy-mappings proxy-name
+    proxy-super push-thread-bindings pvalues qualified-ident? qualified-keyword? qualified-symbol? quot rand rand-int rand-nth
+    random-sample random-uuid range ratio? rational? rationalize re-find re-groups re-matcher re-matches
+    re-pattern re-seq read read+string read-line read-string reader-conditional reader-conditional? realized? record?
+    reduce reduce-kv reduced reduced? reductions ref ref-history-count ref-max-history ref-min-history ref-set
+    refer refer-clojure reify release-pending-sends rem remove remove-all-methods remove-method remove-ns remove-tap
+    remove-watch repeat repeatedly replace replicate require requiring-resolve reset! reset-meta! reset-vals!
+    resolve rest restart-agent resultset-seq reverse reversible? rseq rsubseq run! satisfies?
+    second select-keys send send-off send-via seq seq-to-map-for-destructuring seq? seqable? seque
+    sequence sequential? set set-agent-send-executor! set-agent-send-off-executor! set-error-handler! set-error-mode! set-validator! set? short
+    short-array shorts shuffle shutdown-agents simple-ident? simple-keyword? simple-symbol? slurp some some->
+    some->> some-fn some? sort sort-by sorted-map sorted-map-by sorted-set sorted-set-by sorted?
+    special-symbol? spit split-at split-with splitv-at str stream-into! stream-reduce! stream-seq! stream-transduce!
+    string? struct struct-map subs subseq subvec supers swap! swap-vals! symbol
+    symbol? sync tagged-literal tagged-literal? take take-last take-nth take-while tap> test
+    the-ns thread-bound? time to-array to-array-2d trampoline transduce transient tree-seq true?
+    type unchecked-add unchecked-add-int unchecked-byte unchecked-char unchecked-dec unchecked-dec-int unchecked-divide-int unchecked-double unchecked-float
+    unchecked-inc unchecked-inc-int unchecked-int unchecked-long unchecked-multiply unchecked-multiply-int unchecked-negate unchecked-negate-int unchecked-remainder-int unchecked-short
+    unchecked-subtract unchecked-subtract-int underive unquote unquote-splicing unreduced unsigned-bit-shift-right update update-in update-keys
+    update-proxy update-vals uri? use uuid? val vals var-get var-set var?
+    vary-meta vec vector vector-of vector? volatile! volatile? vreset! vswap! when
+    when-first when-let when-not when-some while with-bindings with-bindings* with-in-str with-loading-context with-local-vars
+    with-meta with-open with-out-str with-precision with-redefs with-redefs-fn xml-seq zero? zipmap])
+;; END GENERATED CORE REFERRALS

@@ -1,5 +1,6 @@
 (ns learn.example.test-anonymous-struct
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
@@ -12,8 +13,8 @@
   (k/try (testing/expectEqual \i (a/get s 1))))
 
 (a/deftest fully-anonymous-struct
-  (k/try (check {:int (k/as 1234 :u32)
-                 :float (k/as 12.34 :f64)
+  (k/try (check {:int (as 1234 :u32)
+                 :float (as 12.34 :f64)
                  :b true
                  :s "hi"})))
 

@@ -1,13 +1,14 @@
 (ns learn.example.not-atomic-cmpxchgStrong
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 (a/defn cmpxchgStrongButNotAtomic [:optional T]
-  [[T {:attrs #{k/comptime}} :type]
+  [[T {:attrs #{comptime}} :type]
    [ptr [:* T]] [expected-value T] [new-value T]]
   (let [old-value @ptr]
-    (if (k/== old-value expected-value)
+    (if (== old-value expected-value)
       (do
-        (k/= @ptr new-value)
+        (= @ptr new-value)
         nil)
       old-value)))

@@ -1,14 +1,15 @@
 (ns learn.example.test-comptime-pointers
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
 (a/deftest comptime-pointers
-  (k/comptime
+  (comptime
    (let [x (k/var 1 :i32)
          ptr (k/& x)]
-     (k/+= @ptr 1)
-     (k/+= x 1)
+     (+= @ptr 1)
+     (+= x 1)
      (k/try (testing/expectEqual 3 @ptr)))))
 
 (comment

@@ -1,5 +1,6 @@
 (ns learn.example.test-unreachable
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.zig :as a]))
 
 ;; unreachable is used to assert that control flow will never reach a
@@ -7,8 +8,8 @@
 (a/deftest basic-math
   (let [x 1
         y 2]
-    (when (k/!= (k/+ x y) 3)
-      (k/unreachable))))
+    (when (!= (+ x y) 3)
+      (unreachable))))
 
 (comment
   (basic-math))

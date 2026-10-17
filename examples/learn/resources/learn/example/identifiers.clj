@@ -1,6 +1,8 @@
 (ns learn.example.identifiers
-  (:require [aguafria.std.c :as c]
-            [aguafria.zig :as a]))
+  (:refer-clojure :only [])
+  (:require [aguafria.std.c :as libc]
+            [aguafria.zig :as a]
+            [aguafria.keyword :as k :refer :all]))
 
 (a/defconst identifier-with-spaces-in-it
   {:zig/name "@\"identifier with spaces in it\""}
@@ -14,7 +16,7 @@
   [])
 (a/defextern fstat-inode64 :c_int
   {:zig/name "@\"fstat$INODE64\"" :zig/prefix "pub extern \"c\""}
-  [[fd c/fd_t] [buf [:* c/Stat]]])
+  [[fd libc/fd_t] [buf [:* libc/Stat]]])
 
 (a/defenum Color
   [:red

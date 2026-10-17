@@ -528,43 +528,43 @@
   ([examples]
    (train-ridge examples 0.08))
   ([examples regularization]
-  (let [examples (vec examples)
-        size (count examples)
-        gram
-        (object-array
-         (map
-          (fn [row]
-            (double-array
-             (map
-              (fn [column]
-                (+ (feature-dot (:features (examples row))
-                                (:features (examples column)))
-                   1.0
-                   (if (= row column) regularization 0.0)))
-              (range size))))
-          (range size)))
-        weights
-        (object-array
-         (repeatedly action-count #(double-array feature-size)))
-        biases (double-array action-count)
-        scale (Math/sqrt feature-size)]
-    (dotimes [action action-count]
-      (let [targets
-            (double-array
-             (map #(if (= action (:action %)) 1.0 -1.0) examples))
-            alpha (solve-linear-system gram targets)
-            ^doubles row (aget ^objects weights action)]
-        (dotimes [sample size]
-          (let [coefficient (aget alpha sample)
-                ^floats features (:features (examples sample))]
-            (aset-double biases action
-                         (+ (aget biases action) coefficient))
-            (dotimes [index feature-size]
-              (aset-double row index
-                           (+ (aget row index)
-                              (* coefficient
-                                 (/ (double (aget features index)) scale)))))))))
-    {:weights weights :biases biases})))
+   (let [examples (vec examples)
+         size (count examples)
+         gram
+         (object-array
+          (map
+           (fn [row]
+             (double-array
+              (map
+               (fn [column]
+                 (+ (feature-dot (:features (examples row))
+                                 (:features (examples column)))
+                    1.0
+                    (if (= row column) regularization 0.0)))
+               (range size))))
+           (range size)))
+         weights
+         (object-array
+          (repeatedly action-count #(double-array feature-size)))
+         biases (double-array action-count)
+         scale (Math/sqrt feature-size)]
+     (dotimes [action action-count]
+       (let [targets
+             (double-array
+              (map #(if (= action (:action %)) 1.0 -1.0) examples))
+             alpha (solve-linear-system gram targets)
+             ^doubles row (aget ^objects weights action)]
+         (dotimes [sample size]
+           (let [coefficient (aget alpha sample)
+                 ^floats features (:features (examples sample))]
+             (aset-double biases action
+                          (+ (aget biases action) coefficient))
+             (dotimes [index feature-size]
+               (aset-double row index
+                            (+ (aget row index)
+                               (* coefficient
+                                  (/ (double (aget features index)) scale)))))))))
+     {:weights weights :biases biases})))
 
 (defn train-ridge-generic
   "Train the same deterministic sample-space ridge head for any bounded action

@@ -719,7 +719,7 @@
 
       (a/defn add :i32
         [[a :i32] [b :i32]]
-        (+ a b))
+        (ak/+ a b))
 
   The Zig declaration is public to its module and remains directly callable
   from Clojure through Aguafria's generated development bridge. Add
@@ -741,7 +741,7 @@
 
       (a/defn- add-internal :i32
         [[a :i32] [b :i32]]
-        (+ a b))
+        (ak/+ a b))
 
   The Zig declaration is private to its module and the corresponding Clojure
   Var carries ordinary `:private` metadata. It remains callable from its own
@@ -1272,9 +1272,9 @@
   "Assign target/value pairs in order inside an Aguafria declaration.
 
       (a/set-many!
-        x (+ x 1)
-        y (* x 2)
-        (a/field state total) (+ x y))
+        x (ak/+ x 1)
+        y (ak/* x 2)
+        (a/field state total) (ak/+ x y))
 
   Expands to a `do` containing ordinary `set!` forms. Each assignment completes
   before the next target and value are evaluated, so later pairs observe earlier

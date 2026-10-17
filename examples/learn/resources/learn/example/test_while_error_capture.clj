@@ -1,26 +1,27 @@
 (ns learn.example.test-while-error-capture
-  (:require [aguafria.keyword :as k]
+  (:refer-clojure :only [])
+  (:require [aguafria.keyword :as k :refer :all]
             [aguafria.std.testing :as testing]
             [aguafria.zig :as a]))
 
-(a/defvar numbers-left :u32 k/undefined)
+(a/defvar numbers-left :u32 undefined)
 
 (a/defn- eventuallyErrorSequence [:error-union :anyerror :u32] []
-  (if (k/== numbers-left 0)
+  (if (== numbers-left 0)
     (a/error-value :ReachedZero)
     (let []
-      (k/-= numbers-left 1)
+      (-= numbers-left 1)
       numbers-left)))
 
 (a/deftest while-error-union-capture
   (let [sum1 (k/var 0 :u32)]
-    (k/= numbers-left 3)
+    (= numbers-left 3)
     (a/while-loop {:payload [value]
                    :error [err]
                    :else [(k/try (testing/expectEqual
                                   (a/error-value :ReachedZero) err))]}
                   (eventuallyErrorSequence)
-                  (k/+= sum1 value))))
+                  (+= sum1 value))))
 
 (comment
   (while-error-union-capture))
