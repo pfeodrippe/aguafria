@@ -6,7 +6,7 @@
 
 (a/deftest comptime-vars
   (let [x (k/var 1 :i32)
-        y (k/var 1 :i32 {:attrs #{comptime}})]
+        y (k/var 1 :i32 {:attrs #{:comptime}})]
     (+= x 1)
     (+= y 1)
     (k/try (testing/expectEqual 2 x))

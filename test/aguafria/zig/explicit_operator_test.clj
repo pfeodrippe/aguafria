@@ -92,6 +92,23 @@
              (emitter/emit-expr (emitter/qualify-form context bare))))))
   (is (= 11 (a/value (fixture/arithmetic 3 4)))))
 
+(deftest mutable-initializers-do-not-declare-their-operands
+  (doseq [initializer '[undefined k/undefined]]
+    (let [declaration (emitter/prepare-declaration
+                       context {:kind :fn :name 'initialize :return :i32 :args []
+                                :body [(list 'let ['x (list 'k/var initializer :i32)]
+                                             '(k/= x 1) 'x)]})]
+      (is (some #{'aguafria.keyword/undefined}
+                (tree-seq coll? seq (:body declaration))))
+      (is (not-any? #{'undefined} (tree-seq coll? seq (:body declaration))))))
+  ;; A real argument with that spelling still has lexical precedence.
+  (let [declaration (emitter/prepare-declaration
+                     context {:kind :fn :name 'copy-local :return :i32
+                              :args [{:name 'undefined :type :i32}]
+                              :body '[(let [x (k/var undefined :i32)] x)]})]
+    (is (not-any? #{'aguafria.keyword/undefined}
+                  (tree-seq coll? seq (:body declaration))))))
+
 (deftest referred-scopes-run-native-code
   (is (true? (a/value (fixture/boolean-or false true))))
   (is (false? (a/value (fixture/boolean-or false false))))

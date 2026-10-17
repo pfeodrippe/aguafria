@@ -10,6 +10,8 @@
             [aguafria.zig.debug :as debug]
             [aguafria.zig.explain :as explanation]
             [aguafria.zig.project :as project]
+            [aguafria.zig.resource-artifact :as resource-artifact]
+            [aguafria.zig.rejection :as rejection]
             [aguafria.zig.toolchain :as toolchain]
             [aguafria.zig.value :as zig-value]
             [clojure.edn :as edn]
@@ -3837,29 +3839,12 @@
 
 (defn- run-library-command
   [command directory test-context?]
-  (if-not test-context?
-    (run-command command directory)
-    (let [output (subs (nth command 3) (count "-femit-bin="))
-          bitcode (str output ".bc")
-          runner (io/file directory "jvm_resource_runner.zig")
-          _ (spit runner "pub fn main() void {}\n")
-          arguments (drop 4 command)
-          ;; The panic support is a link input, not a Zig module argument.
-          libraries (take-while #(not (str/starts-with? % "-")) arguments)
-          compile-command (vec (concat [(first command) "test" "--test-no-exec"
-                                        "--test-runner" (.getAbsolutePath runner)
-                                        "-fno-entry" "-fPIC" "-fllvm" "-fno-emit-bin"
-                                        (str "-femit-llvm-bc=" bitcode)]
-                                       (drop (count libraries) arguments)))
-          compiled (assoc (run-command compile-command directory) :command compile-command)]
-      (if-not (zero? (:exit compiled))
-        compiled
-        (let [link-command (vec (concat [(first command) "build-lib" bitcode "-dynamic"
-                                         "-lc" (str "-femit-bin=" output)]
-                                        libraries))]
-          (assoc (run-command link-command directory) :command link-command))))))
+  (resource-artifact/run-library-command run-command command directory test-context?))
 
 (def ^:dynamic ^:private *validate-without-linking?* false)
+;; Diagnostic reuse is narrower than positive-library reuse: only initial,
+;; synchronous ordinary loading, and never a plan with an alternate branch.
+(def ^:dynamic ^:private *ordinary-rejection-context?* false)
 
 (declare jvm-wrapper-requests)
 
@@ -4025,7 +4010,10 @@
         (when *native-test-context?*
           (slurp (io/resource "aguafria/jvm_test_context.zig")))
         hash-input [(artifact/generated-source-identity source) compiler-version
-                    (if test-context-source {:initialization-source test-context-source} false)
+                    (if test-context-source
+                      {:initialization-source test-context-source
+                       :resource-recipe-version resource-artifact/recipe-version}
+                      false)
                     debug-format
                     (assoc (artifact/compiler-options-identity
                             (update (select-keys compiler-options
@@ -4131,7 +4119,10 @@
                  (when (.isFile source-file) (slurp source-file)))
       (spit source-file compiler-source))
     (project/materialize-module-assets! asset-module compiler-source module-dir)
-    {:module-name module-name
+    (let [plan {:module-name module-name
+                :rejection-context? (and *ordinary-rejection-context?*
+                                         (not *validate-without-linking?*))
+                :rejection-source-files (->> declarations (keep #(get-in % [:source :file])) distinct vec)
      :source source
      :compiler-options compiler-options
      :compiler-version compiler-version
@@ -4144,12 +4135,38 @@
      :debug-format debug-format
      :command command
      :artifact artifact
-     :jvm-adapter? jvm-adapter?}))
+     :jvm-adapter? jvm-adapter?}]
+      (cond-> plan
+        (:rejection-context? plan) (assoc :rejection-inputs (rejection/freeze-inputs plan))))))
 
 (defn- build-compile-source-plan!
   [{:keys [module-name source compiler-options compiler-version panic-support
            source-hash module-dir source-file library-name library-file debug-format
-           command artifact jvm-adapter?]}]
+           command artifact jvm-adapter?] :as plan}]
+  ;; A verified negative is a diagnostic, never a library. Look up before even
+  ;; constructing compiler support; a miss retains the ordinary compiler policy.
+  (when-let [receipt (and (not *compile-only?*)
+                         (rejection/find-verified (:cache-dir compiler-options)
+                                                  (rejection/recipe plan)))]
+    (when-not (bundle/find-artifact (:cache-dir compiler-options) artifact)
+      (let [result (:compiler-result receipt)
+            {:keys [message diagnostics report location]}
+            (pretty-zig-error module-name source (.getAbsolutePath source-file)
+                              (:command result) (:err result))]
+        (explanation/event! {:event :prepared-rejection-hit :module module-name
+                             :artifact-key source-hash :recipe-id (:recipe-id receipt)
+                             :rejection-id (:id receipt)})
+        (throw (compilation-exception
+                message
+                {:aguafria/phase :zig-compile :aguafria/report report
+                 :aguafria/prepared-rejection? true
+                 :recipe-id (:recipe-id receipt) :rejection-id (:id receipt)
+                 :module module-name :source-path (.getAbsolutePath source-file)
+                 :library-path (.getAbsolutePath library-file)
+                 :command (:command result) :producer-command (:command result)
+                 :exit (:exit result) :stdout (:out result) :stderr (:err result)
+                 :diagnostics diagnostics}
+                location nil)))))
   (let [cache-dir (:cache-dir compiler-options)
         panic-support (build-development-panic-support! panic-support)]
     (let [artifact-lock (get (swap! artifact-locks
@@ -4189,11 +4206,17 @@
 
                 batch-validation? nil
 
+                ;; A published artifact already passed this exact source and
+                ;; compiler contract. Validation-only extern loading must not
+                ;; ignore a bundle hit and invoke the compiler again.
+                bundled nil
+
                 (or *validate-without-linking?*
                     (and deferred? (not link-validation?)))
                 (let [validation-command (assoc command 3 "-fno-emit-bin")]
-                  (assoc (run-command validation-command (.getAbsolutePath module-dir))
-                         :command validation-command))
+                  (merge {:command validation-command}
+                         (run-library-command validation-command (.getAbsolutePath module-dir)
+                                              (:native-test-context? artifact))))
 
                 (not cached?)
                 (let [temporary-file
@@ -4225,8 +4248,8 @@
                          prepared? :preparation-cache-hit
                          batch-validation? :validation-queued
                          link-validation? :link-validated
-                         (or *validate-without-linking?* deferred?) :validated
                          bundled :bundle-cache-hit
+                         (or *validate-without-linking?* deferred?) :validated
                          cached? :disk-cache-hit
                          :else :compiled)
             :module module-name
@@ -8824,7 +8847,9 @@
 
 (defn- compile-plan!
   [module {:keys [primary fallback prefer-fallback?]}]
-  (if prefer-fallback?
+  (binding [*ordinary-rejection-context?*
+            (and *ordinary-rejection-context?* (nil? fallback) (not prefer-fallback?))]
+   (if prefer-fallback?
     (assoc-in (compile-slice! module fallback) [:compiled :partial-publication?] true)
     (try
       (compile-slice! module primary)
@@ -8841,7 +8866,7 @@
                         (assoc (error-data fallback-error)
                                :aguafria/full-module-error (ex-message full-error)
                                :aguafria/partial-publication-attempted? true)
-                        fallback-error)))))))))
+                        fallback-error))))))))))
 
 (defn- refresh-plan-dependency-snapshots
   [plan]
@@ -11110,6 +11135,27 @@
              (not (str/starts-with? module "aguafria.jvm.")))
     (swap! *prepared-namespace-images* assoc-in [module :configuration] @config)))
 
+(defn- definition-validation-plan [module declaration plan]
+  ;; A public alias does not analyze an unused concrete function. The initial
+  ;; no-link load and its compile-only preparation must root the same body.
+  (if (and (= :fn (:kind declaration))
+           (not (str/includes? (or (:zig-prefix declaration) "") "inline")))
+    (let [reference (str (when (:reloadable? @config)
+                           (str (emit/named-module-container module) "."))
+                         (emit/identifier (or (:zig-name declaration) (:name declaration))))
+          root (str "\nexport fn __aguafria_validate_definition() usize {\n"
+                    "    const function = " reference ";\n"
+                    "    if (comptime @typeInfo(@TypeOf(function)).@\"fn\".is_generic) return 0;\n"
+                    "    return @intFromPtr(&function);\n}\n")]
+      (reduce (fn [plan branch]
+                (if (get-in plan [branch :compile-source])
+                  (-> plan
+                      (update-in [branch :compile-source] str root)
+                      (update-in [branch :development-root-source] str root))
+                  plan))
+              plan [:primary :fallback]))
+    plan))
+
 (defn- register-unlinked-declaration!
   "Check native semantics now, but resolve extern symbols only on invocation.
   This is a compiler validation pass, not a linked library or a fallback after
@@ -11121,30 +11167,9 @@
     (locking compile-lock
       (let [current (get @registry module)
             old-declaration (get-in current [:definitions declaration-key])
-            plan (compilation-plan module current declarations old-declaration declaration)
-            ;; A public alias does not make Zig analyze an unused function body.
-            ;; Root the newly defined concrete function only in this no-link
-            ;; validation pass. Generic/inline bodies still need a call context.
-            validation-root
-            (when (and (= :fn (:kind declaration))
-                       (not (str/includes? (or (:zig-prefix declaration) "") "inline")))
-              (let [reference (str (when (:reloadable? @config)
-                                     (str (emit/named-module-container module) "."))
-                                   (emit/identifier (or (:zig-name declaration)
-                                                        (:name declaration))))]
-                (str "\nexport fn __aguafria_validate_definition() usize {\n"
-                     "    const function = " reference ";\n"
-                     "    if (comptime @typeInfo(@TypeOf(function)).@\"fn\".is_generic) return 0;\n"
-                     "    return @intFromPtr(&function);\n}\n")))
-            plan (if validation-root
-                   (reduce (fn [plan branch]
-                             (if (get-in plan [branch :compile-source])
-                               (-> plan
-                                   (update-in [branch :compile-source] str validation-root)
-                                   (update-in [branch :development-root-source] str validation-root))
-                               plan))
-                           plan [:primary :fallback])
-                   plan)]
+            plan (definition-validation-plan
+                  module declaration
+                  (compilation-plan module current declarations old-declaration declaration))]
         (binding [*validate-without-linking?* true]
           (compile-plan! module (refresh-plan-dependency-snapshots plan)))
         (register-source-only-declaration! module declaration-key declaration)))))
@@ -11280,7 +11305,9 @@
               (register-converted-async! declaration))
 
             :else
-            (register-sync! declaration)))))))
+            (binding [*ordinary-rejection-context?*
+                      (and file-load-registration? (nil? (:published-generation current)))]
+              (register-sync! declaration))))))))
 
 (defn register-batch!
   "Register a complete declaration batch without intermediate compilations.
@@ -11953,14 +11980,15 @@
   "Await a frozen native test build before publishing its preparation report."
   [check error-report]
   (if-let [job (:native-test-job check)]
-    (try
-      (.get ^java.util.concurrent.Future job)
-      (catch java.util.concurrent.ExecutionException error
-        (let [cause (ex-cause error)]
-          (when-not (instance? Exception cause) (throw cause))
-          (if (:native-test-definition? check)
-            (test-definition-failure (:test check) cause)
-            (assoc (error-report cause) :test (:test check) :status :failed)))))
+    (merge (select-keys check [:namespace :native-test-definition?])
+           (try
+             (.get ^java.util.concurrent.Future job)
+             (catch java.util.concurrent.ExecutionException error
+               (let [cause (ex-cause error)]
+                 (when-not (instance? Exception cause) (throw cause))
+                 (if (:native-test-definition? check)
+                   (test-definition-failure (:test check) cause)
+                   (assoc (error-report cause) :test (:test check) :status :failed))))))
     check))
 
 (defn check-test-definition!
@@ -11971,7 +11999,21 @@
   (project/ensure-source-catalog! (get-in declaration [:source :file]))
   (let [lazy-import? (and (project/converted-module? (:module declaration))
                           (loading-clojure-file?))]
-    (when-not (or *source-only-registration?* *registration-batch* lazy-import?)
+    (cond
+      ;; Freeze the candidate against the declarations available at this exact
+      ;; load position. The existing submitter builds that immutable plan in
+      ;; parallel; no test body is invoked and later declarations cannot leak in.
+      (and *compile-only?* *prepared-namespace-images*
+           (not *registration-batch*) (not lazy-import?))
+      (let [module (:module declaration)
+            test (symbol module (str (:name declaration)))
+            check (binding [bundle/*preparation-owner* (symbol module)]
+                    (try (prepare-native-test! test declaration)
+                         (catch Exception error (test-definition-failure test error))))]
+        (swap! *prepared-namespace-images* update-in [module :test-checks]
+               (fnil conj []) (assoc check :namespace (symbol module) :native-test-definition? true)))
+
+      (not (or *source-only-registration?* *registration-batch* lazy-import?))
       (native-test-library! (:module declaration) (:name declaration) declaration)))
   nil)
 
@@ -13227,20 +13269,61 @@
    :artifact (select-keys (:compiled compilation) [:hash :library-path])})
 
 (defn- prepare-namespace-image! [module plan]
-  (binding [*namespace-image-preparation?* true]
-    (if (and *precompile-build-submitter* (nil? (:fallback plan))
-             (not (:prefer-fallback? plan)))
+  (binding [*namespace-image-preparation?* true
+            *ordinary-rejection-context?* (and (not (:async? @config))
+                                               (nil? (:fallback plan))
+                                               (not (:prefer-fallback? plan)))]
+    (if (and (nil? (:fallback plan)) (not (:prefer-fallback? plan)))
       (let [frozen (freeze-compilation-slice! module (:primary plan))
+            _ (when (and *prepared-namespace-images*
+                         (get-in frozen [:source-plan :rejection-inputs]))
+                (swap! *prepared-namespace-images* assoc-in
+                       [module :ordinary-rejection-plan] (:source-plan frozen)))
             build #(bundle/call-with-validation-scope
                     (fn [] (prepared-namespace-image
                             module (build-frozen-compilation-slice! frozen))))]
-        (if (immutable-compiler-inputs? (get-in frozen [:source-plan :compiler-options]))
+        (if (and *precompile-build-submitter*
+                 (immutable-compiler-inputs? (get-in frozen [:source-plan :compiler-options])))
           {:namespace (symbol module) :status :pending
            :dependencies (vec (sort (keys (get-in frozen [:slice :dependency-snapshot]))))
            :namespace-image-job (*precompile-build-submitter* build)}
           (build)))
       (bundle/call-with-validation-scope
        #(prepared-namespace-image module (compile-plan! module plan))))))
+
+(defn verify-prepared-rejections!
+  "Verify rejected owners' exact frozen ordinary load graphs, without executing
+  bodies or loading an image. Inspection failures select candidates, not proofs."
+  [owners]
+  (when-not *compile-only?*
+    (throw (ex-info "Rejection verification requires compile-only preparation" {})))
+  (mapv
+   (fn [owner]
+     (if-let [{:keys [module-name source source-file module-dir library-name
+                     compiler-options command] :as plan}
+              (get-in @*prepared-namespace-images* [(str owner) :ordinary-rejection-plan])]
+       (if-let [recipe (rejection/recipe plan)]
+         (let [temporary (io/file module-dir (str "." (java.util.UUID/randomUUID) "-" library-name))
+               command (assoc command 3 (str "-femit-bin=" (.getAbsolutePath temporary)))]
+           (try
+             (let [result (binding [compiler-work/*phase* :rejection-verification
+                                    compiler-work/*owner* owner]
+                            (run-command command (.getAbsolutePath module-dir)))
+                   diagnostics (:diagnostics (pretty-zig-error
+                                              module-name source (.getAbsolutePath source-file)
+                                              command (:err result)))
+                   receipt (when (= recipe (rejection/recipe plan))
+                             (rejection/publish! (:cache-dir compiler-options)
+                                                 recipe result diagnostics))]
+               (cond-> {:namespace owner :status (if receipt :verified :not-verified)
+                        :compiler-result result :diagnostics diagnostics}
+                 receipt (assoc :recipe-id (:recipe-id receipt) :rejection-id (:id receipt))))
+             (catch Exception error
+               {:namespace owner :status :not-verified :error (ex-message error)})
+             (finally (Files/deleteIfExists (.toPath temporary)))))
+         {:namespace owner :status :unsupported :reason :changed-or-missing-inputs})
+       {:namespace owner :status :unsupported :reason :no-eligible-ordinary-load-plan}))
+   (sort-by str owners)))
 
 (defn precompile-namespace-load!
   "Prepare the initial namespace image used by ordinary Clojure file loading.
@@ -13255,8 +13338,7 @@
         reason (cond
                  (empty? declarations) :no-native-declarations
                  (str/starts-with? module "aguafria.jvm.") :generated-adapter
-                 (project/converted-module? module) :loaded-on-demand
-                 (some #(= :fn-proto (:kind %)) declarations) :extern-link-on-demand)]
+                 (project/converted-module? module) :loaded-on-demand)]
     (if reason
       {:namespace (symbol module) :status :skipped :reason reason}
       (do
@@ -13276,6 +13358,24 @@
                                                  nil declaration)]
                       (retain-prepared-source-identities! module state plan)
                       (refresh-plan-dependency-snapshots plan)))))]
+          ;; Ordinary first loading of an extern-containing namespace validates
+          ;; the final definition using an extra root. Prepare that exact recipe
+          ;; as well as the ordinary image. This links only during production;
+          ;; consumers may reuse the stronger prepared proof without linking.
+          (when (and (= :fn (:kind (last declarations)))
+                     (some #(= :fn-proto (:kind %)) declarations))
+            (binding [*namespace-image-preparation?* true
+                      *jvm-wrapper-request-snapshot* {module {}}
+                      *file-load-registration?* false
+                      *pending-declaration-keys* #{}]
+              (let [declaration (last declarations)
+                    initial-state {:definitions (dissoc (:definitions state)
+                                                        (:declaration-key declaration))}
+                    validation-plan (definition-validation-plan
+                                     module declaration
+                                     (compilation-plan module initial-state declarations nil declaration))]
+                (bundle/call-with-validation-scope
+                 #(compile-plan! module validation-plan)))))
           (prepare-namespace-image! module plan))))))
 
 (defn- precompile-declaration-generation! [declaration request-key]
@@ -14398,12 +14498,13 @@
                    command (assoc (:command artifact) 3
                                   (if full-build? (str "-femit-bin=" output) "-fno-emit-bin"))]
                (try
-                 (let [result (run-command command (str directory))]
+                 (let [result (run-library-command command (str directory)
+                                                   (:native-test-context? artifact))]
                    (when-not (#{0 1} (:exit result))
                      (throw (ex-info "Native validation compiler did not complete normally"
                                      (assoc result :command command
                                             :aguafria/phase :handler-validation))))
-                   (assoc result :command command :module (:module artifact)
+                   (assoc result :command (or (:command result) command) :module (:module artifact)
                           :source-path (:source-path artifact)
                           :status (if (zero? (:exit result)) :validated :failed)))
                  (finally (Files/deleteIfExists (.toPath output))))))))))

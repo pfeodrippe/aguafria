@@ -193,6 +193,48 @@
     (constructible-primitive? (:name entry))
     (assoc :constructor? true :param-count 1)))
 
+(defn- scoped-evaluation-policy
+  "JVM calling convention for native syntax. The catalog supplies token
+  identity; this policy says which operands must reach Zig unevaluated. It
+  never implements the operator or aliases it to a clojure.core macro."
+  [token]
+  (case (or (:zig-name token) (:zig-token token))
+    "@TypeOf"
+    {:result :value
+     :doc "Determine native expression types without executing the operands. JVM calls preserve lexical syntax for Zig analysis."}
+    "comptime"
+    {:result :value :arity 1
+     :arity-message "k/comptime expects one native expression or block"
+     :metadata {:arglists '([expression])}}
+    "return"
+    {:result :value :arities #{0 1}
+     :arity-message "k/return expects zero or one native expression"
+     :metadata {:arglists '([] [expression])}
+     :doc "Complete only this detached native bridge invocation with its payload (or native void). Does not return from a Clojure caller or run/skip a native test. Error-set payloads remain values. Nested external exits and opaque payload source are unsupported."}
+    ("and" "or")
+    {:result :value
+     :doc "Native short-circuit boolean expression. Captures syntax and lexical values; Zig evaluates only the required operands. Uses native boolean typing, not Clojure truthiness."}
+    ("for" "while" "switch")
+    {:result :control
+     :metadata (when (= "switch" (:zig-token token)) {:style/indent 1})
+     :doc "Native scoped control form. Captures lexical values and preserves mutable native storage. Zig executes the selected branches and supplies the result."}
+    nil))
+
+(declare scoped-token-expansion validate-call!)
+
+(defn- scoped-token-root
+  [token {:keys [result arity arities arity-message]}]
+  (fn [form environment & arguments]
+    (validate-call! token arguments form)
+    (when (or (and arity (not= arity (count arguments)))
+              (and arities (not (contains? arities (count arguments)))))
+      (throw (ex-info arity-message {:form form :arguments arguments})))
+    (scoped-token-expansion
+     form environment
+     (case result
+       :value true
+       :control ((requiring-resolve 'aguafria.zig.emitter/scoped-result?) *ns* form)))))
+
 (defn- token-root
   [token]
   (cond
@@ -252,7 +294,17 @@
     ;; `min`, and `abs`, which Clojure happens to refer from clojure.core.
     (when (contains? (ns-map *ns*) sym)
       (ns-unmap *ns* sym))
-    (let [root (token-root token)
+    (let [policy (scoped-evaluation-policy token)
+          ;; Intern the correct native macro root directly. There is no
+          ;; placeholder-to-macro patch after token generation.
+          root (if policy (scoped-token-root token policy) (token-root token))
+          metadata (if policy
+                     (merge metadata (:metadata policy)
+                            {:macro true :aguafria/scoped? true
+                             :aguafria/evaluation :native-syntax
+                             :doc (str (when (:doc policy) (str (:doc policy) "\n\n"))
+                                       (:doc metadata))})
+                     metadata)
           root (if (instance? clojure.lang.IObj root)
                  (with-meta root (assoc (meta root) :aguafria/token token))
                  root)
@@ -401,18 +453,7 @@
       :zig/param-count (:param-count builtin)
       :zig/signature (:signature builtin)
       :zig/source (get-in generated-catalog [:sources :builtin-table :path])
-      :zig/version (:zig-version generated-catalog)})
-    (when (= "@TypeOf" (:zig-name builtin))
-      ;; A function would let Clojure execute the operands before Zig sees
-      ;; @TypeOf. Preserve the lexical syntax and use the native scoped bridge.
-      (let [v (ns-resolve *ns* (symbol (:name token)))]
-        (alter-var-root v (constantly (fn [form environment & arguments]
-                                        (validate-call! token arguments form)
-                                        (scoped-token-expansion form environment true))))
-        (alter-meta! v assoc :macro true :aguafria/scoped? true
-                     :doc (str "Determine native expression types without executing the operands. "
-                               "JVM calls preserve the lexical form and ask Zig to analyze it.\n\n"
-                               (compiler-doc builtin)))))))
+      :zig/version (:zig-version generated-catalog)})))
 
 (let [builtin-names (set (map :name (:builtins generated-catalog)))]
   (doseq [entry (:keywords generated-catalog)]
@@ -430,33 +471,12 @@
                   "Zig `" (:zig-token token) "` keyword, mechanically discovered "
                   "from Zig " (:zig-version generated-catalog) " `"
                   (get-in generated-catalog [:sources :tokenizer :path]) "`. "
-                  (when-not (#{"var" "comptime" "try"} (:zig-token token))
+                  (when-not (or (#{"var" "comptime" "try"} (:zig-token token))
+                                (scoped-evaluation-policy token))
                     "This Var is syntax and is only valid inside an Aguafria declaration."))
         :zig/name (:zig-token token)
         :zig/source (get-in generated-catalog [:sources :tokenizer :path])
-        :zig/version (:zig-version generated-catalog)})
-      (when (= "comptime" (:zig-token token))
-        (let [v (ns-resolve *ns* (symbol (:name token)))]
-          (alter-var-root v
-                          (constantly
-                           (fn [form environment & expressions]
-                             (when-not (= 1 (count expressions))
-                               (throw (ex-info "k/comptime expects one native expression or block"
-                                               {:form form :arguments expressions})))
-                             (scoped-token-expansion form environment true))))
-          (alter-meta! v assoc :macro true :aguafria/scoped? true
-                       :arglists '([expression]))))
-      (when (contains? #{"for" "while" "switch"} (:zig-token token))
-        (let [v (ns-resolve *ns* (symbol (:name token)))]
-          (alter-var-root v (constantly (fn [form environment & _]
-                                          (scoped-token-expansion form environment
-                                                                  ((requiring-resolve
-                                                                    'aguafria.zig.emitter/scoped-result?)
-                                                                   *ns* form)))))
-          (when (= "switch" (:zig-token token))
-            (alter-meta! v assoc :style/indent 1))
-          (alter-meta! v assoc :macro true :aguafria/scoped? true
-                       :doc "Native scoped control form. Runs native Zig in the same process, captures lexical values and preserves mutable native storage. Only the selected switch branch executes; switch returns its native result."))))))
+        :zig/version (:zig-version generated-catalog)}))))
 
 (doseq [entry (:reader-tokens generated-catalog)]
   (let [token (reader-token entry)]

@@ -1,6 +1,7 @@
 (ns aguafria.zig.check-worker
   "Internal fresh-process worker for aguafria.zig.check. No live REPL changes."
   (:require [aguafria.zig.compiler-work :as work]
+            [aguafria.zig.explain :as explain]
             [clojure.edn :as edn]
             [clojure.java.io :as io]))
 
@@ -15,21 +16,36 @@
     (list? x) (apply list (map receipt-data x))
     :else {:opaque-class (.getName (class x))}))
 
+(defn- exception-observation [failure stage]
+  {:stage stage :type (:type (last (:via failure)))
+   :message (:cause failure) :data (:data failure)})
+
+(defn- policy-failure? [failure]
+  (some #(= :check-compiler-forbidden (get-in % [:data :aguafria/phase])) (:via failure)))
+
 (defn- matches? [expected observation]
   (every? (fn [[key v]]
-            (= (if (= :value key) (pr-str v) v) (get observation key))) expected))
+            (if (= :exception key)
+              (let [actual (:exception observation)]
+                (and (= (:stage v) (:stage actual))
+                     (= (:type v) (:type actual))
+                     (string? (:message actual))
+                     (re-find (re-pattern (:message-pattern v)) (:message actual))
+                     (every? (fn [[k value]]
+                               (and (contains? (:data actual) k)
+                                    (= value (get-in actual [:data k])))) (:data v))))
+              (= (if (= :value key) (pr-str v) v) (get observation key)))) expected))
 
 (defn- prepare! [job]
   (require 'aguafria.zig)
-  (let [source-only (requiring-resolve 'aguafria.zig.runtime/*source-only-registration?*)
-        compile-only (requiring-resolve 'aguafria.zig.runtime/*compile-only?*)]
-    (with-bindings {source-only true compile-only true}
-      (doseq [n (:namespaces job)] (require n))))
-  (let [tests (into [] (keep (fn [{:keys [call]}]
-                               (when (= :test (get-in (meta (find-var call)) [:aguafria/declaration :kind])) call)))
-                    (:scenarios job))
-        report ((requiring-resolve 'aguafria.zig/precompile!)
-                (merge {:analyze (:namespaces job) :tests tests
+  (when-let [configuration (:compiler-configuration job)]
+    ((requiring-resolve 'aguafria.zig/configure!) configuration))
+  ;; The producer must own first loading: a bootstrap require here would hide
+  ;; intermediate test-definition snapshots from compile-only collection.
+  ;; Resolve candidate entry kinds only after loading inside precompile!.
+  (let [report ((requiring-resolve 'aguafria.zig/precompile!)
+                (merge {:analyze (:namespaces job)
+                        :test-candidates (mapv :call (:scenarios job))
                         :report-file (str (io/file (:cache-dir job) "preparation.edn"))}
                        (:precompile-options job)))]
     {:status :prepared :accepted? true :preparation-report report}))
@@ -47,17 +63,20 @@
 
 (defn- consume! [job stage attempts events]
   (require 'aguafria.zig 'aguafria.zig.explain)
+  (when-let [configuration (:compiler-configuration job)]
+    ((requiring-resolve 'aguafria.zig/configure!) configuration))
   (let [{:keys [call args expect]} (:scenario job)
         _ (require (symbol (namespace call)))
+        _ (doseq [path (get-in job [:scenario :load-files])]
+            (binding [*ns* *ns*]
+              (with-open [reader (io/reader path)]
+                (clojure.lang.Compiler/load reader path (.getName (io/file path))))))
         v (or (find-var call) (throw (ex-info "Unknown scenario callable" {:call call})))
         _ (when-not (ifn? @v) (throw (ex-info "Scenario Var is not callable" {:call call})))
         output (java.io.StringWriter.) errors (java.io.StringWriter.)
-        journal-file (io/file (.getParentFile (io/file (:result-file job))) "native-events.ednlog")
-        journal! (fn [event]
-                   (locking events
-                     (spit journal-file (str (pr-str {:stage @stage :event (:event event)}) "\n") :append true)))
-        cache-reporter #(when (#{:compiled :compile-failed :disk-cache-hit} (:event %))
-                          (swap! events conj %) (journal! %))
+        ;; The process-wide event hook installed by -main also observes events
+        ;; inside explain!, which intentionally replaces its dynamic reporter.
+        cache-reporter (fn [_] nil)
         _ (doseq [[v root] {(requiring-resolve 'aguafria.zig.explain/*reporter*) cache-reporter
                             #'*out* output #'*err* errors}]
             ;; Only this dedicated worker is affected, including newly created
@@ -84,15 +103,21 @@
               {:status :failed
                :exception (Throwable->map e)
                :error-name (:error-name (ex-data e))})))
-        observation (assoc (select-keys result [:value :status :error-name])
-                           :stdout (str output) :stderr (str errors))
-        forbidden (vec (filter #(#{:compiled :compile-failed :disk-cache-hit} (:event %)) @events))
+        observation (cond-> (assoc (select-keys result [:value :status :error-name])
+                                    :stdout (str output) :stderr (str errors))
+                      (:exception result)
+                      (assoc :exception (exception-observation (:exception result) @stage)))
+        forbidden (vec (filter #(and (or (:strict-load? job) (= :evaluate (:stage %)))
+                                     (#{:compiled :compile-failed :disk-cache-hit} (:event %))) @events))
         evaluation-attempts (vec (filter #(= :evaluate (:stage %)) @attempts))
-        accepted? (and (not= :failed (:status result))
+        forbidden-attempts (if (:strict-load? job) @attempts evaluation-attempts)
+        accepted? (and (or (not= :failed (:status result)) (:exception expect))
+                       (not (policy-failure? (:exception result)))
                        (matches? expect observation)
                        (or (= :on-demand (:compilation job))
-                           (and (empty? forbidden) (empty? evaluation-attempts))))]
+                           (and (empty? forbidden) (empty? forbidden-attempts))))]
     {:status (cond (not accepted?) :failed
+                   (:exception result) :expected-exception
                    (= :returned-error (:status result)) :expected-error
                    (= :skipped (:status result)) :skipped
                    :else :passed)
@@ -109,9 +134,28 @@
                  (let [event {:stage @stage :command command}]
                    (swap! attempts conj event)
                    (locking attempts (spit audit-file (str (pr-str event) "\n") :append true)))
-                 (when (and (= :prepared (:compilation job)) (= :evaluate @stage))
+                 (when (and (= :prepared (:compilation job))
+                            (or (:strict-load? job) (= :evaluate @stage)))
                    (throw (ex-info "Strict prepared consumer attempted compilation"
                                    {:aguafria/phase :check-compiler-forbidden :command command}))))
+        original-event! explain/event!
+        _ (when (= :consume (:phase job))
+            (alter-var-root
+             #'explain/event!
+             (constantly
+              (fn [event]
+                (let [entry (assoc (select-keys event [:event :module :function :path :bundle-id :duration-ms
+                                                     :artifact-key :recipe-id :rejection-id])
+                                   :stage @stage)]
+                  (swap! events conj entry)
+                  (locking events
+                    (spit (io/file (.getParentFile (io/file request)) "all-native-events.ednlog")
+                          (str (pr-str entry) "\n") :append true)
+                    (when (#{:compiled :compile-failed :disk-cache-hit} (:event event))
+                      (spit (io/file (.getParentFile (io/file request)) "native-events.ednlog")
+                            (str (pr-str (select-keys entry [:stage :event])) "\n") :append true))))
+                (original-event! event))))
+            (alter-var-root #'explain/*reporter* (constantly (fn [_] nil))))
         _ (alter-var-root #'work/*collector* (constantly collector))
         _ (alter-var-root #'work/*compiler-command-policy* (constantly policy))
         result
@@ -121,7 +165,19 @@
               :prepare (do (reset! stage :prepare) (prepare! job))
               :consume (consume! job stage attempts events))
             (catch Throwable e
-              {:status :failed :accepted? false :failure (Throwable->map e)})))
+              (let [failure (Throwable->map e)
+                    observation {:status :failed
+                                 :exception (exception-observation failure @stage)}
+                    expected (get-in job [:scenario :expect])
+                    accepted? (and (= :consume (:phase job)) (:exception expected)
+                                   (not (policy-failure? failure))
+                                   (matches? expected observation)
+                                   (or (= :on-demand (:compilation job))
+                                       (and (empty? @attempts)
+                                            (not-any? #(#{:compiled :compile-failed :disk-cache-hit} (:event %)) @events))))]
+                {:status (if accepted? :expected-exception :failed)
+                 :accepted? (boolean accepted?) :observation observation
+                 :failure-stage @stage :failure failure}))))
         result (assoc result :compiler-attempts @attempts :compiler-work (work/report collector))]
     (spit (:result-file job) (pr-str (receipt-data result)))
     (shutdown-agents)))

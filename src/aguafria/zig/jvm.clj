@@ -223,7 +223,7 @@
    materialize))
 
 (defn- native-expression-result
-  [namespace expression parameters arguments {:keys [address size alignment path scalar-type native-type tuple-length comptime-expression enum-schema]}]
+  [namespace expression parameters arguments {:keys [address size alignment path scalar-type native-type tuple-length comptime-expression enum-schema] :as native}]
   (let [module (str (ns-name namespace))
         enum-schema (when enum-schema
                       (update enum-schema :members
@@ -253,19 +253,21 @@
         result (expression-value
                 {:module module :kind :return :type type}
                 (fn []
-                  {:representation :native
-                   :segment (.reinterpret (MemorySegment/ofAddress address) size)
-                   :size size :alignment alignment :owners arguments
-                   :tuple-length tuple-length
-                   :comptime-expression comptime-expression
-                   :schema (or enum-schema (when (and scalar-type
-                                                      (or (#{:usize :isize :f32 :f64} scalar-type)
-                                                          (re-matches #"[iu][0-9]+" (name scalar-type))))
-                                             {:kind :scalar :type scalar-type}))
-                   :close! #(try
-                              (binding [runtime/*native-test-context?* test-context?]
-                                (runtime/invoke! release [address size alignment]))
-                              (finally (release-generation!)))}))]
+                  (cond-> {:representation :native
+                           :segment (.reinterpret (MemorySegment/ofAddress address) size)
+                           :size size :alignment alignment :owners arguments
+                           :tuple-length tuple-length
+                           :comptime-expression comptime-expression
+                           :schema (or enum-schema (when (and scalar-type
+                                                              (or (#{:usize :isize :f32 :f64} scalar-type)
+                                                                  (re-matches #"[iu][0-9]+" (name scalar-type))))
+                                                     {:kind :scalar :type scalar-type}))
+                           :close! #(try
+                                      (binding [runtime/*native-test-context?* test-context?]
+                                        (runtime/invoke! release [address size alignment]))
+                                      (finally (release-generation!)))}
+                    (contains? native :comptime-value)
+                    (assoc :comptime-value (:comptime-value native)))))]
     ;; The allocation already exists, so register its cleanup immediately.
     (value/value result)
     result))
@@ -898,6 +900,62 @@
           (inspection-view result))
         (finally (java.lang.ref.Reference/reachabilityFence native-value))))))
 
+(defn test-resource-reference?
+  "Recognize the native resource service by resolved reference provenance, not
+  a declaration's :test kind or the spelling of an unresolved local."
+  [reference]
+  (boolean (and (#{:global-const :global-variable} (:category reference))
+                (qualified-symbol? (:symbol reference))
+                (= "aguafria.std.testing" (namespace (:symbol reference))))))
+
+(defn resource-references
+  "Find actual resource references without reading a native value. Follow
+  retained lexical initializer provenance, never a shadowed Var with the same
+  name. This is context selection, not native type inference."
+  [context forms]
+  (letfn [(visit [form seen]
+            (let [metadata (meta form)
+                  initializer (or (:aguafria/jvm-initializer metadata)
+                                  (get-in metadata [:aguafria/jvm-binding-source :initializer]))
+                  local? (or (:aguafria/local? metadata)
+                             (contains? emitter/*lexical-bindings* form))
+                  reference (when-not local?
+                              (or (:aguafria/zig-reference metadata)
+                                  (when (symbol? form)
+                                    (some-> (ns-resolve context form) meta :aguafria/zig-reference))))]
+              (concat
+               (when (test-resource-reference? reference) [reference])
+               (when (and initializer (not (contains? seen form)))
+                 (visit initializer (conj seen form)))
+               (when (coll? form) (mapcat #(visit % seen) form)))))]
+    (vec (distinct (visit forms #{})))))
+
+(defn- test-resource-descriptor! [reference]
+  (let [namespace-name (symbol (str "aguafria.jvm.test-resource-" (token reference)))
+        context (or (find-ns namespace-name) (create-ns namespace-name))
+        expression (with-meta (:symbol reference) {:aguafria/zig-reference reference})
+        descriptor (emitter/prepare-declaration
+                    context {:kind :const :name 'resource
+                             :module (str namespace-name)
+                             :declaration-key [:const 'resource]
+                             :type (list 'aguafria.keyword/TypeOf expression)
+                             :value expression})]
+    (binding [runtime/*source-only-registration?* true]
+      (runtime/register-declaration! descriptor))
+    descriptor))
+
+(defn precompile-test-resource!
+  "Prepare the exact lazy resource getter, cleanup, layout and inspection.
+  Does not construct/realize a handle, load an image, or initialize an allocator."
+  [reference]
+  (when-not (test-resource-reference? reference)
+    (throw (ex-info "Expected native test-resource provenance" {:reference reference})))
+  (binding [runtime/*native-test-context?* true]
+    (let [descriptor (test-resource-descriptor! reference)]
+      (precompile-constant-reader! descriptor)
+      (precompile-reflected-layout! (:module descriptor) (:type descriptor))
+      {:resource (:symbol reference) :status :prepared :execution-context :test})))
+
 (defn test-resource!
   "Materialize a stable test-owned native resource. Its library and allocator
   state remain pinned while JVM values refer to it, across separate calls."
@@ -905,17 +963,7 @@
   (or (get @test-resources reference)
       (locking test-resources
         (or (get @test-resources reference)
-            (let [namespace-name (symbol (str "aguafria.jvm.test-resource-" (token reference)))
-                  context (or (find-ns namespace-name) (create-ns namespace-name))
-                  expression (with-meta (:symbol reference) {:aguafria/zig-reference reference})
-                  descriptor (emitter/prepare-declaration
-                              context {:kind :const :name 'resource
-                                       :module (str namespace-name)
-                                       :declaration-key [:const 'resource]
-                                       :type (list 'aguafria.keyword/TypeOf expression)
-                                       :value expression})
-                  _ (binding [runtime/*source-only-registration?* true]
-                      (runtime/register-declaration! descriptor))
+            (let [descriptor (test-resource-descriptor! reference)
                   resource (value/native-value
                             (assoc descriptor :execution-context :test)
                             #(binding [runtime/*native-test-context?* true]
@@ -941,7 +989,12 @@
       ;; Dimensions and pointer options can be computed by native operations.
       ;; Preserve their Zig expression when available; otherwise embed the
       ;; compiler-produced scalar (for example @alignOf's usize result).
-      (let [resolved (or (comptime-expression type) (value/value type))]
+      (let [state (value/realize! type)
+            ;; Canonical dimensions use the compiler-proven value. Calls still
+            ;; retain its typed expression (e.g. usize rather than comptime_int).
+            resolved (if (contains? state :comptime-value)
+                       (:comptime-value state)
+                       (or (comptime-expression type) (value/value type)))]
         (if (value/zig-type? resolved)
           (constructor-type resolved)
           resolved))
@@ -1995,8 +2048,7 @@
                   (#{:type 'type} expected) (type-expression argument)
                   (:aguafria/zig-reference (meta argument))
                   (let [reference (:aguafria/zig-reference (meta argument))]
-                    (if (and (#{:global-const :global-variable} (:category reference))
-                             (= "aguafria.std.testing" (namespace (:symbol reference))))
+                    (if (test-resource-reference? reference)
                       (lift (test-resource! reference) expected literal?)
                       (with-meta (:symbol reference) {:aguafria/zig-reference reference})))
                   (value/zig-error? argument)
@@ -2298,9 +2350,21 @@
                                                       [:* type]))
                                           :else argument)]))
                            (map vector entries expression-arguments))
+        ;; Validate authored syntax before substituting compiler-proven raw
+        ;; capture sources or mutable addresses. Those are bridge-owned, not
+        ;; opaque authored return operands. Keep all subsequent guard/writeback
+        ;; and error-propagation machinery outside this one boundary lowering.
+        invocation-expression
+        (binding [emitter/*local-type-bindings* (zipmap (map :name entries) (repeat false))
+                  emitter/*local-name-bindings* (zipmap (map :name entries) (map :name entries))]
+          (let [qualified (emitter/qualify-form context form)
+                normalized (emitter/scoped-invocation-expression context qualified)]
+            (if (identical? qualified normalized)
+              form
+              (if (= 1 (count form)) '(aguafria.zig/block) (second form)))))
         expression (binding [emitter/*local-type-bindings* (zipmap (map :name entries) (repeat false))
                              emitter/*local-name-bindings* replacements]
-                     (emitter/qualify-form context form))
+                     (emitter/qualify-form context invocation-expression))
         expression (if (and (seq? expression)
                             (= "if-capture-stmt" (name (first expression))))
                      (list 'aguafria.zig/block expression)
@@ -2425,7 +2489,11 @@
                               [(:name entry) (or (get parameter-types argument)
                                                  (list 'aguafria.keyword/TypeOf argument))])))
                     (map vector entries (:expression-arguments inputs)))
-        key (scoped-proof-key context [:scoped-constant-proof canonical types
+        ;; The proof observes the original terminal statement; its payload is
+        ;; transported only after the same root-only safety check as invocation.
+        normalized (binding [emitter/*local-type-bindings* (zipmap (map :name entries) (repeat false))]
+                     (emitter/scoped-invocation-expression context canonical))
+        key (scoped-proof-key context [:scoped-constant-proof-v2 canonical normalized types
                                        (or (:aguafria/scoped-capture-contracts (meta form)) {})])
         file (io/file (:cache-dir (runtime/configuration)) "scoped-proofs" (str key ".edn"))
         saved (when (.isFile file)
@@ -3252,7 +3320,8 @@
     (not= :comptime_int (:type operand))
 
     (value/zig-value? operand)
-    (not= :comptime_int (value/qualified-type operand))
+    (and (not (comptime-expression operand))
+         (not= :comptime_int (value/qualified-type operand)))
 
     :else false))
 

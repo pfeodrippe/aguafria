@@ -97,7 +97,9 @@
                         (emit/emit-stmt-in context form))
             scoped (filter #(get-in % [:var-meta :aguafria/scoped?]) @observations)]
         (is (= ordinary inspected))
-        (is (= 1 (count scoped)))
+        (is (= (if (= 'ak/comptime (first source)) 2 1) (count scoped)))
+        (when (= 'ak/comptime (first source))
+          (is (= "comptime" (get-in (last scoped) [:var-meta :aguafria/token :zig-token]))))
         (is (= :statement (:placement (first scoped))))
         (is (fn? (:place-probe (first scoped))))
         (is (some? (:aguafria/scoped-template (meta (:form (first scoped))))))))))

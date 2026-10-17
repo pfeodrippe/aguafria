@@ -9,6 +9,26 @@
             "-Xmx768m" "-XX:ActiveProcessorCount=2" "--enable-native-access=ALL-UNNAMED"
             "-cp" (System/getProperty "java.class.path") "clojure.main" "-e" (pr-str form)))
 
+(deftest explicit-linkage-owners-isolate-object-consumers-without-authored-exports
+  (let [file (.toFile (Files/createTempFile "aguafria-object-consumer-" ".zig"
+                                          (make-array java.nio.file.attribute.FileAttribute 0)))
+        object (str (Files/createTempFile "aguafria-companion-" ".o"
+                                         (make-array java.nio.file.attribute.FileAttribute 0)))
+        command ["zig" "build-lib" "-dynamic" "-femit-bin=unused" "support.dylib" "-Odebug"]
+        artifact {:module "fixture" :hash "fixture" :jvm-namespace-image? true
+                  :development-panic :shared :development-panic-support-path "support.dylib"
+                  :command (into command [object (str "-Mroot=" file)])}]
+    (spit file "export fn __aguafria_fixture() void {}\n")
+    (spit object "unit-test object input; not passed to the compiler")
+    (is (false? (:isolated-linkage? (bundle/candidate artifact))))
+    (binding [bundle/*preparation-owner* 'fixture
+              bundle/*isolated-linkage-owners* #{'fixture}]
+      (is (true? (:isolated-linkage? (bundle/candidate artifact))))
+      (is (= [object] (:link-args (bundle/candidate artifact))))
+      (is (false? (:isolated-linkage?
+                   (bundle/candidate (assoc artifact :command
+                                            (conj command (str "-Mroot=" file))))))))))
+
 (deftest failed-isolated-link-does-not-publish-earlier-context-indexes
   (let [a {:module "first" :hash "first" :command ["zig"] :exports []
            :link-args [] :forwarder "" :isolated-linkage? true}

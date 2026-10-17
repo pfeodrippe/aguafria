@@ -348,10 +348,25 @@ An empty native expression such as `(a/block)` retains its `void` type across
 JVM bindings; `(a/value result)` decodes that value to nil, but `ak/TypeOf`
 distinguishes it from native null.
 
+Detached JVM `(ak/return expression)` is also syntax-capturing: it completes
+only that native bridge invocation with its payload; `(ak/return)` produces
+native void. It does not return from an enclosing Clojure function or recreate
+a former native test scope. Returning an error-set constant keeps it a value;
+`SkipZigTest` is not reported as an executed/skipped native test. Return operands
+currently reject nested external exits and opaque raw/assembly source rather
+than letting control escape the bridge's result/ownership transport. Returns
+inside native declaration bodies retain their normal Zig meaning.
+
 Immutable integer-vector literals constructed by Zig retain their typed literal
 provenance for comptime operands such as `ak/shuffle` masks. Mutable copies and
 vectors containing native runtime lanes do not acquire that proof; application
 memory is never read back to invent a compile-time constant.
+
+The `.len` property of a native fixed array or single pointer to an array retains
+its compiler-known value and native `usize` type across the JVM bridge. This
+lets array dimensions and constant-ended slices use the original type-level
+length. Runtime slice lengths, user-defined `len` fields, and mutable copies of
+an array length do not acquire that constant provenance.
 
 A fixed `[:sentinel-const :u8 0]` function parameter can accept a JVM string using
 owned UTF-8-plus-NUL storage. Returned native views retain that backing. This does
@@ -933,6 +948,36 @@ may specify `:value`, test `:status`, root native `:error-name`, and exact
 alone is not an output-equivalence check. Native runner diagnostics are retained.
 Only selected workloads are checked, not every project function or branch.
 
+Use `:strict-load? true` to extend the prepared audit to namespace loading.
+Pass `:compiler-configuration {...}` when a workload needs explicit compiler or
+linker settings, such as `:zig-args-by-module`. The checker applies the same map
+before project loading in both producer and consumer workers. It cannot override
+`:cache-dir` or `:zig`; cache isolation and the pinned toolchain remain checker
+controlled. With `:prepared-cache-dir`, supply the configuration used to prepare
+that cache; the checker does not build missing companion objects for consumers.
+
+Reviewed negative workloads can expect a specific root exception, for example
+`:expect {:exception {:stage :evaluate :type 'clojure.lang.ExceptionInfo
+:message-pattern "^Native Zig error: TestUnexpectedResult$"
+:data {:aguafria/phase :native-error :error-name :TestUnexpectedResult}}}`.
+`:stage` is `:load` or `:evaluate`; `:data` matches the supplied key/value subset.
+An accepted exception is reported as `:expected-exception`, retaining the actual
+failure receipt. It is not successful body completion. Compiler-policy errors,
+caught compilation attempts and forbidden fallbacks cannot satisfy this contract.
+
+A narrowly supported ordinary source rejection can be prepared too. The producer
+verifies the exact initial-load `build-lib` graph with a full build; an inspection
+error alone is not proof. Its separate `prepared-rejections` receipt fingerprints
+raw generated/authored source paths and bytes, the pinned compiler executable and
+manifest, configuration, and native support. Consumers validate this receipt before
+building support and emit `:prepared-rejection-hit`, reconstructing the original
+mapped compiler diagnostic. Missing, changed, corrupt, or conflicting receipts
+remain ordinary cache misses subject to the compiler policy—not accepted errors.
+This currently supports mapped `cannot assign to constant` errors in closed,
+synchronous initial namespace loads. It excludes adapters, test/host contexts,
+alternate build branches, external imports/assets/linkage, and reloads. Rejected
+owners stay rejected in namespace admission; a receipt is never a positive library.
+
 The experimental `:execution-modes` checker option has been removed. Existing
 native boundary issues, including cross-image `anyerror` transport, remain
 separate from the checker.
@@ -950,13 +995,30 @@ This requires the namespaces and compiles concrete native function bodies and
 JVM wrappers without invoking those functions. Ordinary Clojure top-level code
 still runs during `require`. Preparation also compiles the initial images used
 by ordinary namespace loading, reported under `:namespace-images`. Lazy
-converted namespaces and extern-link-on-demand modules are reported as skipped.
+converted namespaces are reported as skipped. Extern modules prepare their exact
+unlinked definition-validation demand; executing linked calls still needs their
+authored linkage inputs.
 Dependencies already registered in the current REPL are included from the
 native compilation snapshot, so restarting that REPL does not leave their
 initial images unprepared.
 Test definitions encountered during loading use the ordinary native check path
 at the same registration point. Preparation never runs those test bodies;
 `:test-checks` under each namespace image records success or compiler errors.
+For exact editor source identity, `:source-files` can map selected namespace
+symbols to absolute files for their initial `Compiler/load`. Paths must exist and
+the leading namespace must match. This does not select additional namespaces or
+replay already-loaded dependencies; producers must own first loading.
+
+Native resources such as `std.testing.allocator` use their resolved native
+provenance, not a declaration's test tag, to select preparation context. Their
+getters, layouts and adapters are prepared without materializing or initializing
+resources. Dedicated immutable resource images use the real test frontend with
+`--test-no-exec`, an inert runner, and shared-library linking; they are separate
+from ordinary packs and native test-runner objects. Only the existing consumer
+loader initializes their owned state. Ordinary `builtin.is_test` remains false,
+and separate editor calls do not reset or tear down the allocator. Completing an
+allocation-bearing editor form does not demonstrate a test runner's leak report.
+
 Namespaces containing only host Clojure code are reported as having no native
 preparation work.
 The report lists declarations skipped because they
@@ -1033,7 +1095,9 @@ Public C exports may require independent linkage namespaces. Opt in explicitly:
 ```
 
 For these owners only, graphs with authored external/dynamic exports compile
-into dedicated, immutable AOT images. Export names, strong linkage, calling
+into dedicated, immutable AOT images. An explicitly selected owner with linker
+inputs also gets an isolated image even if it only consumes companion symbols
+and exports no authored C symbols. Export names, strong linkage, calling
 conventions and implementation bodies remain unchanged—even when two graphs
 both export `foo`. The images are compiled and linked during preparation, not
 promoted from standalone library cache entries. All image links must succeed

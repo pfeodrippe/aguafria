@@ -120,7 +120,7 @@ selections are reported separately, never counted as prepared operations.
 Prepare every namespace in Learn's example directory explicitly:
 
 ```sh
-clojure -X:precompile :source-dirs '["resources/learn/example"]' :parallelism 4
+clojure -J-Xmx1536m -X:precompile :source-dirs '["resources/learn/example"]' :parallelism 16
 ```
 
 Native artifacts are shared under `~/.aguafria/zig`; the coverage report remains
@@ -156,6 +156,114 @@ subforms. Both reject new native builds, standalone JVM handlers and any pack
 other than the producer's single bundle. The broader gate also observes native
 testing expectations when a body discards their results. Deliberate panic/exit
 examples remain isolated in the complete audit.
+
+### Full editor-equivalent prepared check
+
+The narrower gates above are not proof that every buffer works. Use the public
+`aguafria.zig.check/check!` workflow for the complete Learn source inventory:
+
+```sh
+# Run from examples/learn, after the producer above. Use a NEW report directory.
+clojure -J-Xmx1536m -X:editor-check \
+  :prepared-cache-dir "\"$HOME/.aguafria/zig\"" \
+  :precompile-report '"/absolute/producer/report.edn"' \
+  :report-dir '"/absolute/new/editor-check"' \
+  :parallelism 4 :heap-mib 768 :timeout-seconds 120
+
+clojure -J-Xmx768m -X:editor-check-report \
+  :check-dir '"/absolute/new/editor-check"' \
+  :precompile-report '"/absolute/producer/report.edn"' \
+  :output-file '"/absolute/LEARN_EDITOR_CHECK.md"'
+```
+
+`learn.editor-check` supplies scenarios to the existing checker; it is not a
+separate evaluator backend. Each namespace gets a fresh JVM. The worker loads
+the actual source file, then the workload uses `aguafria.zig.repl/plan`, the same
+initializer type-context cast and `explain!` wrapper as `aguafria-eval-buffer`,
+and prints each whole form's result. It stops at the first exception. There are
+no native-test substitutions, calls to `main`, extra scope wrappers, or assertion
+instrumentation. Returned error-set constants are ordinary values, not failures.
+
+The existing cache is reused without another producer. Strictness includes
+**namespace loading**, not only body evaluation. Compiler attempts are blocked
+and recorded; standalone disk-cache fallbacks fail the audit. Events inside
+nested `explain!` reports are also recorded, along with bundle IDs. Process exits
+and timeouts retain the last checkpoint. Native compiler processes need an
+aggregate resource guard in addition to the per-JVM heaps; the full cold audit
+used an 8 GiB process-tree limit.
+
+Read `report.edn`'s **`:accepted?`**, not just the CLI exit code. Precompilation can
+finish successfully while rejecting namespaces or leaving unsupported demands.
+Intentional negative examples, target-specific examples and planner skips remain
+in the report, not an exclusion list. `partial`/`not-exercised` coverage is not a
+full-body pass. Fixes must survive a fresh isolated cache and producer/check cycle;
+consumer compilation must not silently warm away missing preparation.
+
+Reviewed intentional negatives live in `learn.editor-check-expectations`. They
+match a specific load/evaluation stage, root exception class, diagnostic pattern,
+and identifying exception data through the public checker's `:expect :exception`
+contract. They are reported as `expected-negative` coverage, not successful body
+completion. Compiler-policy failures and disk fallbacks never satisfy those
+contracts. A producer rejection alone is not an expected editor outcome; missing
+prepared rejection support remains a failure. The constant-reassignment lesson
+now has a narrow exact ordinary-build rejection receipt: the producer verifies
+its real initial-load build, while consumers validate source/compiler/configuration
+identity and reproduce the mapped diagnostic without compiling. Inspection
+rejection or a blocked compiler attempt cannot substitute for this proof.
+
+The allocator-leak lesson uses genuine resource-owned native images. Its exact
+editor form can allocate and check the list without running a Zig test runner.
+Such form completion is **not leak detection**: the intentionally outstanding
+allocation is not torn down or reset for the sake of the checker.
+
+### Repair in HTML-order batches of 50
+
+Use the rendered page as the order authority, not alphabetical namespace order.
+`editor-prepare` delegates to public `precompile!`; `editor-check` still delegates
+to public `check!`. Both accept `:html-file`, `:batch N`, and `:batch-size 50`.
+They record the page hash, every selected source hash, and the full ordered
+inventory. Named Clojure snippets displayed in the page are included. Repeated
+captions use their first occurrence and are recorded; missing or ambiguous source
+mappings fail rather than silently skipping an example. The HTML supplies order;
+the checker evaluates the current source files, not stale displayed code.
+Preparation supplies those absolute paths through public `:source-files`, so
+initial source loading preserves the same diagnostic identity as the editor.
+Already-loaded dependencies are not replayed to manufacture matching receipts.
+
+When the selection includes `float-mode-exe`, preparation builds the companion
+`float-mode-obj` using its authored fast/PIC object recipe, in compile-only mode.
+It records the artifact hash, command and per-module linker configuration in
+`<precompile-report>.linkage.edn`. Both workers receive that configuration before
+project loading; the consumer verifies the object hash and never rebuilds it.
+The object/executable linkage contexts are isolated from the ordinary shared
+pack. The adjacent receipt is optional for historical reports that predate this
+feature. It is not a warm-up call to `main` or execution of the comment form.
+
+```sh
+# From examples/learn. RUN must be a new absolute directory; no shared-cache deletion.
+RUN=/absolute/new-batch-01-run
+mkdir -p "$RUN"
+python3 ../../dev/aguafria/resource_guard.py --max-mib 8192 --timeout 1200 \
+  --report "$RUN/prepare-guard.json" -- \
+  clojure -J-Xmx1536m -J-Daguafria.cache-dir="$RUN/cache" -X:editor-prepare \
+  :html-file '"build/site/index.html"' :batch 1 :parallelism 16 \
+  :report-file "\"$RUN/precompile.edn\""
+
+python3 ../../dev/aguafria/resource_guard.py --max-mib 8192 --timeout 1200 \
+  --report "$RUN/check-guard.json" -- \
+  clojure -J-Xmx1536m -X:editor-check \
+  :html-file '"build/site/index.html"' :batch 1 \
+  :prepared-cache-dir "\"$RUN/cache\"" :precompile-report "\"$RUN/precompile.edn\"" \
+  :report-dir "\"$RUN/check\"" :parallelism 1 :heap-mib 768 :timeout-seconds 120
+```
+
+Keep consumer parallelism at **1** for literal top-to-bottom execution. Fix the
+current batch, rerun it, then replace `:batch N` with `:through-batch N` in both
+commands to prepare and recheck every earlier batch together with it. Do not
+advance merely because the producer or CLI exited successfully. Review checker
+acceptance, actual form coverage, and intended-negative diagnostics; a blocked
+compiler is never the expected diagnostic. Retain every failed iteration's
+receipts. `:batch` and `:through-batch` are mutually exclusive.
 
 `serve` reuses the existing HTML snapshot; restarting it does not invalidate
 recorded REPL output. After compiler or example changes, rerun the verification

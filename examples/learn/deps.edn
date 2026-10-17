@@ -8,6 +8,14 @@
             :exec-args {:force true}}
   :precompile {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
                :exec-fn aguafria.zig.precompile/precompile!}
+  :editor-prepare {:extra-paths ["test"]
+                   :jvm-opts ["--enable-native-access=ALL-UNNAMED"]
+                   :exec-fn learn.editor-check/prepare!}
+  :editor-check {:extra-paths ["test"]
+                 :jvm-opts ["--enable-native-access=ALL-UNNAMED"]
+                 :exec-fn learn.editor-check/check!}
+  :editor-check-report {:extra-paths ["test"]
+                        :exec-fn learn.editor-check-report/report!}
   :fmt {:extra-deps {dev.weavejester/cljfmt {:mvn/version "0.16.6"}}
         :main-opts ["-m" "cljfmt.main"]}
   :dev {:extra-paths ["test"]

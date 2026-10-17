@@ -8,7 +8,7 @@
   (:import [java.lang ProcessHandle]
            [java.nio.file Files]
            [java.util UUID]
-           [java.util.concurrent TimeUnit]))
+           [java.util.concurrent Callable Executors TimeUnit]))
 
 (defn- validate-options [options]
   (when (contains? options :execution-modes)
@@ -18,12 +18,12 @@
         scenarios (into (mapv #(hash-map :id % :call % :args [] :expect {:status :passed}) tests)
                         (:scenarios options))
         options (merge {:compilation-modes [:on-demand :prepared]
-                        :timeout-seconds 180 :heap-mib 768} options)]
+                        :timeout-seconds 180 :heap-mib 768 :parallelism 1} options)]
     (when (or (empty? scenarios)
               (not= (count scenarios) (count (set (map :id scenarios))))
               (not-every? #(and (:id %) (qualified-symbol? (:call %))
                                 (vector? (get % :args [])) (seq (:expect %))
-                                (every? #{:value :status :error-name :stdout :stderr}
+                                (every? #{:value :status :error-name :stdout :stderr :exception}
                                         (keys (:expect %)))) scenarios))
       (throw (ex-info "Provide distinct scenarios with qualified :call, EDN :args, and explicit :expect (or :tests)"
                       {:scenarios scenarios})))
@@ -34,6 +34,34 @@
         (throw (ex-info "Invalid checker modes" {:option key :value (get options key)}))))
     (when-not (and (pos-int? (:timeout-seconds options)) (pos-int? (:heap-mib options)))
       (throw (ex-info "Checker timeout and heap must be positive integers" {})))
+    (when (contains? options :compiler-configuration)
+      (when-not (and (map? (:compiler-configuration options))
+                     (not-any? #(contains? (:compiler-configuration options) %)
+                               [:cache-dir :zig]))
+        (throw (ex-info "Checker compiler configuration must be a map and cannot override :cache-dir or :zig"
+                        {:compiler-configuration (:compiler-configuration options)}))))
+    (when-not (pos-int? (:parallelism options))
+      (throw (ex-info "Checker parallelism must be a positive integer" {})))
+    (when-let [cache (:prepared-cache-dir options)]
+      (when-not (and (string? cache) (.isDirectory (io/file cache))
+                     (= [:prepared] (:compilation-modes options)))
+        (throw (ex-info "An existing prepared cache requires an existing directory and [:prepared] modes"
+                        {:prepared-cache-dir cache}))))
+    (doseq [scenario scenarios]
+      (when (contains? (:expect scenario) :exception)
+        (let [e (get-in scenario [:expect :exception])]
+          (when-not (and (map? e) (#{:load :evaluate} (:stage e))
+                         (symbol? (:type e)) (nil? (namespace (:type e)))
+                         (str/includes? (str (:type e)) ".")
+                         (string? (:message-pattern e)) (seq (:message-pattern e))
+                         (every? #{:stage :type :message-pattern :data} (keys e))
+                         (or (not (contains? e :data)) (map? (:data e)))
+                         (not (contains? (:expect scenario) :value)))
+            (throw (ex-info "Expected exceptions require :stage, qualified :type, and :message-pattern"
+                            {:scenario scenario})))
+          (re-pattern (:message-pattern e))))
+      (when-not (every? #(and (string? %) (.isFile (io/file %))) (:load-files scenario))
+        (throw (ex-info "Scenario :load-files must name existing source files" {:scenario scenario}))))
     (assoc options :scenarios scenarios)))
 
 (defn- stop-process! [^Process process]
@@ -51,10 +79,11 @@
           events (read-lines "native-events.ednlog")
           evaluation (filterv #(= :evaluate (:stage %)) attempts)
           bad-prepared? (and (= :prepared (:compilation job))
-                             (or (seq evaluation)
-                                 (some #(and (= :evaluate (:stage %))
+                             (or (seq (if (:strict-load? job) attempts evaluation))
+                                 (some #(and (or (:strict-load? job) (= :evaluate (:stage %)))
                                              (#{:compiled :compile-failed :disk-cache-hit} (:event %))) events)))]
-      (cond-> (assoc result :final-compiler-attempts attempts :final-native-events events)
+      (cond-> (assoc result :final-compiler-attempts attempts :final-native-events events
+                     :final-all-native-events (read-lines "all-native-events.ednlog"))
         bad-prepared? (assoc :status :failed :accepted? false :reason :evaluation-native-work)))
     (catch Exception e
       (assoc result :status :failed :accepted? false :reason :invalid-final-audit :message (ex-message e)))))
@@ -108,7 +137,19 @@
   Execution uses the normal native path.
   :compilation-modes defaults to [:on-demand :prepared].
   :precompile-options augments the producer's public precompile! options.
+  :compiler-configuration is applied through configure! before project loading in
+  producer and consumer workers (for example external object linkage). It cannot
+  override the isolated cache directory or the embedded compiler.
   :report-dir must not exist; otherwise creates .aguafria/checks/<unique-run>.
+  :prepared-cache-dir reuses an existing producer cache without running another
+  producer; requires :compilation-modes [:prepared]. :strict-load? also forbids
+  compiler work and disk fallback during bootstrap/namespace loading.
+  Scenario :load-files are loaded before evaluation, as with editor buffer loads.
+  :expect may include :exception {:stage :load|:evaluate :type qualified-symbol
+  :message-pattern regex-string :data optional-subset-map}. This matches the root
+  exception and records its actual diagnostic. Compiler-policy exceptions never
+  qualify; strict compiler/fallback audits still apply to expected exceptions.
+  :parallelism bounds concurrent isolated consumers (default 1).
   Each on-demand consumer has a fresh cache. Prepared consumers share only their
   producer's new cache, not a JVM or application state. Compiler attempts and
   forbidden fallback events during evaluation make a prepared consumer fail,
@@ -135,22 +176,39 @@
         _ (spit (io/file root "configuration.edn") (pr-str options))
         scenarios (:scenarios options)
         namespaces (vec (distinct (map (comp symbol namespace :call) scenarios)))
-        cache (str (io/file root "prepared-cache"))
+        cache (.getAbsolutePath (io/file (or (:prepared-cache-dir options) (io/file root "prepared-cache"))))
         preparation (when (some #{:prepared} (:compilation-modes options))
-                      (worker! root options {:job-id "prepare" :phase :prepare :cache-dir cache
-                                             :namespaces namespaces :scenarios scenarios
-                                             :precompile-options (:precompile-options options)}))
-        results (vec (for [compilation (:compilation-modes options)
-                           [i scenario] (map-indexed vector scenarios)]
-                       (let [id (str (name compilation) "-" i)
-                             result (if (and (= :prepared compilation) (not (:accepted? preparation)))
-                                      {:status :blocked :accepted? false :reason :preparation-failed}
-                                      (worker! root options
-                                               {:job-id id :phase :consume :compilation compilation
-                                                :scenario scenario
-                                                :cache-dir (if (= :prepared compilation) cache
-                                                               (str (io/file root id "cache")))}))]
-                         (assoc result :scenario (:id scenario) :compilation compilation))))
+                      (if (:prepared-cache-dir options)
+                        {:status :provided-cache :accepted? true :cache-dir cache
+                         :note "No producer was run; consumer checks establish coverage, not cache provenance."}
+                        (worker! root options {:job-id "prepare" :phase :prepare :cache-dir cache
+                                               :namespaces namespaces :scenarios scenarios
+                                               :compiler-configuration (:compiler-configuration options)
+                                               :precompile-options (:precompile-options options)})))
+        jobs (for [compilation (:compilation-modes options)
+                   [i scenario] (map-indexed vector scenarios)] [compilation i scenario])
+        results (with-open [executor (Executors/newFixedThreadPool (:parallelism options))]
+                  (let [tasks (mapv
+                               (fn [[compilation i scenario]]
+                                 (.submit executor
+                                          ^Callable
+                                          (bound-fn []
+                                            (let [id (str (name compilation) "-" i)
+                                                  result (if (and (= :prepared compilation) (not (:accepted? preparation)))
+                                                           {:status :blocked :accepted? false :reason :preparation-failed}
+                                                           (worker! root options
+                                                                    {:job-id id :phase :consume :compilation compilation
+                                                                     :strict-load? (:strict-load? options)
+                                                                     :compiler-configuration (:compiler-configuration options)
+                                                                     :scenario scenario
+                                                                     :cache-dir (if (= :prepared compilation) cache
+                                                                                    (str (io/file root id "cache")))}))
+                                                  result (assoc result :scenario (:id scenario) :compilation compilation)]
+                                              (spit (io/file root (str id ".edn")) (pr-str result))
+                                              (binding [*out* *err*]
+                                                (println "Checked" (:id scenario) compilation (:status result)) (flush))
+                                              result)))) jobs)]
+                    (mapv #(.get ^java.util.concurrent.Future %) tasks)))
         comparisons (mapv (fn [[id rs]]
                             (let [fields (into #{:status}
                                                (keys (:expect (first (filter #(= id (:id %)) scenarios)))))]

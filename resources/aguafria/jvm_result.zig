@@ -342,7 +342,37 @@ pub const __aguafria_jvm = struct {
         return borrowedResultWithType(value, null);
     }
 
+    // Array length is a property of the native type, unlike a slice length or
+    // a user-defined len field. Share this proof with compiler observation.
+    pub fn hasFixedArrayLength(comptime Receiver: type) bool {
+        return switch (@typeInfo(Receiver)) {
+            .array => true,
+            .pointer => |p| p.size == .one and @typeInfo(p.child) == .array,
+            else => false,
+        };
+    }
+
+    pub fn fixedArrayLength(comptime Receiver: type) @TypeOf(@field(@as(Receiver, undefined), "len")) {
+        const Container = switch (@typeInfo(Receiver)) {
+            .pointer => |p| p.child,
+            else => Receiver,
+        };
+        return @typeInfo(Container).array.len;
+    }
+
+    pub fn fixedArrayLengthSource(comptime Receiver: type) []const u8 {
+        const length = fixedArrayLength(Receiver);
+        return std.fmt.comptimePrint("(aguafria.keyword/as {d} :{s})", .{ length, @typeName(@TypeOf(length)) });
+    }
+
     pub fn borrowedFieldResult(value: anytype, comptime Receiver: type, comptime identity: []const u8, comptime member: []const u8) usize {
+        // member is the EDN spelling used in the nominal type expression.
+        if (comptime std.mem.eql(u8, member, "\"len\"") and hasFixedArrayLength(Receiver)) {
+            var sink = NativeWriter.init();
+            defer sink.deinit();
+            writeNativeResultWithConstant(&sink.writer, fixedArrayLength(Receiver), &.{}, null, fixedArrayLengthSource(Receiver)) catch @panic("Cannot encode fixed array length");
+            return sink.finish();
+        }
         const container = switch (@typeInfo(Receiver)) {
             .pointer => |p| if (p.size == .one)
                 "(aguafria.zig/field (aguafria.zig/field (aguafria.keyword/typeInfo " ++ identity ++ ") :pointer) :child)"
@@ -1101,6 +1131,9 @@ pub const __aguafria_jvm = struct {
                     try writeNativeResultAt(writer, value, path);
                 }
             },
+            // Enum literals have no runtime storage or string semantics. Keep
+            // their producing expression until a receiving type resolves them.
+            .enum_literal => try writeComptimeExpression(writer, value),
             .comptime_int, .comptime_float => {
                 try writer.writeAll("{:aguafria.jvm/comptime {:type :");
                 try writer.writeAll(@typeName(T));
@@ -1145,6 +1178,10 @@ pub const __aguafria_jvm = struct {
     }
 
     fn writeNativeResultWithIdentity(writer: *std.Io.Writer, value: anytype, comptime path: []const []const u8, comptime identity: ?[]const u8) !void {
+        return writeNativeResultWithConstant(writer, value, path, identity, null);
+    }
+
+    fn writeNativeResultWithConstant(writer: *std.Io.Writer, value: anytype, comptime path: []const []const u8, comptime identity: ?[]const u8, comptime source: ?[]const u8) !void {
         // Preserve the exact type, ownership and address of runtime results.
         // Inspection still produces ordinary EDN through write/inspectResult.
         const T = @TypeOf(value);
@@ -1154,6 +1191,12 @@ pub const __aguafria_jvm = struct {
         @memcpy(bytes[0..size], std.mem.asBytes(&value));
         try writer.print("{{:aguafria.jvm/native {{:address {d} :size {d} :alignment {d} :path ", .{ @intFromPtr(bytes), size, @alignOf(T) });
         try write(writer, path);
+        if (source) |expression| {
+            try writer.writeAll(" :comptime-expression ");
+            try writer.writeAll(expression);
+            try writer.writeAll(" :comptime-value ");
+            try write(writer, value);
+        }
         try writeTupleLength(writer, T);
         if (@typeInfo(T) == .@"enum") {
             try writer.writeAll(" :enum-schema {:kind :enum :members [");

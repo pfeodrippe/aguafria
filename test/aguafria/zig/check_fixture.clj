@@ -34,3 +34,6 @@
 (defn forbidden-fallback []
   (explain/event! {:event :disk-cache-hit :module "policy-fixture"})
   :returned)
+
+(defn explained-fallback []
+  (a/explain! (forbidden-fallback)))

@@ -1088,7 +1088,9 @@
         (with-meta (apply list qualified-op args)
           (assoc (meta form)
                  :aguafria/scoped-template (or (:aguafria/scoped-template (meta form)) form)
-                 :aguafria/scoped-captures captures)))
+                 :aguafria/scoped-captures captures
+                 :aguafria/scoped-token (or (:aguafria/scoped-token (meta form))
+                                            (:symbol token)))))
       :else (with-meta (apply list qualified-op args)
               (cond-> (meta form)
                 (= "try" (:zig-token token)) (assoc :aguafria/native-try? true))))))
@@ -1115,6 +1117,14 @@
                          (some-> (resolve-token context-ns (first form))
                                  :zig-token symbol)))
           form (normalize-switch-form context-ns operator form)
+          ;; Only a real token Var establishes detached-return provenance.
+          ;; Canonical/generated `return` syntax is not a standalone operation.
+          form (if-let [token (and (seq? form)
+                                  (resolve-token context-ns (first form)))]
+                 (if (= "return" (:zig-token token))
+                   (vary-meta form assoc :aguafria/scoped-token (:symbol token))
+                   form)
+                 form)
           form (if (and (seq? form)
                         (or (scoped-native-token? (resolve-token context-ns (first form)))
                             (contains? #{'with-block 'block 'if-capture 'if-capture-stmt
@@ -1297,8 +1307,11 @@
                                          (symbol (:zig-token token))))
                           bindings (second value)]
                       (cond
-                        (and (contains? #{'const 'var} operator)
-                             (symbol? bindings))
+                        ;; k/var is a mutable initializer, not a declaration
+                        ;; of its first operand. Treating (k/var undefined :i32)
+                        ;; as a binding named undefined hides the actual token
+                        ;; Var and loses its namespace during qualification.
+                        (and (= 'const operator) (symbol? bindings))
                         [bindings]
 
                         (and (contains? declaration-name-operators operator)
@@ -1382,9 +1395,72 @@
        if-capture
        (or (contextual? (nth form 3 nil)) (contextual? (nth form 4 nil)))
        catch-capture (contextual? (nth form 3 nil))
-       comptime (contextual? (second form))
+       (comptime return) (contextual? (second form))
        (switch labeled-switch while-loop) (contextual? form)
        false))))
+
+(defn scoped-invocation-expression
+  "Normalize only an authored root return at the detached invocation boundary.
+  Input must already be qualified with lexical bindings. Never rewrite native
+  declaration bodies or nested returns. Reject exits that could escape the ABI
+  transport before any adapter is published. Return operands deliberately have
+  a narrower contract than general scopes: no raw source or break/continue."
+  [context-ns form]
+  (let [operator (fn [item]
+                   (when (seq? item)
+                     (or (resolved-syntax-operator context-ns (first item))
+                         (some-> (resolve-token context-ns (first item)) :zig-token symbol))))
+        detached? (and (= 'return (operator form))
+                       (= 'aguafria.keyword/return (:aguafria/scoped-token (meta form))))
+        _ (when (and detached? (not (<= 1 (count form) 2)))
+            (throw (ex-info "Detached return expects zero or one expression"
+                            {:reason :invalid-detached-return-arity :form form})))
+        expression (if detached?
+                     (if (= 1 (count form)) '(aguafria.zig/block) (second form))
+                     form)]
+    (letfn [(reject! [item]
+              (throw (ex-info "Native scoped invocation contains an unsupported external exit"
+                              {:reason :unsupported-scoped-exit :form form :exit-form item
+                               :detached-return? detached? :unpublished? true})))
+            (visit [item owners]
+              (let [op (operator item)
+                    loop? (contains? #{'while 'while-loop 'for 'inline-for 'for-loop 'dotimes} op)
+                    block? (= 'with-block op)
+                    switch? (contains? #{'labeled-switch 'labeled-switch-stmt} op)
+                    options (when (contains? #{'while-loop 'for-loop} op) (second item))
+                    label (cond (or block? switch?) (second item) loop? (:label options))
+                    owners (cond-> owners
+                             loop? (update :loops inc)
+                             label (update :break-labels conj label)
+                             (:body-label options) (update :break-labels conj (:body-label options))
+                             (and label (or loop? switch?)) (update :continue-labels conj label))]
+                (cond
+                  ;; These declarations own their returns. Quoted syntax is data.
+                  (contains? #{'quote 'container 'fn-decl} op) nil
+                  (= 'return op) (reject! item)
+                  (contains? #{'break 'break-label 'continue} op)
+                  (let [label (when (or (= 'break-label op)
+                                       (and (= 'break op) (= 3 (count item)))
+                                       (and (= 'continue op) (next item)))
+                                (second item))
+                        owned? (if label
+                                 (contains? (get owners (if (= 'continue op)
+                                                        :continue-labels :break-labels)) label)
+                                 (pos? (:loops owners)))]
+                    (when (or detached? (not owned?)) (reject! item))
+                    ;; Exit payloads can themselves contain a function return.
+                    (doseq [child (rest item)] (visit child owners)))
+                  (contains? #{'raw 'raw-statements 'raw-statement-chunks 'asm 'asm-expr} op)
+                  (when (or detached?
+                            (contains? #{'asm 'asm-expr} op)
+                            (some #(and (string? %)
+                                        (re-find #"\b(return|break|continue)\b" %))
+                                  (tree-seq coll? seq item)))
+                    (reject! item))
+                  (map? item) (doseq [value (vals item)] (visit value owners))
+                  (coll? item) (doseq [child item] (visit child owners)))))]
+      (visit expression {:loops 0 :break-labels #{} :continue-labels #{}}))
+    expression))
 
 (defn scoped-captures
   "Return referenced enclosing bindings, respecting bindings inside the form.
@@ -3069,7 +3145,18 @@
 
 (defn- observe-expression [form rendered placement]
   (if (and *expression-observer* (seq? form))
-    (let [observed-form (or (:native-form placement) form)]
+    (let [observed-form (or (:native-form placement) form)
+          return? (= 'return (or (resolved-syntax-operator (or *keyword-context* *ns*)
+                                                          (first observed-form))
+                                  (some-> (current-keyword-token (first observed-form))
+                                          :zig-token symbol)))
+          authored-return? (= 'aguafria.keyword/return
+                              (:aguafria/scoped-token (meta observed-form)))
+          placement (if (and return? authored-return? (nil? (:place-probe placement)))
+                      (assoc placement :terminal? true
+                             :place-probe (fn [log label]
+                                            (str "(" label ": { " log "\n" rendered "; })")))
+                      placement)]
       (*expression-observer*
        (merge (when (seq? (first form))
                 (let [[operator receiver member :as target] (first form)]
@@ -3098,7 +3185,10 @@
                :source-bindings (declaration-local-bindings
                                  (or *keyword-context* *ns*) *emitting-declaration*)
                :location (merge debug/*source* (select-keys (meta form) [:line :column]))
-               :var-meta (some-> (or (when (:aguafria/native-try? (meta observed-form))
+               :var-meta (when (or (not return?) authored-return?)
+                           (some-> (or (when authored-return?
+                                        (find-var 'aguafria.keyword/return))
+                                     (when (:aguafria/native-try? (meta observed-form))
                                        (find-var 'aguafria.keyword/try))
                                      (when (and (symbol? (first observed-form))
                                                 (structural-operator? (first observed-form)))
@@ -3112,7 +3202,7 @@
                                            (when-let [token-name (keyword/token-name (name (first observed-form)))]
                                              (let [v (find-var (symbol "aguafria.keyword" token-name))]
                                                (when (:aguafria/scoped? (meta v)) v)))))
-                                     (resolve-context-var (or *keyword-context* *ns*) (first observed-form))) meta)
+                                     (resolve-context-var (or *keyword-context* *ns*) (first observed-form))) meta))
                :render (fn [expression]
                          (binding [*expression-observer* nil *inspection-placement* nil]
                            (emit-expr* expression)))})))
@@ -3800,11 +3890,15 @@
                           (= op 'set!) "="
                           (and (= :assignment (:kind token)) (not= "=" (:zig-token token)))
                           (:zig-token token))
-             scoped-statement? (contains? #{'block 'with-block 'if-capture-stmt
+             terminal-return? (and (= 'return (or structural-op
+                                                       (some-> token :zig-token symbol)))
+                                   (= 'aguafria.keyword/return
+                                      (:aguafria/scoped-token (meta form))))
+             scoped-statement? (or terminal-return? (contains? #{'block 'with-block 'if-capture-stmt 'comptime
                                             'switch 'labeled-switch
                                             'switch-stmt 'labeled-switch-stmt 'while-loop
                                             'for 'inline-for 'for-loop 'while}
-                                          (or structural-op op))
+                                          (or structural-op op)))
              inspect? (and *expression-observer*
                            (or scoped-statement?
                                (and assignment
@@ -3818,9 +3912,12 @@
                              (meta form)))
                          rendered
                          {:assignment assignment :placement :statement
+                          :terminal? terminal-return?
                           :place-probe (fn [log label]
-                                         (str "(" label ": { " log "\n" rendered
-                                              "\nbreak :" label "; });"))})
+                                         (if terminal-return?
+                                           (str "{ " log "\n" rendered "\n}")
+                                           (str "(" label ": { " log "\n" rendered
+                                                "\nbreak :" label "; });")))})
                         rendered)
              rendered (if (map? rendered) (:source rendered) rendered)]
          (str (form-source-comment form) rendered))))))

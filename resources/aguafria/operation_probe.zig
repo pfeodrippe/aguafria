@@ -2,11 +2,26 @@
 // The caller supplies declaration identities, not an inferred structural
 // replacement. Only the compiler may establish equality with one of them.
 pub fn fieldValueType(comptime T: type, comptime member: []const u8) type {
+    // This type-returning function is evaluated at comptime. Reflect actual
+    // pointee fields without dereferencing an undefined pointer value.
+    switch (@typeInfo(T)) {
+        .pointer => |pointer| {
+            if (pointer.size == .one) {
+                switch (@typeInfo(pointer.child)) {
+                    .@"struct", .@"union" => {
+                        if (@hasField(pointer.child, member)) return @FieldType(pointer.child, member);
+                    },
+                    else => {},
+                }
+            }
+        },
+        else => {},
+    }
     if (@import("jvm_result.zig").__aguafria_jvm.requiresComptime(T)) {
         return @TypeOf(@field(@as(T, undefined), member));
     }
-    // Runtime-shaped storage avoids evaluating an undefined pointer while
-    // reflecting its fields. Comptime-only containers cannot use this local.
+    // Other properties retain native expression typing (including array/slice
+    // len and ptr). Comptime-only containers cannot use this local.
     var value: T = undefined;
     _ = &value;
     return @TypeOf(@field(value, member));
@@ -16,6 +31,11 @@ pub fn Inspector(comptime declarations: anytype) type {
     return struct {
         const std = @import("std");
         pub const requiresComptime = @import("jvm_result.zig").__aguafria_jvm.requiresComptime;
+        pub const hasFixedArrayLength = @import("jvm_result.zig").__aguafria_jvm.hasFixedArrayLength;
+
+        pub fn fixedArrayLengthArgument(comptime Receiver: type) []const u8 {
+            return "{:comptime-expression " ++ @import("jvm_result.zig").__aguafria_jvm.fixedArrayLengthSource(Receiver) ++ "}";
+        }
 
         pub fn indexRequiresComptime(comptime T: type) bool {
             return switch (@typeInfo(T)) {

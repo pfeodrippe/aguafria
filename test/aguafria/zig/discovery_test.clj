@@ -2964,7 +2964,8 @@
                                       (str writer#))))
                          (assert (= 493 (aguafria.zig/value (aguafria.zig/number-literal "0o755"))))
                          (assert (= 101 (aguafria.zig/value (aguafria.zig/char-literal "'\\x65'"))))
-                         (assert (= "with space" (aguafria.zig/enum-literal ".@\"with space\"")))
+                         (assert (= (keyword "with space")
+                                    (aguafria.zig/value (aguafria.zig/enum-literal ".@\"with space\""))))
                          (assert (= "ExampleFailure" (:name (aguafria.zig/error-value :ExampleFailure))))
                          (with-open [literal# (aguafria.zig/string-literal "\"h\\x65llo\"")]
                            (assert (= "hello"

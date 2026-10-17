@@ -4,6 +4,7 @@
   (:require [aguafria.zig.artifact :as artifact]
             [aguafria.zig.compiler-work :as compiler-work]
             [aguafria.zig.explain :as explain]
+            [aguafria.zig.resource-artifact :as resource]
             [aguafria.zig.source-scanner :as scanner]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
@@ -289,10 +290,52 @@
   [arguments]
   (:link-args (module-argument-groups arguments nil)))
 
+(defn- resource-candidate [artifact]
+  ;; A resource is a complete independent test-frontend library, never a
+  ;; selected-test object and never a member of an ordinary build-lib pack.
+  ;; Keep the original module graph/root and every generated export verbatim.
+  (when (or (:native-test-object? artifact)
+            (not= ["build-lib" "-dynamic"] (vec (take 2 (drop 1 (:command artifact))))))
+    (throw (ex-info "Resource images require the shared library compiler recipe"
+                    {:aguafria/phase :bundle-compile :module (:module artifact)})))
+  (let [sources (or (:resource-sources artifact)
+                    (mapv (fn [argument]
+                        (let [[module path] (str/split (subs argument 2) #"=" 2)
+                              source (slurp path)]
+                          {:module module :path path
+                           :source-key (artifact/key-for :bundle-source source)
+                           :exports (:exports (analyze-source source))}))
+                          (filter #(str/starts-with? % "-M") (:command artifact))))
+        exports (vec (sort (distinct (mapcat :exports sources))))]
+    (when-not (and (seq sources) (some #{resource/initializer-export} exports))
+      (throw (ex-info "Resource image lacks its compiler-owned initializer"
+                      {:aguafria/phase :bundle-compile :module (:module artifact)})))
+    (assoc artifact :artifact-kind :native-resource-image
+           :resource-sources sources :exports exports :prefix ""
+           :isolated-linkage? true :requires-link-validation? true)))
+
+(defn- run-resource-compiler! [run-command artifact command directory]
+  (doseq [{:keys [path source-key]} (:resource-sources artifact)]
+    (when-not (= source-key (artifact/key-for :bundle-source (slurp path)))
+      (throw (ex-info "Prepared resource source changed before linking"
+                      {:aguafria/phase :bundle-compile :path path}))))
+  (let [result (resource/run-library-command run-command command (str directory) true)]
+    (when-not (zero? (:exit result))
+      (throw (ex-info "Native resource compilation failed"
+                      (assoc result :aguafria/phase :bundle-compile))))
+    (let [output (nth command 3)]
+      (when (and (str/starts-with? output "-femit-bin=")
+                 (not (file? (subs output (count "-femit-bin=")))))
+        (throw (ex-info "Resource compiler produced no usable image"
+                        {:aguafria/phase :bundle-compile :command command}))))
+    result))
+
 (defn candidate
   "Describe an emitted compiler graph eligible for the shared AOT image."
   [artifact]
-  (if (:native-test-object? artifact)
+  (cond
+    (:native-test-context? artifact) (resource-candidate artifact)
+    (:native-test-object? artifact)
     (do
       (when-not (and (file? (:object-path artifact))
                      (string? (:prefix artifact))
@@ -300,15 +343,15 @@
                      (= ["aguafria_run_test" "aguafria_test_panic_message"] (:exports artifact)))
         (throw (ex-info "Invalid compiler-owned native test object" {:module (:module artifact)})))
       artifact)
+    :else
     (when (or (:jvm-adapter? artifact) (:jvm-wrapper? artifact)
               (:jvm-namespace-image? artifact) (:native-host-context? artifact))
       (try
         (when (or (not (contains? #{:shared :project} (:development-panic artifact)))
                   (and (= :project (:development-panic artifact))
-                       (not (string? (:bundle-forwarder artifact))))
-                  (:native-test-context? artifact))
+                       (not (string? (:bundle-forwarder artifact)))))
           (throw (ex-info "Handler requires standalone linking"
-                          {:reason (if (:native-test-context? artifact) :native-test-context :panic-profile)})))
+                          {:reason :panic-profile})))
         (let [{:keys [groups link-args]} (module-groups artifact)
               allow-isolation? (or (:isolated-linkage? artifact)
                                    (contains? *isolated-linkage-owners* *preparation-owner*))
@@ -339,8 +382,13 @@
               _ (doseq [group groups] (validate-source! group))
               isolated? (boolean (or (:native-host-context? artifact)
                                      (and allow-isolation?
-                                          (some #(or (get-in % [:analysis :external-exports?])
-                                                     (get-in % [:analysis :dynamic-exports?])) groups))))
+                                          ;; A consumer of a companion object needs its
+                                          ;; own linker contract even when it exports no
+                                          ;; authored C symbols itself. Do not merge that
+                                          ;; object into unrelated shared handlers.
+                                          (or (seq link-args)
+                                              (some #(or (get-in % [:analysis :external-exports?])
+                                                         (get-in % [:analysis :dynamic-exports?])) groups)))))
               names (->> groups (mapcat #(get-in % [:analysis :exports])) distinct sort vec)
               forwarder (first (str/split (:source (first groups))
                                           #"// Aguafria development loader\." 2))]
@@ -369,16 +417,18 @@
     (get-in @*preparing* [:artifacts (artifact-id artifact)])))
 
 (defn observe! [artifact]
-  (when *preparing*
-    (let [id (artifact-id artifact)]
-      (swap! *preparing*
-             (fn [state]
-               (-> state
-                   (assoc-in [:artifacts id] artifact)
-                   (update-in [:artifact-owners id] (fnil conj #{}) *preparation-owner*))))
-      (when (and *validation-dependencies* (:validation-pending? artifact))
-        (swap! *validation-dependencies* conj id))))
-  artifact)
+  (let [artifact (if (and *preparing* (:native-test-context? artifact))
+                   (resource-candidate artifact) artifact)]
+    (when *preparing*
+      (let [id (artifact-id artifact)]
+        (swap! *preparing*
+               (fn [state]
+                 (-> state
+                     (assoc-in [:artifacts id] artifact)
+                     (update-in [:artifact-owners id] (fnil conj #{}) *preparation-owner*))))
+        (when (and *validation-dependencies* (:validation-pending? artifact))
+          (swap! *validation-dependencies* conj id))))
+    artifact))
 
 (defn exclude-preparation-owners!
   "Remove artifacts requested only by rejected namespaces. Shared artifacts stay
@@ -648,7 +698,9 @@
                                               (into-array java.nio.file.OpenOption
                                                           [StandardOpenOption/CREATE StandardOpenOption/WRITE]))
                     file-lock (.lock channel)]
-          (let [entries (materialize-entries! directory artifacts run-command)
+          (let [resource-artifact (when (= :native-resource-image (:artifact-kind (first artifacts)))
+                                    (first artifacts))
+                entries (when-not resource-artifact (materialize-entries! directory artifacts run-command))
                 source (io/file directory "validate.zig")
                 output (io/file directory (str "." (UUID/randomUUID) "-validation"
                                                (System/mapLibraryName "")))
@@ -656,9 +708,14 @@
                                        source (if full-build?
                                                 (str "-femit-bin=" output)
                                                 "-fno-emit-bin"))]
-            (write-graph-root! source artifacts entries)
+            (when-not resource-artifact (write-graph-root! source artifacts entries))
             (try
-              (run-compiler! run-command command directory)
+              (if resource-artifact
+                (run-resource-compiler! run-command resource-artifact
+                                        (assoc (:command resource-artifact) 3
+                                               (if full-build? (str "-femit-bin=" output) "-fno-emit-bin"))
+                                        directory)
+                (run-compiler! run-command command directory))
               true
               (catch clojure.lang.ExceptionInfo error
                 (if (= 1 (:exit (ex-data error))) false (throw error)))
@@ -780,7 +837,11 @@
               debug (io/file (str library ".dwarf"))
               first-artifact (first artifacts)
               debug? (some? (:debug-format first-artifact))
-              entries (when-not existing (materialize-entries! directory artifacts run-command))]
+              resource-artifact (when (= :native-resource-image (:artifact-kind first-artifact))
+                                  first-artifact)
+              entries (when-not existing
+                        (if resource-artifact [resource-artifact]
+                            (materialize-entries! directory artifacts run-command)))]
           (when existing
             (when-not (and (= (:library-bytes existing) (.length library))
                            (or (not debug?) (= (:debug-bytes existing) (.length debug))))
@@ -791,9 +852,13 @@
                   temporary (io/file directory (str "." (UUID/randomUUID) "-" (.getName library)))
                   command (graph-command artifacts entries link-args source
                                          (str "-femit-bin=" temporary))]
-              (write-graph-root! source artifacts entries)
+              (when-not resource-artifact (write-graph-root! source artifacts entries))
               (try
-                (run-compiler! run-command command directory)
+                (if resource-artifact
+                  (run-resource-compiler! run-command resource-artifact
+                                          (assoc (:command resource-artifact) 3 (str "-femit-bin=" temporary))
+                                          directory)
+                  (run-compiler! run-command command directory))
                 (preserve-debug! temporary library (:debug-format first-artifact))
                 (Files/move (.toPath temporary) (.toPath library)
                             (into-array java.nio.file.CopyOption [StandardCopyOption/ATOMIC_MOVE]))
@@ -803,7 +868,7 @@
                               :debug-bytes (when debug? (.length debug))
                               :entries (into {} (for [entry entries]
                                                   [(artifact-id entry)
-                                                   (select-keys entry [:prefix :exports :source-path :isolated-linkage?])]))})]
+                                                   (select-keys entry [:prefix :exports :source-path :isolated-linkage? :artifact-kind])]))})]
             ;; A successful full build proves semantic validation before any
             ;; manifest/index can make the queued handlers visible to readers.
             (when accept-validated! (accept-validated! artifacts (boolean existing)))
@@ -818,7 +883,7 @@
                                       (get-in manifest [:entries (artifact-id artifact)])
                                       {:artifact (artifact-id artifact)})))))
             {:id id :handlers (count artifacts) :cached? (boolean existing)
-             :compiler-invocations (if existing 0 1)
+             :compiler-invocations (cond existing 0 resource-artifact 2 :else 1)
              :library-bytes (:library-bytes manifest) :debug-bytes (:debug-bytes manifest)}))))))
 
 (defn- accept-pack-validation! [collected artifacts cached? started]

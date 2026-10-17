@@ -159,6 +159,7 @@
   - [ ] test_basic_slices.clj
   - [ ] test_slices.clj
   - [ ] slicing_by_length.clj
+- [ ] make calls like ((:init Vec3) 1.0 0.0 0.0) more convenient
 - [ ] fix ns subform check
   - [x] put generic check into the lib so we can use for whatever projects
   - [ ] when running the check, we set a global mode where boundaries where it would become native like a/defn or a/defn- or a/fn or function or or a/deftest or whatever we create from aguafria is run from the JVM so it allows us to check ALL code! This allow us to check all forms and to just run the test form (as it will call the others from the JVM as well) and we wouldn't need a complex repl plan anymore
@@ -177,3 +178,4 @@
   - [ ] mode (debug, fast etc)
 - [ ] fix other examples
 - [ ] attach small model for showing errors during development
+- [ ]

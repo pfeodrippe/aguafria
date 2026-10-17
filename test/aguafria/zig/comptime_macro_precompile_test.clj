@@ -29,7 +29,17 @@
                                aguafria.zig.compiler-work/*compiler-command-policy*
                                (fn [command#]
                                  (throw (ex-info "Evaluation attempted compilation" {:command command#})))]
-                       (eval '~'(a/value (k/comptime (phase-answer 41)))))]
+                       [(eval '~'(a/value (k/comptime (phase-answer 41))))
+                        (eval '~'(a/value
+                                  (comptime
+                                   (let [x (k/var 1 :i32)
+                                         ptr (k/& x)]
+                                     (+= @ptr 1)
+                                     (+= x 1)
+                                     (if (!= @ptr 3)
+                                       (compileError "comptime pointer mutation failed"))))))
+                        (eval '~'(Double/isInfinite (clojure.core/double (a/value (math/inf :f32)))))
+                        (eval '~'(a/value (as (<< 1 40) :f64)))])]
                  (prn {:value result# :events @events#
                        :work (aguafria.zig.compiler-work/report work#)}))))
            (shutdown-agents))
@@ -48,7 +58,7 @@
         _ (worker cache true)
         consumer (worker cache false)
         events (:events consumer)]
-    (is (= 42 (:value consumer)))
+    (is (= [42 nil true 1099511627776.0] (:value consumer)))
     (is (zero? (get-in consumer [:work :compiler-invocations])))
     (is (seq (filter #(= :bundle-cache-hit (:event %)) events)))
     (is (empty? (filter #(#{:compiled :compile-failed :disk-cache-hit} (:event %)) events))

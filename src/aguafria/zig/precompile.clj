@@ -67,15 +67,23 @@
 
 (defn- validate-options! [options]
   (when-not (and (map? options)
-                 (every? #{:namespaces :calls :coercions :analyze :tests :source-dirs :parallelism :report-file :ignore :linkage-contexts} (keys options))
+                 (every? #{:namespaces :calls :coercions :analyze :tests :test-candidates :source-dirs :source-files :parallelism :report-file :ignore :linkage-contexts} (keys options))
                  (or (nil? (:ignore options)) (sequential? (:ignore options)) (set? (:ignore options)))
                  (every? #(and (symbol? %) (nil? (namespace %))) (:ignore options))
-                 (every? sequential? (vals (select-keys options [:namespaces :calls :coercions :analyze :tests :source-dirs :linkage-contexts])))
+                 (every? sequential? (vals (select-keys options [:namespaces :calls :coercions :analyze :tests :test-candidates :source-dirs :linkage-contexts])))
                  (every? #(and (symbol? %) (nil? (namespace %))) (:namespaces options))
                  (every? #(and (symbol? %) (nil? (namespace %))) (:analyze options))
                  (every? qualified-symbol? (:tests options))
+                 (every? qualified-symbol? (:test-candidates options))
                  (every? #(and (symbol? %) (nil? (namespace %))) (:linkage-contexts options))
                  (every? string? (:source-dirs options))
+                 (or (nil? (:source-files options))
+                     (and (map? (:source-files options))
+                          (every? (fn [[n path]]
+                                    (and (symbol? n) (nil? (namespace n))
+                                         (string? path) (.isAbsolute (io/file path))
+                                         (.isFile (io/file path))))
+                                  (:source-files options))))
                  (or (nil? (:parallelism options))
                      (pos-int? (:parallelism options)))
                  (or (nil? (:report-file options)) (string? (:report-file options)))
@@ -85,7 +93,8 @@
                                (vector? (:args %))) (:calls options))
                  (or (seq (:namespaces options)) (seq (:calls options))
                      (seq (:coercions options)) (seq (:analyze options))
-                     (seq (:source-dirs options)) (seq (:tests options))))
+                     (seq (:source-dirs options)) (seq (:tests options))
+                     (seq (:test-candidates options))))
     (throw (ex-info "Expected :namespaces [namespace ...] and/or :calls [{:function namespace/function :args [type ...]}]"
                     {:options options}))))
 
@@ -105,10 +114,26 @@
        distinct
        vec))
 
+(def ^:dynamic ^:private *source-files* {})
+
 (defn- load-namespace! [namespace images]
   (let [before (set (runtime/registered-modules))]
     (binding [runtime/*source-only-registration?* true]
-      (require namespace))
+      (if-let [path (get *source-files* namespace)]
+        ;; Match a real editor Compiler/load source identity on FIRST loading,
+        ;; while preserving producer-owned prefix/configuration collection.
+        ;; Never replay an already-loaded namespace to manufacture observations.
+        (when-not (contains? (loaded-libs) namespace)
+          (with-open [reader (java.io.PushbackReader. (io/reader path))]
+            (let [form (binding [*read-eval* false] (read reader))]
+              (when-not (and (= 'ns (first form)) (= namespace (second form)))
+                (throw (ex-info "Source file namespace does not match its selection"
+                                {:namespace namespace :file path})))))
+          (binding [*ns* *ns*]
+            (with-open [reader (io/reader path)]
+              (clojure.lang.Compiler/load reader path (.getName (io/file path)))))
+          (dosync (alter @#'clojure.core/*loaded-libs* conj namespace)))
+        (require namespace)))
     (loop [pending (sort (set (conj (vec (remove before (runtime/registered-modules)))
                                     (str namespace))))]
       (when-let [module (first pending)]
@@ -260,6 +285,9 @@
          (into {} (keep #(when (= :failed (:status %))
                            [(:namespace %) :ordinary-jvm-planning]))
                (:namespace-images report))
+         (into {} (keep #(when (= :failed (:status %))
+                           [(:namespace %) :native-test-definition]))
+               (:test-definition-checks report))
          (into {} (keep #(when-let [reason ({:rejected :source-discovery
                                              :load-failed :namespace-load
                                              :analysis-failed :discovery-planning
@@ -267,6 +295,7 @@
                            [(:namespace %) reason]))
                (:analysis report)))
         initially-rejected (set (keys initial-reasons))
+        prepared-rejections (runtime/verify-prepared-rejections! initially-rejected)
         _ (bundle/exclude-preparation-owners! collected initially-rejected)
         validation (binding [compiler-work/*phase* :namespace-admission]
                      (runtime/validate-precompile-bundles!
@@ -283,9 +312,9 @@
                     (some-> (:function record) namespace symbol)))
         rejected-record? #(contains? rejected (owner %))
         marker (fn [record]
-                 (assoc (select-keys record [:namespace :function :args :type :basis :baseline :timings])
+                 (assoc (select-keys record [:namespace :function :test :args :type :basis :baseline :timings])
                         :status :rejected :reason :compiler-rejected-namespace))
-        fields [:analysis :namespace-images :functions :calls]
+        fields [:analysis :namespace-images :functions :calls :test-definition-checks]
         rejected-records (into {}
                                (for [field fields]
                                  [field (filterv rejected-record? (get report field))]))
@@ -294,7 +323,7 @@
                        (update report field
                                #(mapv (fn [record]
                                         (if (rejected-record? record) (marker record) record)) %)))
-                     report fields)
+                     (assoc report :prepared-rejections prepared-rejections) fields)
      :rejected-records rejected-records
      :admission
      {:validation validation
@@ -440,6 +469,12 @@
   A complete declared constant initializer retains that reader as its owning
   comptime plan. Its separately attempted standalone call handlers remain in
   :independent-call-handlers; owner preparation does not make them runtime calls.
+  :source-files optionally maps selected namespace symbols to absolute source
+  paths for their initial Compiler/load. This preserves exact editor diagnostic
+  source identity without preloading/replaying a namespace. It does not add
+  namespace selections. Already-loaded dependencies retain their original load.
+  Eligible rejected ordinary load graphs can be verified by a separate full build
+  and reported in :prepared-rejections; this does not make admission positive.
   :source-dirs discovers all
   .clj namespaces in directories already on the classpath. Per-operation gaps
   and compiler errors remain in :analysis. :parallelism defaults to all available
@@ -498,14 +533,15 @@
   Preparation retains each namespace's load-time compiler configuration,
   including transitive imports, so later link settings cannot change its keys.
   The normal cache invalidation rules apply; handles and state are not saved."
-  [{:keys [namespaces calls coercions analyze tests source-dirs parallelism report-file ignore linkage-contexts]
+  [{:keys [namespaces calls coercions analyze tests test-candidates source-dirs source-files parallelism report-file ignore linkage-contexts]
     :or {parallelism (.availableProcessors (Runtime/getRuntime))
          report-file ".aguafria/precompile/report.edn"}
     :as options}]
   (validate-options! options)
   (with-open [build-executor
               (Executors/newFixedThreadPool parallelism (.factory (Thread/ofVirtual)))]
-    (binding [runtime/*compile-only?* true
+    (binding [*source-files* (or source-files {})
+              runtime/*compile-only?* true
               discovery/*native-test-entries* (set (remove #(contains? (set ignore) (symbol (namespace %))) tests))
               compiler-work/*collector* (compiler-work/collector)
               runtime/*precompile-build-submitter* (build-submitter build-executor parallelism)
@@ -522,23 +558,29 @@
             analysis-namespaces (vec (distinct (concat analyze (source-namespaces source-dirs))))
             call-namespace (comp symbol namespace :function)
             selected (distinct (concat namespaces analysis-namespaces (map call-namespace calls)
-                                       (map (comp symbol namespace) tests)))
+                                       (map (comp symbol namespace) (concat tests test-candidates))))
             ignored (mapv (fn [namespace]
                             {:namespace namespace :status :ignored :reason :explicit-ignore})
                           (filter excluded selected))
             namespaces (remove excluded namespaces)
             calls (remove #(excluded (call-namespace %)) calls)
             tests (vec (distinct (remove #(excluded (symbol (namespace %))) tests)))
+            test-candidates (remove #(excluded (symbol (namespace %))) test-candidates)
             analysis-namespaces (filterv #(not (excluded %)) analysis-namespaces)
             images (atom {})
             configurations (atom {})]
         (timed! timings :explicit-loading-ms
                 #(doseq [namespace (distinct (concat namespaces
                                                      (map (comp symbol namespace :function) calls)
-                                                     (map (comp symbol namespace) tests)))]
+                                                     (map (comp symbol namespace) (concat tests test-candidates))))]
                    (swap! configurations assoc namespace (load-namespace! namespace images))))
         (timed! timings :explicit-images-ms #(resolve-precompile-images! images))
-        (let [prepare-in (fn [namespace prepare]
+        (let [tests (vec (distinct (concat tests
+                                          (filter #(= :test (get-in (meta (find-var %))
+                                                                   [:aguafria/declaration :kind]))
+                                                  test-candidates))))
+              _ (set! discovery/*native-test-entries* (into discovery/*native-test-entries* tests))
+              prepare-in (fn [namespace prepare]
                            (binding [bundle/*preparation-owner* namespace
                                      compiler-work/*owner* namespace]
                              (runtime/call-with-precompile-configuration
@@ -575,7 +617,15 @@
                       :duration-ms (/ (- (System/nanoTime) started) 1e6)}
               scalar-profiles (timed! timings :scalar-profiles-ms #(prepare-scalar-profiles! initial-configuration))
               _ (timed! timings :remaining-images-ms #(resolve-precompile-images! images))
-              report (assoc report :scalar-constructor-profiles scalar-profiles
+              definition-checks
+              (timed! timings :test-definition-checks-ms
+                      #(vec (mapcat (fn [[_ image]]
+                                      (map (fn [check]
+                                             (runtime/resolve-precompiled-test! check discovery/error-report))
+                                           (:test-checks image)))
+                                    (sort-by key @runtime/*prepared-namespace-images*))))
+              report (assoc report :test-definition-checks definition-checks
+                            :scalar-constructor-profiles scalar-profiles
                             :namespace-images (mapv val (sort-by key @images))
                             :coverage (-> (coverage (:analysis report))
                                           (assoc-in [:namespaces :ignored] (count ignored))
@@ -622,7 +672,8 @@
               report (cond-> report
                        admission (assoc :namespace-admission (:admission admission)
                                         :rejected-preparation (:rejected-records admission)))
-              report (update report :tests
+              report (reduce (fn [report field]
+                               (update report field
                              (fn [checks]
                                (mapv (fn [check]
                                        (if (= :pending-publication (:status check))
@@ -633,7 +684,10 @@
                                                (assoc :status :prepared :bundle-id (:id entry))
                                                (assoc-in [:artifact :library-path] (:library entry)))
                                            (throw (ex-info "Native test was not published" {:test (:test check)})))
-                                         (dissoc check :bundle-artifact))) checks)))
+                                         (dissoc check :bundle-artifact))) checks))))
+                             report [:tests :test-definition-checks])
+              report (assoc-in report [:coverage :test-definition-checks]
+                               (frequencies (map :status (:test-definition-checks report))))
               report (assoc report :timings @timings :parallelism parallelism :bundles compiled-bundles
                             :compiler-work (compiler-work/report compiler-work/*collector*)
                             :source-key-cache (artifact/source-key-statistics artifact/*source-key-cache*)
